@@ -14,7 +14,8 @@ Starts fresh, no migration from markoff.nvim.
 ## Location
 
 - The root directory holds `todo/` and `archive/`
-- Resolved in order: `--dir` flag, `MARKOFF_DIR` env var, config file (`~/.config/markoff/config.toml`)
+- Resolved in order: `--dir` flag, `MARKOFF_DIR` env var, config file (`$XDG_CONFIG_HOME/markoff/config.toml`, default `~/.config/markoff/config.toml`)
+- Config file: `dir = "~/notes"`. `~/` is expanded, a relative path is relative to the config file.
 - Works from any cwd
 
 ## Data layout
