@@ -134,7 +134,7 @@ impl App {
         };
 
         let ops = edit::paste(&self.sections[s], index, task)
-            .ok_or_else(|| eyre!("no gap at this position, renumbering is not implemented yet"))?;
+            .ok_or_else(|| eyre!("section is full (999 tasks)"))?;
         let created = created_path(&ops);
         self.apply(ops)?;
         if let Some(path) = created {
@@ -360,12 +360,28 @@ pub mod tests {
         let (_dir, mut app) = app_with_files(&["010-a.md"]);
         app.update(Action::PasteBelow);
         assert_eq!(app.status.as_deref(), Some("nothing to paste"));
+    }
 
+    #[test]
+    fn paste_renumbers_and_undo_reverts_it() {
         let (_dir, mut app) = app_with_files(&["010-a.md", "011-b.md", "012-c.md"]);
+        let before = listing(&app);
+
         app.cursor = 3;
         app.update(Action::Cut);
         app.cursor = 1;
         app.update(Action::PasteBelow);
-        assert!(app.status.unwrap().contains("no gap"));
+        assert_eq!(app.status, None);
+        assert_eq!(
+            listing(&app),
+            ["[inbox]", "010-a.md", "020-c.md", "030-b.md"]
+        );
+        assert_eq!(app.cursor, 2, "cursor is on the pasted task");
+
+        // One undo reverts the paste including the renumbering, the next one the cut.
+        app.update(Action::Undo);
+        assert_eq!(listing(&app), ["[inbox]", "010-a.md", "011-b.md"]);
+        app.update(Action::Undo);
+        assert_eq!(listing(&app), before);
     }
 }

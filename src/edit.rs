@@ -1,7 +1,9 @@
 //! Turns user actions into [`Op`]s. Decides what should happen, applying is up to the caller.
 
+use std::path::PathBuf;
+
 use crate::{
-    name::{Name, order_between, slugify},
+    name::{MAX_ORDER, Name, ORDER_GAP, order_between, slugify},
     op::Op,
     task::{Section, Task},
 };
@@ -17,12 +19,40 @@ pub fn cut(task: &Task) -> Vec<Op> {
 /// `p` / `P`: writes `task` into `section` so it ends up at position `index`.
 ///
 /// The filename gets an order between its new neighbours and a slug from the title.
-/// Returns `None` if there is no free order at that spot (or a neighbour has no prefix),
-/// the section has to be renumbered first.
+/// If there is no free order at that spot, the section is renumbered first (same op list,
+/// so one undo reverts both). Returns `None` only if the section is full.
 pub fn paste(section: &Section, index: usize, task: &Task) -> Option<Vec<Op>> {
+    let (mut ops, names, order) = match free_order(section, index) {
+        Some(order) => {
+            let names = section
+                .tasks
+                .iter()
+                .filter_map(|t| t.name.clone())
+                .collect();
+            (Vec::new(), names, order)
+        }
+        None => renumber(section, index)?,
+    };
+
+    let name = Name {
+        order,
+        slug: unique_slug(&names, slugify(&task.title())),
+    };
+    ops.push(Op::Create {
+        path: section.dir.join(format!("{}.md", name.to_stem())),
+        content: task.content.clone(),
+    });
+    Some(ops)
+}
+
+/// An unused order between the tasks around `index`.
+///
+/// `None` if there is no gap, or if a neighbour has no prefix (then there is nothing
+/// to place the new task relative to).
+fn free_order(section: &Section, index: usize) -> Option<u32> {
     let order_of = |task: &Task| task.name.as_ref().map(|name| name.order);
 
-    // The `?` inside these returns `None` from `paste` if a neighbour has no prefix.
+    // The `?` inside these returns `None` from `free_order` if a neighbour has no prefix.
     let before = match index.checked_sub(1) {
         Some(i) => Some(order_of(&section.tasks[i])?),
         None => None,
@@ -31,26 +61,62 @@ pub fn paste(section: &Section, index: usize, task: &Task) -> Option<Vec<Op>> {
         Some(task) => Some(order_of(task)?),
         None => None,
     };
+    order_between(before, after)
+}
 
-    let name = Name {
-        order: order_between(before, after)?,
-        slug: unique_slug(section, slugify(&task.title())),
-    };
-    Some(vec![Op::Create {
-        path: section.dir.join(format!("{}.md", name.to_stem())),
-        content: task.content.clone(),
-    }])
+/// Renumbers all tasks with even gaps, leaving position `slot` free for a new task.
+///
+/// Returns the renames, the new names of all tasks and the order for the free slot.
+/// The gap is the largest of 10, 5, 2, 1 that fits all tasks plus the new one into 999.
+/// Tasks without prefix get one, with their title as slug.
+fn renumber(section: &Section, slot: usize) -> Option<(Vec<Op>, Vec<Name>, u32)> {
+    let total = section.tasks.len() as u32 + 1;
+    let gap = [ORDER_GAP, 5, 2, 1]
+        .into_iter()
+        .find(|gap| total * gap <= MAX_ORDER)?;
+    let order_at = |position: usize| (position as u32 + 1) * gap;
+
+    let mut renames = Vec::new();
+    let mut names = Vec::new();
+    for (i, task) in section.tasks.iter().enumerate() {
+        let position = if i < slot { i } else { i + 1 };
+        let slug = match &task.name {
+            Some(name) => name.slug.clone(),
+            None => slugify(&task.title()),
+        };
+        let name = Name {
+            order: order_at(position),
+            slug,
+        };
+        let to = section.dir.join(format!("{}.md", name.to_stem()));
+        if to != task.path {
+            renames.push((task.path.clone(), to));
+        }
+        names.push(name);
+    }
+
+    Some((order_renames(renames), names, order_at(slot)))
+}
+
+/// Orders renames so each target is free when its turn comes.
+///
+/// `009-x -> 010-x` has to wait until the old `010-x` has moved on. Should no order exist,
+/// the rest is kept as is: [`Op::Rename`] refuses to overwrite, so that ends in an error
+/// and a rollback, never in a lost file.
+fn order_renames(mut pending: Vec<(PathBuf, PathBuf)>) -> Vec<Op> {
+    let mut ordered = Vec::new();
+    while !pending.is_empty() {
+        let is_free = |to: &PathBuf| !pending.iter().any(|(from, _)| from == to);
+        let next = pending.iter().position(|(_, to)| is_free(to)).unwrap_or(0);
+        let (from, to) = pending.remove(next);
+        ordered.push(Op::Rename { from, to });
+    }
+    ordered
 }
 
 /// Appends `-2`, `-3`, ... if another task in the section already uses the slug.
-fn unique_slug(section: &Section, slug: String) -> String {
-    let taken = |candidate: &str| {
-        section.tasks.iter().any(|task| {
-            task.name
-                .as_ref()
-                .is_some_and(|name| name.slug == candidate)
-        })
-    };
+fn unique_slug(names: &[Name], slug: String) -> String {
+    let taken = |candidate: &str| names.iter().any(|name| name.slug == candidate);
     if !taken(&slug) {
         return slug;
     }
@@ -83,11 +149,11 @@ mod tests {
         Task::parse(PathBuf::from("todo/old.md"), &format!("# {title}\n\nbody"))
     }
 
-    /// Path of the single file a paste creates.
+    /// Path of the file a paste creates, the last op.
     fn pasted_path(ops: Option<Vec<Op>>) -> Option<PathBuf> {
-        match ops?.as_slice() {
-            [Op::Create { path, .. }] => Some(path.clone()),
-            other => panic!("expected a single create, got {other:?}"),
+        match ops?.last() {
+            Some(Op::Create { path, .. }) => Some(path.clone()),
+            other => panic!("expected a create at the end, got {other:?}"),
         }
     }
 
@@ -128,19 +194,77 @@ mod tests {
         assert_eq!(path, Some(Path::new("todo/work/010-new.md").into()));
     }
 
-    #[test]
-    fn paste_without_gap_needs_renumber() {
-        let s = section(&["010-a.md", "011-b.md"]);
-        assert_eq!(paste(&s, 1, &task("New")), None);
+    /// Ops as short strings with file names only: `rename 011-b.md -> 030-b.md`.
+    fn describe(ops: Option<Vec<Op>>) -> Option<Vec<String>> {
+        let file = |path: &Path| path.file_name().unwrap().to_str().unwrap().to_string();
+        let ops = ops?
+            .iter()
+            .map(|op| match op {
+                Op::Create { path, .. } => format!("create {}", file(path)),
+                Op::Remove { path, .. } => format!("remove {}", file(path)),
+                Op::Rename { from, to } => format!("rename {} -> {}", file(from), file(to)),
+            })
+            .collect();
+        Some(ops)
     }
 
     #[test]
-    fn paste_next_to_unprefixed_needs_renumber() {
-        let s = section(&["010-a.md", "notes.md"]);
+    fn paste_without_gap_renumbers() {
+        let s = section(&["010-a.md", "011-b.md", "012-c.md"]);
+        assert_eq!(
+            describe(paste(&s, 1, &task("New"))).unwrap(),
+            [
+                "rename 011-b.md -> 030-b.md",
+                "rename 012-c.md -> 040-c.md",
+                "create 020-new.md",
+            ]
+        );
+    }
+
+    #[test]
+    fn paste_next_to_unprefixed_renumbers() {
+        let s = section(&["010-a.md", "My Notes.md"]);
+        assert_eq!(
+            describe(paste(&s, 2, &task("New"))).unwrap(),
+            ["rename My Notes.md -> 020-my-notes.md", "create 030-new.md"]
+        );
+        // Before the first task needs no renumber, its neighbour has a prefix.
+        assert_eq!(
+            describe(paste(&s, 0, &task("New"))).unwrap(),
+            ["create 005-new.md"]
+        );
+    }
+
+    #[test]
+    fn renames_are_ordered_to_avoid_clashes() {
+        // `009-x` becomes `010-x`, which is free only after the old `010-x` moved away.
+        let s = section(&["009-x.md", "010-x.md"]);
+        assert_eq!(
+            describe(paste(&s, 1, &task("New"))).unwrap(),
+            [
+                "rename 010-x.md -> 030-x.md",
+                "rename 009-x.md -> 010-x.md",
+                "create 020-new.md",
+            ]
+        );
+    }
+
+    #[test]
+    fn renumber_shrinks_gap_for_big_sections() {
+        let files: Vec<String> = (1..=100).map(|i| format!("{i:03}-t{i}.md")).collect();
+        let s = section(&files.iter().map(String::as_str).collect::<Vec<_>>());
+
+        // 101 tasks with the new one: gap 10 would need 1010, gap 5 fits (505).
+        let ops = describe(paste(&s, 1, &task("New"))).unwrap();
+        assert!(ops.contains(&"create 010-new.md".to_string()));
+        assert!(ops.contains(&"rename 100-t100.md -> 505-t100.md".to_string()));
+    }
+
+    #[test]
+    fn full_section_cannot_paste() {
+        let files: Vec<String> = (1..=999).map(|i| format!("{i:03}-t{i}.md")).collect();
+        let s = section(&files.iter().map(String::as_str).collect::<Vec<_>>());
         assert_eq!(paste(&s, 1, &task("New")), None);
-        assert_eq!(paste(&s, 2, &task("New")), None);
-        // Before the first task still works, its neighbour has a prefix.
-        assert!(paste(&s, 0, &task("New")).is_some());
     }
 
     #[test]

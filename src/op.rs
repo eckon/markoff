@@ -22,11 +22,6 @@ pub enum Op {
     /// Fails if the file no longer has that content, so changes made since are never lost.
     Remove { path: PathBuf, content: String },
     /// Renames a file or directory. Fails if the target already exists.
-    // Only the tests use it so far.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "used by renumbering, which comes next")
-    )]
     Rename { from: PathBuf, to: PathBuf },
 }
 
