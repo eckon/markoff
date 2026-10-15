@@ -6,5 +6,6 @@ edition = "2024"
 [dependencies]
 color-eyre = "0.6.5"
 deunicode = "1.6.2"
+jiff = "0.2.38"
 ratatui = "0.30.2"
 tempfile = "3.27.0"

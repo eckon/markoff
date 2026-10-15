@@ -17,7 +17,7 @@ fn main() -> Result<()> {
 
     // Load before entering the TUI, so errors print to a normal terminal.
     let root = config::root_dir_from_env()?;
-    let app = App::load(root.join("todo"))?;
+    let app = App::load(root)?;
 
     // `ratatui::run` sets up the terminal, restores it on exit and installs a panic hook.
     ratatui::run(|terminal| app.run(terminal))

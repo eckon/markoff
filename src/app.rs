@@ -1,6 +1,12 @@
-use std::path::{Path, PathBuf};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 
-use color_eyre::{Result, eyre::eyre};
+use color_eyre::{
+    Result,
+    eyre::{WrapErr, eyre},
+};
 use ratatui::{
     DefaultTerminal,
     crossterm::event::{self, Event, KeyEventKind},
@@ -29,7 +35,8 @@ pub enum Row {
 #[derive(Debug)]
 pub struct App {
     running: bool,
-    todo_dir: PathBuf,
+    /// Directory with `todo/` and `archive/`.
+    root: PathBuf,
     pub sections: Vec<Section>,
     /// Index into [`App::rows`].
     pub cursor: usize,
@@ -43,10 +50,10 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(todo_dir: PathBuf, sections: Vec<Section>) -> Self {
+    pub fn new(root: PathBuf, sections: Vec<Section>) -> Self {
         Self {
             running: true,
-            todo_dir,
+            root,
             sections,
             cursor: 0,
             keymap: Keymap::default(),
@@ -56,9 +63,9 @@ impl App {
         }
     }
 
-    pub fn load(todo_dir: PathBuf) -> Result<Self> {
-        let sections = load::load(&todo_dir)?;
-        Ok(Self::new(todo_dir, sections))
+    pub fn load(root: PathBuf) -> Result<Self> {
+        let sections = load::load(&root.join("todo"))?;
+        Ok(Self::new(root, sections))
     }
 
     /// Main loop: draw, wait for input, update.
@@ -100,12 +107,34 @@ impl App {
                 let last = self.rows().len().saturating_sub(1);
                 self.cursor = (self.cursor + 1).min(last);
             }
+            Action::Done => self.done()?,
             Action::Cut => self.cut()?,
             Action::PasteBelow => self.paste(false)?,
             Action::PasteAbove => self.paste(true)?,
             Action::Undo => self.undo()?,
             Action::Quit => self.running = false,
         }
+        Ok(())
+    }
+
+    fn done(&mut self) -> Result<()> {
+        let Some(Row::Task(s, t)) = self.selected() else {
+            return Ok(());
+        };
+        let section = &self.sections[s];
+        let task = &section.tasks[t];
+
+        let date = jiff::Zoned::now().date().to_string();
+        let archive_dir = self.root.join("archive");
+        let archive_path = archive_dir.join(format!("{date}.md"));
+        // Not an op: an empty `archive/` left behind by undo does no harm.
+        fs::create_dir_all(&archive_dir)
+            .wrap_err_with(|| format!("failed to create {}", archive_dir.display()))?;
+        let existing = read_if_exists(&archive_path)?;
+
+        let ops = edit::archive(task, section, &archive_path, existing.as_deref(), &date);
+        self.apply(ops)?;
+        self.clamp_cursor();
         Ok(())
     }
 
@@ -169,7 +198,7 @@ impl App {
 
     /// Reads `todo/` again. The disk is the source of truth, `sections` is only a view of it.
     fn reload(&mut self) -> Result<()> {
-        self.sections = load::load(&self.todo_dir)?;
+        self.sections = load::load(&self.root.join("todo"))?;
         Ok(())
     }
 
@@ -205,6 +234,15 @@ impl App {
     }
 }
 
+/// File content, `None` if the file does not exist.
+fn read_if_exists(path: &Path) -> Result<Option<String>> {
+    match fs::read_to_string(path) {
+        Ok(content) => Ok(Some(content)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err).wrap_err_with(|| format!("failed to read {}", path.display())),
+    }
+}
+
 fn created_path(ops: &[Op]) -> Option<PathBuf> {
     ops.iter().find_map(|op| match op {
         Op::Create { path, .. } => Some(path.clone()),
@@ -234,12 +272,13 @@ pub mod tests {
             .collect()
     }
 
-    /// An app on a temp `todo/` with the given files. Paths ending in `/` become directories.
+    /// An app on a temp root with the given files in `todo/`. Paths ending in `/` become directories.
     /// Each file gets its slug as heading: `010-a.md` -> `# a`.
     fn app_with_files(files: &[&str]) -> (TempDir, App) {
         let dir = TempDir::new().unwrap();
+        fs::create_dir(dir.path().join("todo")).unwrap();
         for file in files {
-            let path = dir.path().join(file);
+            let path = dir.path().join("todo").join(file);
             if file.ends_with('/') {
                 fs::create_dir_all(path).unwrap();
             } else {
@@ -360,6 +399,35 @@ pub mod tests {
         let (_dir, mut app) = app_with_files(&["010-a.md"]);
         app.update(Action::PasteBelow);
         assert_eq!(app.status.as_deref(), Some("nothing to paste"));
+    }
+
+    #[test]
+    fn done_archives_and_undo_restores() {
+        let (dir, mut app) = app_with_files(&["010-a.md", "010-work/010-b.md"]);
+        let today = jiff::Zoned::now().date().to_string();
+        let archive_path = dir.path().join("archive").join(format!("{today}.md"));
+
+        app.cursor = 1;
+        app.update(Action::Done);
+        app.cursor = 2;
+        app.update(Action::Done);
+        assert_eq!(app.status, None);
+        assert_eq!(listing(&app), ["[inbox]", "[work]"]);
+        assert_eq!(
+            fs::read_to_string(&archive_path).unwrap(),
+            format!("# {today}\n\n## inbox\n\n### a\n\n## work\n\n### b\n")
+        );
+
+        app.update(Action::Undo);
+        assert_eq!(listing(&app), ["[inbox]", "[work]", "010-b.md"]);
+        assert_eq!(
+            fs::read_to_string(&archive_path).unwrap(),
+            format!("# {today}\n\n## inbox\n\n### a\n")
+        );
+
+        app.update(Action::Undo);
+        assert_eq!(listing(&app), ["[inbox]", "010-a.md", "[work]", "010-b.md"]);
+        assert!(!archive_path.exists());
     }
 
     #[test]

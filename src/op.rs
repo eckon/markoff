@@ -23,6 +23,12 @@ pub enum Op {
     Remove { path: PathBuf, content: String },
     /// Renames a file or directory. Fails if the target already exists.
     Rename { from: PathBuf, to: PathBuf },
+    /// Replaces the content of an existing file. Fails if it no longer has `before`.
+    Update {
+        path: PathBuf,
+        before: String,
+        after: String,
+    },
 }
 
 impl Op {
@@ -33,11 +39,7 @@ impl Op {
                 write_atomic(path, content)
             }
             Op::Remove { path, content } => {
-                let current = fs::read_to_string(path)
-                    .wrap_err_with(|| format!("failed to read {}", path.display()))?;
-                if current != *content {
-                    bail!("{} changed on disk, reload first", path.display());
-                }
+                ensure_content(path, content)?;
                 fs::remove_file(path)
                     .wrap_err_with(|| format!("failed to remove {}", path.display()))
             }
@@ -46,6 +48,14 @@ impl Op {
                 fs::rename(from, to).wrap_err_with(|| {
                     format!("failed to rename {} to {}", from.display(), to.display())
                 })
+            }
+            Op::Update {
+                path,
+                before,
+                after,
+            } => {
+                ensure_content(path, before)?;
+                write_atomic(path, after)
             }
         }
     }
@@ -56,6 +66,15 @@ impl Op {
             Op::Create { path, content } => Op::Remove { path, content },
             Op::Remove { path, content } => Op::Create { path, content },
             Op::Rename { from, to } => Op::Rename { from: to, to: from },
+            Op::Update {
+                path,
+                before,
+                after,
+            } => Op::Update {
+                path,
+                before: after,
+                after: before,
+            },
         }
     }
 }
@@ -80,6 +99,16 @@ pub fn apply_all(ops: &[Op]) -> Result<()> {
 /// Ops that undo `ops`: each one inverted, in reverse order.
 pub fn inverse_all(ops: &[Op]) -> Vec<Op> {
     ops.iter().rev().map(Op::inverse).collect()
+}
+
+/// Refuses to touch a file that changed since it was read, so those changes are never lost.
+fn ensure_content(path: &Path, expected: &str) -> Result<()> {
+    let current =
+        fs::read_to_string(path).wrap_err_with(|| format!("failed to read {}", path.display()))?;
+    if current != expected {
+        bail!("{} changed on disk, reload first", path.display());
+    }
+    Ok(())
 }
 
 /// `fs::rename` silently replaces an existing file on Unix, so check first.
@@ -167,6 +196,27 @@ mod tests {
 
         assert!(op.inverse().apply().is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), "# A\n\nnew notes");
+    }
+
+    #[test]
+    fn update_and_inverse() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.md");
+        create(path.clone(), "old").apply().unwrap();
+
+        let op = Op::Update {
+            path: path.clone(),
+            before: "old".to_string(),
+            after: "new".to_string(),
+        };
+        op.apply().unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new");
+
+        op.inverse().apply().unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "old");
+
+        // Content is "old" again, so the inverse no longer matches.
+        assert!(op.inverse().apply().is_err());
     }
 
     #[test]

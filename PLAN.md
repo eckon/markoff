@@ -130,7 +130,8 @@ body of the task
 
 - In-memory log of operations and their reverse, cleared when the TUI exits
 - Create, rename, move, delete and renumber are file ops with a clear reverse
-- Archive undo stores the original file (path and content) and the archive file's length before the append. Undo truncates the archive back and restores the file.
+- Archive is two ops: create or update today's archive file (the update keeps the content before and after), then remove the task. Undo restores the old archive content and the task file. A task can land in the middle of the archive file, so truncating would not work.
+- Ops that remove or overwrite a file check its content first and refuse if it changed on disk.
 - If an external change touches a file referenced by the log, the affected entries are dropped instead of risking a wrong undo
 
 ## Writes

@@ -1,8 +1,9 @@
 //! Turns user actions into [`Op`]s. Decides what should happen, applying is up to the caller.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::{
+    archive,
     name::{MAX_ORDER, Name, ORDER_GAP, order_between, slugify},
     op::Op,
     task::{Section, Task},
@@ -14,6 +15,36 @@ pub fn cut(task: &Task) -> Vec<Op> {
         path: task.path.clone(),
         content: task.content.clone(),
     }]
+}
+
+/// `x`: adds the task to today's archive file, then removes it.
+///
+/// `existing` is the current content of `archive_path`, `None` if the file does not exist.
+/// Archive first: if removing the task fails, the rollback takes the entry out again.
+pub fn archive(
+    task: &Task,
+    section: &Section,
+    archive_path: &Path,
+    existing: Option<&str>,
+    date: &str,
+) -> Vec<Op> {
+    let after = archive::add(existing, date, &section.title(), task);
+    let path = archive_path.to_path_buf();
+    let write = match existing {
+        Some(before) => Op::Update {
+            path,
+            before: before.to_string(),
+            after,
+        },
+        None => Op::Create {
+            path,
+            content: after,
+        },
+    };
+
+    let mut ops = vec![write];
+    ops.extend(cut(task));
+    ops
 }
 
 /// `p` / `P`: writes `task` into `section` so it ends up at position `index`.
@@ -170,6 +201,25 @@ mod tests {
     }
 
     #[test]
+    fn archive_creates_or_updates_then_removes() {
+        let s = section(&["010-fix-bug.md"]);
+        let t = &s.tasks[0];
+        let path = Path::new("archive/2026-10-14.md");
+
+        let ops = archive(t, &s, path, None, "2026-10-14");
+        assert_eq!(
+            describe(Some(ops)).unwrap(),
+            ["create 2026-10-14.md", "remove 010-fix-bug.md"]
+        );
+
+        let ops = archive(t, &s, path, Some("# 2026-10-14\n"), "2026-10-14");
+        assert_eq!(
+            describe(Some(ops)).unwrap(),
+            ["update 2026-10-14.md", "remove 010-fix-bug.md"]
+        );
+    }
+
+    #[test]
     fn paste_keeps_content() {
         let ops = paste(&section(&[]), 0, &task("Fix bug")).unwrap();
         let [Op::Create { content, .. }] = ops.as_slice() else {
@@ -203,6 +253,7 @@ mod tests {
                 Op::Create { path, .. } => format!("create {}", file(path)),
                 Op::Remove { path, .. } => format!("remove {}", file(path)),
                 Op::Rename { from, to } => format!("rename {} -> {}", file(from), file(to)),
+                Op::Update { path, .. } => format!("update {}", file(path)),
             })
             .collect();
         Some(ops)

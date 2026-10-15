@@ -12,9 +12,6 @@
 //!
 //! Pure string handling, writing the file is up to the caller.
 
-// Not used yet, `x` is wired up next.
-#![allow(dead_code)]
-
 use crate::task::Task;
 
 /// Deepest heading level in markdown.

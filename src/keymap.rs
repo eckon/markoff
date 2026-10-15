@@ -8,6 +8,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub enum Action {
     Up,
     Down,
+    Done,
     Cut,
     PasteBelow,
     PasteAbove,
@@ -40,6 +41,7 @@ impl Keymap {
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => Some(Action::Down),
             KeyCode::Char('k') | KeyCode::Up => Some(Action::Up),
+            KeyCode::Char('x') => Some(Action::Done),
             KeyCode::Char('d') => {
                 self.pending = Some('d');
                 None
@@ -90,6 +92,7 @@ mod tests {
             Some(Action::PasteAbove)
         );
         assert_eq!(press(&mut keymap, KeyCode::Char('u')), Some(Action::Undo));
+        assert_eq!(press(&mut keymap, KeyCode::Char('x')), Some(Action::Done));
     }
 
     #[test]
