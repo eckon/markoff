@@ -9,6 +9,7 @@ mod name;
 mod op;
 mod task;
 mod ui;
+mod watch;
 
 use app::App;
 use color_eyre::Result;

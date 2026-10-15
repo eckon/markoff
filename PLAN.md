@@ -46,7 +46,8 @@ archive/
 ## Task identity
 
 - The `# Title` heading is the source of truth. The filename is derived from it.
-- On load and after the editor returns, if the filename slug doesn't match the heading, the tool renames the file and keeps the prefix.
+- After the editor returns (`<CR>`), if the filename slug doesn't match the heading, the tool renames the file and keeps the prefix.
+- Changes made outside markoff only reload, they never rename. Renaming a file another editor has open would make its next save recreate the old name.
 - Slug: transliterate to ASCII (`Ä` -> `ae`), lowercase, `a-z0-9` and `-` only, collapse repeats, max ~50 chars.
 - On a collision within a section, append `-2`, `-3`, ...
 - A file without a heading uses its filename as the title and is not renamed.
@@ -96,7 +97,7 @@ body of the task
 - Preview pane shows the task body as raw text, read only. Light styling for headings at most.
 - The TUI has no text input. Anything that edits text (create, rename, body) goes through `$EDITOR`, where the user has their own keybindings.
 - Only one mode (normal) plus the help overlay
-- A file watcher (`notify`) reloads on external changes. The tool ignores events caused by its own writes.
+- A file watcher (`notify`) reloads on external changes, debounced (100ms of quiet). The cursor stays on the same task. Own writes also trigger a reload, which is harmless.
 
 ### Keys
 
@@ -133,7 +134,7 @@ body of the task
 - Create, rename, move, delete and renumber are file ops with a clear reverse
 - Archive is two ops: create or update today's archive file (the update keeps the content before and after), then remove the task. Undo restores the old archive content and the task file. A task can land in the middle of the archive file, so truncating would not work.
 - Ops that remove or overwrite a file check its content first and refuse if it changed on disk.
-- If an external change touches a file referenced by the log, the affected entries are dropped instead of risking a wrong undo
+- External changes do not clear the log. An undo that would touch a file changed since fails with "changed on disk" (the content check above), and stays on the stack.
 
 ## Writes
 

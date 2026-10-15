@@ -1,6 +1,7 @@
 use std::{
     fs, io,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use color_eyre::{
@@ -19,7 +20,11 @@ use crate::{
     op::{self, Op},
     task::{Section, Task},
     ui,
+    watch::TodoWatcher,
 };
+
+/// How long to wait for a key before checking the file watcher again.
+const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// One line in the list. The cursor moves over these.
 ///
@@ -83,14 +88,40 @@ impl App {
         Ok(Self::new(root, sections))
     }
 
-    /// Main loop: draw, wait for input, update.
+    /// Main loop: draw if needed, wait briefly for a key, check for outside changes.
     ///
-    /// Events are read on this thread (no background reader), so the TUI can hand the
+    /// Keys are read on this thread (no background reader), so the TUI can hand the
     /// terminal to `$EDITOR` without the two fighting over stdin.
     pub fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+        let mut watcher = TodoWatcher::new(&self.root.join("todo"))?;
+        // Only redraw after something happened, not on every poll.
+        let mut dirty = true;
+
         while self.running {
-            terminal.draw(|frame| ui::render(&self, frame))?;
-            self.handle_event(event::read()?);
+            if dirty {
+                terminal.draw(|frame| ui::render(&self, frame))?;
+                dirty = false;
+            }
+
+            // Any terminal event counts, a resize needs a redraw too.
+            if event::poll(POLL_INTERVAL)? {
+                self.handle_event(event::read()?);
+                dirty = true;
+            }
+
+            // Our own writes trigger this as well, a reload is harmless then.
+            match watcher.poll() {
+                Ok(false) => {}
+                Ok(true) => {
+                    let result = self.reload_keep_selection();
+                    self.report(result);
+                    dirty = true;
+                }
+                Err(err) => {
+                    self.report(Err(err));
+                    dirty = true;
+                }
+            }
 
             if let Some(request) = self.editor_request.take() {
                 let result = match request {
@@ -101,9 +132,30 @@ impl App {
                         .and_then(|content| self.after_create(section, index, &content)),
                 };
                 self.report(result);
+                dirty = true;
             }
         }
         Ok(())
+    }
+
+    /// Reloads but keeps the cursor on the same task or section, even if rows above it
+    /// appeared or disappeared.
+    fn reload_keep_selection(&mut self) -> Result<()> {
+        let selected = self.selected().map(|row| self.row_path(row));
+        self.reload()?;
+        self.clamp_cursor();
+        if let Some(path) = selected {
+            self.select_path(&path);
+        }
+        Ok(())
+    }
+
+    /// Path behind a row: the task file or the section directory.
+    fn row_path(&self, row: Row) -> PathBuf {
+        match row {
+            Row::Section(s) => self.sections[s].dir.clone(),
+            Row::Task(s, t) => self.sections[s].tasks[t].path.clone(),
+        }
     }
 
     fn handle_event(&mut self, event: Event) {
@@ -303,11 +355,12 @@ impl App {
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
     }
 
+    /// Moves the cursor to the task file or section directory at `path`, if it exists.
     fn select_path(&mut self, path: &Path) {
-        let found = self.rows().iter().position(|row| match *row {
-            Row::Task(s, t) => self.sections[s].tasks[t].path == path,
-            Row::Section(_) => false,
-        });
+        let found = self
+            .rows()
+            .into_iter()
+            .position(|row| self.row_path(row) == path);
         if let Some(index) = found {
             self.cursor = index;
         }
@@ -443,6 +496,34 @@ pub mod tests {
         app.handle_event(Event::Key(KeyCode::Char('x').into()));
         assert!(!app.show_help);
         assert_eq!(listing(&app), ["[inbox]", "010-a.md"], "x did not archive");
+    }
+
+    #[test]
+    fn reload_keeps_cursor_on_the_same_task() {
+        let (dir, mut app) = app_with_files(&["010-a.md", "020-b.md"]);
+        app.cursor = 2;
+
+        // Changes from outside: a task appears above, one disappears.
+        let todo = dir.path().join("todo");
+        fs::write(todo.join("005-z.md"), "# z").unwrap();
+        fs::write(todo.join("003-y.md"), "# y").unwrap();
+        fs::remove_file(todo.join("010-a.md")).unwrap();
+        app.reload_keep_selection().unwrap();
+
+        assert_eq!(
+            listing(&app),
+            ["[inbox]", "003-y.md", "005-z.md", "020-b.md"]
+        );
+        assert_eq!(app.cursor, 3, "still on 020-b.md");
+    }
+
+    #[test]
+    fn reload_clamps_cursor_if_task_is_gone() {
+        let (dir, mut app) = app_with_files(&["010-a.md"]);
+        app.cursor = 1;
+        fs::remove_file(dir.path().join("todo/010-a.md")).unwrap();
+        app.reload_keep_selection().unwrap();
+        assert_eq!(app.cursor, 0);
     }
 
     #[test]
