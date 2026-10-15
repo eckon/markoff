@@ -1,4 +1,5 @@
 mod app;
+mod archive;
 mod config;
 mod edit;
 mod keymap;
