@@ -3,7 +3,7 @@
 //! The numbered prefix sets the order, the slug is derived from the task title.
 //! Everything here is pure string handling, no file system access.
 
-// Not used yet, the loader is the next step.
+// `slugify` and `to_stem` are used once file operations exist.
 #![allow(dead_code)]
 
 /// Width of the order prefix. `ls` only sorts correctly while all prefixes have the same width.

@@ -1,8 +1,5 @@
 //! Reads the `todo/` directory into [`Section`]s.
 
-// Not used yet, the TUI will call it.
-#![allow(dead_code)]
-
 use std::{
     fs,
     path::{Path, PathBuf},

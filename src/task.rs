@@ -2,9 +2,6 @@
 //!
 //! Built from paths and file contents, no file system access here.
 
-// Not used yet, the loader is the next step.
-#![allow(dead_code)]
-
 use std::path::{Path, PathBuf};
 
 use crate::name::Name;
