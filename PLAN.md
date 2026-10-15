@@ -38,6 +38,8 @@ archive/
 - A file is a task.
 - The numbered prefix sets the order, for both files and directories. Use gaps (`010`, `020`) so most moves rename one file.
 - When there is no gap left, the tool renumbers the whole section back to `010, 020, 030, ...`. This is one undo step.
+- Prefixes are 3 digits. Gaps of 10 fit 99 tasks per section. Above that, renumbering uses smaller gaps (5, 2, 1), so the hard limit is 999 tasks per section.
+- Files without a valid prefix are shown at the end of their section. The first move gives them a prefix.
 - The section display name is the directory name without the prefix (`010-work` -> `work`).
 
 ## Task identity

@@ -1,5 +1,6 @@
 mod app;
 mod keymap;
+mod name;
 mod ui;
 
 use app::App;
