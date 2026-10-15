@@ -16,6 +16,8 @@ pub struct Task {
     pub heading: Option<String>,
     /// Everything after the heading. The whole file if there is no heading.
     pub body: String,
+    /// The file exactly as read. Used when the file is removed or written somewhere else.
+    pub content: String,
 }
 
 impl Task {
@@ -27,6 +29,7 @@ impl Task {
             name,
             heading,
             body: body.to_string(),
+            content: content.to_string(),
         }
     }
 

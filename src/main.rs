@@ -1,5 +1,6 @@
 mod app;
 mod config;
+mod edit;
 mod keymap;
 mod load;
 mod name;

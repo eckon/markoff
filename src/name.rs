@@ -9,6 +9,12 @@
 /// Width of the order prefix. `ls` only sorts correctly while all prefixes have the same width.
 const PREFIX_WIDTH: usize = 3;
 
+/// Default distance between neighbours, so most moves only rename one file.
+pub const ORDER_GAP: u32 = 10;
+
+/// Highest order that fits into [`PREFIX_WIDTH`] digits.
+pub const MAX_ORDER: u32 = 999;
+
 /// Max slug length, so filenames stay readable in `ls`.
 const MAX_SLUG_LEN: usize = 50;
 
@@ -41,6 +47,21 @@ impl Name {
     pub fn to_stem(&self) -> String {
         format!("{:0width$}-{}", self.order, self.slug, width = PREFIX_WIDTH)
     }
+}
+
+/// Picks an order for a new entry between two neighbours, `None` for "no neighbour".
+///
+/// Appending goes [`ORDER_GAP`] after the last entry, everything else takes the middle.
+/// Returns `None` if there is no free number left, the section then needs renumbering.
+pub fn order_between(before: Option<u32>, after: Option<u32>) -> Option<u32> {
+    let low = before.unwrap_or(0);
+    let high = after.unwrap_or(MAX_ORDER + 1);
+
+    let order = match after {
+        None if low + ORDER_GAP < high => low + ORDER_GAP,
+        _ => low + (high - low) / 2,
+    };
+    (order > low && order < high).then_some(order)
 }
 
 /// Turns a title into a filename-safe slug: `Äpfel kaufen!` -> `aepfel-kaufen`.
@@ -108,6 +129,21 @@ mod tests {
     fn roundtrip() {
         let name = Name::parse("020-work").unwrap();
         assert_eq!(name.to_stem(), "020-work");
+    }
+
+    #[test]
+    fn order_between_cases() {
+        // Empty section, append, insert in the middle, insert at the top.
+        assert_eq!(order_between(None, None), Some(10));
+        assert_eq!(order_between(Some(20), None), Some(30));
+        assert_eq!(order_between(Some(10), Some(20)), Some(15));
+        assert_eq!(order_between(None, Some(10)), Some(5));
+        // Near the end of the range, append falls back to the middle.
+        assert_eq!(order_between(Some(995), None), Some(997));
+        // No gap left.
+        assert_eq!(order_between(Some(10), Some(11)), None);
+        assert_eq!(order_between(None, Some(1)), None);
+        assert_eq!(order_between(Some(999), None), None);
     }
 
     #[test]
