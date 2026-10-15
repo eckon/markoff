@@ -7,6 +7,4 @@ edition = "2024"
 color-eyre = "0.6.5"
 deunicode = "1.6.2"
 ratatui = "0.30.2"
-
-[dev-dependencies]
 tempfile = "3.27.0"

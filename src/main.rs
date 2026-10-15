@@ -3,6 +3,7 @@ mod config;
 mod keymap;
 mod load;
 mod name;
+mod op;
 mod task;
 mod ui;
 
