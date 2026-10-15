@@ -1,8 +1,12 @@
-# markoff tui plan
+# markoff design
 
 Rewrite of markoff.nvim as a standalone TUI. The TUI covers the quick daily actions. Everything else opens in `$EDITOR`, the same way git hands off to the editor for commit messages.
 
 Starts fresh, no migration from markoff.nvim.
+
+## Status
+
+v1 is implemented: everything in this document describes current behavior, except the sections [Known limitations](#known-limitations) and [Next steps](#next-steps).
 
 ## Goals
 
@@ -16,7 +20,8 @@ Starts fresh, no migration from markoff.nvim.
 - The root directory holds `todo/` and `archive/`
 - Resolved in order: `--dir` flag, `MARKOFF_DIR` env var, config file (`$XDG_CONFIG_HOME/markoff/config.toml`, default `~/.config/markoff/config.toml`)
 - Config file: `dir = "~/notes"`. `~/` is expanded, a relative path is relative to the config file.
-- Works from any cwd
+- The config file is only read when neither flag nor env var is set, so a broken config never blocks `--dir`
+- Works from any cwd. `todo/` must exist, `archive/` is created on the first archive.
 
 ## Data layout
 
@@ -32,25 +37,28 @@ archive/
   2026-10-14.md
 ```
 
-- A directory is a section. v1 supports one level only.
-- Files directly in `todo/` are the inbox. It shows at the top of the list.
+- A directory is a section. One level only, deeper directories are ignored.
+- Files directly in `todo/` are the inbox. It is always shown first, even when empty, so there is always somewhere to paste to.
 - Sections are modelled as a path (`Vec<String>`) in code, so nesting can be added later without changing the data or archive format.
-- Sections are managed in the shell (mkdir, mv) for v1. The TUI shows them and moves tasks between them.
-- A file is a task.
-- The numbered prefix sets the order, for both files and directories. Use gaps (`010`, `020`) so most moves rename one file.
-- When there is no gap left, the tool renumbers the whole section back to `010, 020, 030, ...`. This is one undo step.
+- Sections are managed in the shell (mkdir, mv). The TUI shows them and moves tasks between them.
+- A file is a task. Only `.md` files count, hidden files and directories (`.git`, swap files, markoff's own temp files) are ignored.
+- The numbered prefix sets the order, for both files and directories. Gaps (`010`, `020`) mean most moves only create one file.
+- A new or pasted task gets an order between its neighbours: `+10` when appended, the middle otherwise (`010`/`020` -> `015`).
+- When there is no gap left, the whole section is renumbered with even gaps, leaving a free slot where the task goes. Renumber and insert are one undo step.
 - Prefixes are 3 digits. Gaps of 10 fit 99 tasks per section. Above that, renumbering uses smaller gaps (5, 2, 1), so the hard limit is 999 tasks per section.
-- Files without a valid prefix are shown at the end of their section. The first move gives them a prefix.
+- Renames during renumbering are ordered so a target name is always free first (`009-x -> 010-x` waits until the old `010-x` moved on).
+- Files without a valid prefix are shown at the end of their section, sorted by name. Pasting next to one renumbers the section, which gives it a prefix (slug from its title).
 - The section display name is the directory name without the prefix (`010-work` -> `work`).
 
 ## Task identity
 
 - The `# Title` heading is the source of truth. The filename is derived from it.
-- After the editor returns (`<CR>`), if the filename slug doesn't match the heading, the tool renames the file and keeps the prefix.
+- Only the first non-blank line counts as the heading, and only if it is level 1. An empty `# ` counts as no heading.
+- After the editor returns (`<CR>`), if the filename slug doesn't match the heading, the tool renames the file and keeps the prefix. This rename is not on the undo stack.
 - Changes made outside markoff only reload, they never rename. Renaming a file another editor has open would make its next save recreate the old name.
-- Slug: transliterate to ASCII (`Ä` -> `ae`), lowercase, `a-z0-9` and `-` only, collapse repeats, max ~50 chars.
+- Slug: German umlauts written out (`Ä` -> `ae`, `ß` -> `ss`), everything else transliterated to ASCII, lowercase, `a-z0-9` and `-` only, collapse repeats, max 50 chars. Nothing left -> `untitled`.
 - On a collision within a section, append `-2`, `-3`, ...
-- A file without a heading uses its filename as the title and is not renamed.
+- A file without a heading uses its filename as the title (`010-call-bob.md` -> `call bob`) and is never renamed.
 
 ## Task file
 
@@ -60,16 +68,16 @@ archive/
 free markdown body
 ```
 
-- Frontmatter stays close to empty
+- No frontmatter is used yet
 - Open means the file exists in `todo/`
 - Done means the task is moved into the archive
-- Delete removes the file, with no record. Git outside the tool covers history.
+- Delete is a cut that is never pasted (`dd`). No record is kept, git outside the tool covers history.
 - The archive file name gives the done date
-- No due dates or tags for now
+- No due dates or tags
 
 ## Archive
 
-One file per day, `archive/YYYY-MM-DD.md`. Done tasks get appended under their section heading.
+One file per day, `archive/YYYY-MM-DD.md` (local date). Done tasks get added under their section heading.
 
 ```markdown
 # 2026-10-14
@@ -86,78 +94,127 @@ body of the task
 ```
 
 - The section heading is the section path joined with `/` (`## work`, later `## private/garden`). Inbox tasks go under `## inbox`.
-- The tool shifts the task's headings down by two levels so they fit under the section heading
-- If the section heading already exists in today's file, the task is appended to the end of that section. Otherwise the heading is added at the end of the file.
-- The tool deletes the task file after appending
-- Archiving happens right away when a task is marked done
+- The task becomes `### Title`, and headings in its body move down two levels, capped at `######`
+- Lines in fenced code blocks (```` ``` ```` or `~~~`) are never treated as headings, neither when shifting nor when looking for a section
+- If the section heading already exists in today's file, the task goes to the end of that section. Otherwise the section is added at the end of the file.
+- The task file is deleted in the same step
+- Archiving happens right away when a task is marked done (`x`)
 
 ## TUI
 
-- List of sections and tasks, same layout as the current picker. Inbox first.
-- Preview pane shows the task body as raw text, read only. Light styling for headings at most.
+- List of sections and tasks on the left, inbox first. The cursor can also sit on a section header, so `p` and `o` work on empty sections.
+- Preview pane on the right shows the task body as raw text, read only, heading lines in bold. On a section header it shows the task count.
+- Status line at the bottom: errors in red, or the pending key of an unfinished `dd`. Cleared on the next key.
 - The TUI has no text input. Anything that edits text (create, rename, body) goes through `$EDITOR`, where the user has their own keybindings.
-- Only one mode (normal) plus the help overlay
+- Only one mode (normal) plus the help overlay. While the help is open, any key closes it and does nothing else.
 - A file watcher (`notify`) reloads on external changes, debounced (100ms of quiet). The cursor stays on the same task. Own writes also trigger a reload, which is harmless.
+- The screen is only redrawn after a key, a resize, a reload or the editor.
 
 ### Keys
 
-| Key            | Action                                                       |
-| -------------- | ------------------------------------------------------------ |
-| `j` / `Down`   | Cursor down                                                  |
-| `k` / `Up`     | Cursor up                                                    |
-| `<CR>`         | Open task in `$EDITOR`                                       |
-| `o` / `O`      | New task below / above the cursor, via `$EDITOR`             |
-| `x`            | Done: archive the task                                       |
-| `dd`           | Cut the task into the register                               |
-| `p` / `P`      | Paste the register below / above the cursor, in any section  |
-| `u`            | Undo                                                         |
-| `?`            | Toggle help overlay                                          |
-| `Esc`          | Cancel pending key or close help. Never quits.               |
-| `q` / `C-c`    | Quit                                                         |
+| Key           | Action                                                         |
+| ------------- | -------------------------------------------------------------- |
+| `j` / `Down`  | Cursor down                                                    |
+| `k` / `Up`    | Cursor up                                                      |
+| `<CR>`        | Open task in `$EDITOR`                                         |
+| `o` / `O`     | New task below / above the cursor, via `$EDITOR`               |
+| `x`           | Done: archive the task                                         |
+| `dd`          | Cut the task into the register                                 |
+| `p` / `P`     | Paste the register below / above the cursor, in any section    |
+| `u`           | Undo                                                           |
+| `?`           | Toggle help overlay                                            |
+| `q` / `C-c`   | Quit                                                           |
 
-- `dd` is the only multi-key sequence in v1. `keymap.rs` keeps a small pending-key state for it, which can later grow into counts and `gg`.
-- The keymap is a table, so the help overlay is generated from it.
+- On a section header, `p`/`P` and `o`/`O` all put the task first in that section
+- `Esc` (or any other key) cancels a pending `d`. `Esc` never quits.
+- `dd` is the only multi-key sequence. `C-c` quits even halfway through it.
+- All keys live in one table (`BINDINGS` in `keymap.rs`). Key handling and the help overlay both read it, so they cannot disagree. A test presses every trigger in the table.
 
 ### Editor handoff
 
-- `<CR>`: the TUI suspends, `$EDITOR` opens the task file, then the TUI resumes, reloads and syncs the filename to the heading. This is also how a task is renamed.
-- `o/O`, git-commit style: the tool opens `$EDITOR` on a temp file containing `# `. If the saved file has a non-empty heading, the task is created at that position. An empty heading, or quitting without saving, aborts.
+- Editor: `$VISUAL`, then `$EDITOR`, then `vi`. Run through `sh -c`, so values with arguments (`code --wait`) work. The path is passed as an argument, so spaces and quotes in names are safe.
+- `<CR>`: the TUI suspends, the editor opens the task file, then the TUI resumes, reloads and syncs the filename to the heading. This is also how a task is renamed.
+- `o/O`, git-commit style: the editor opens a temp file (system temp dir, `.md` suffix) containing `# `. If the saved file has a non-empty heading, the task is inserted like a paste. An empty heading, no heading, or quitting without saving aborts with "aborted, empty title".
 
 ### Register
 
-- `dd` deletes the file and keeps its content (and old path, for undo) in an in-memory register. `p/P` write it into the target section. Cut without paste is a delete.
+- `dd` deletes the file and keeps the task in an in-memory register. `p/P` write it into the target section, with a new prefix and a slug from its title.
+- Pasting does not clear the register (like vim), so pasting twice gives a copy (`fix-typo-2`).
 - Known tradeoff: a crash or quit while something is in the register loses that task.
 
 ## Undo
 
-- In-memory log of operations and their reverse, cleared when the TUI exits
-- Create, rename, move, delete and renumber are file ops with a clear reverse
-- Archive is two ops: create or update today's archive file (the update keeps the content before and after), then remove the task. Undo restores the old archive content and the task file. A task can land in the middle of the archive file, so truncating would not work.
-- Ops that remove or overwrite a file check its content first and refuse if it changed on disk.
-- External changes do not clear the log. An undo that would touch a file changed since fails with "changed on disk" (the content check above), and stays on the stack.
+- In-memory stack of applied op lists, cleared when the TUI exits. One user action is one entry, `u` applies its inverse.
+- Ops: `Create`, `Remove`, `Rename`, `Update` (replace content). Each has an exact inverse, e.g. `Create` <-> `Remove` with the same content.
+- Cut is `Remove`, paste and create are `Create` (plus `Rename`s if renumbered), archive is `Create`/`Update` of the archive file plus `Remove` of the task.
+- Archive writes the archive first, then removes the task. If the remove fails, the rollback takes the archive entry out again: a task is never in both places or in neither.
+- Undoing a cut or archive puts the cursor on the restored task.
+- External changes do not clear the stack. An undo that would touch a file changed since fails with "changed on disk" and stays on the stack, so it can be retried.
 
 ## Writes
 
-- Write to a temp file, then rename it over the target
-- Git stays outside the tool for now
+- All changes to disk go through ops (`op.rs`), applied in a list. If one fails, the ones already applied are rolled back.
+- Content is written to a hidden temp file in the same directory, flushed, then renamed over the target. A crash leaves the old or the new file, never half of one.
+- `Create` and `Rename` refuse to overwrite an existing file (`fs::rename` would silently replace it)
+- `Remove` and `Update` refuse if the file no longer has the content markoff read, so edits made elsewhere are never lost
+- Git stays outside the tool
 
-## Language
+## Code structure
 
-Rust + ratatui. Enums model modes, pending keys and undo actions well.
+| Module       | Role                                                                          |
+| ------------ | ----------------------------------------------------------------------------- |
+| `main.rs`    | Resolve root, load, run the TUI                                               |
+| `config.rs`  | `--dir`, `MARKOFF_DIR`, config file                                           |
+| `name.rs`    | `010-slug` parsing, `slugify`, `order_between`                                |
+| `task.rs`    | `Task` and `Section`, heading/body split                                      |
+| `load.rs`    | Read `todo/` into sections, sorted by prefix                                  |
+| `op.rs`      | File ops with inverses, `apply_all` with rollback, atomic writes              |
+| `edit.rs`    | Pure: turn cut, paste, archive and filename sync into ops (incl. renumbering) |
+| `archive.rs` | Pure: archive file text, heading shift, code fence handling                   |
+| `keymap.rs`  | `BINDINGS` table, key -> `Action`, pending `dd`                               |
+| `app.rs`     | State, run loop, `update(Action)`, undo stack, register                       |
+| `editor.rs`  | Suspend the TUI and run `$EDITOR`                                             |
+| `watch.rs`   | File watcher with debounce                                                    |
+| `ui.rs`      | Rendering: list, preview, status line, help                                   |
+
+- The disk is the source of truth. After every change the app reloads `todo/` instead of patching its in-memory state.
+- `edit.rs` and `archive.rs` decide what should happen without touching the disk, `op.rs` does it. Most logic is tested without a file system.
+- `update(Action)` never touches the terminal. Editor work is requested via a field and done by the run loop, so `update` is testable without a terminal.
+- Errors from actions end up in the status line, they never end the app
 
 ## Testing
 
-- Fixture directories with the expected tree after each operation
-- Archive output compared against golden files
-- TUI tests via ratatui's `TestBackend`
+- Pure logic (names, slugs, ordering, renumbering, archive text, keymap) with plain unit tests
+- File ops and app actions on temp directories (`tempfile`), checking the files on disk
+- Archive output compared against expected strings inline in the tests
+- TUI rendering via ratatui's `TestBackend`, checking the screen text
+- `cargo test` and `cargo clippy --all-targets` are clean
 
-## Deferred (not v1)
+## Known limitations
 
-- Nested sections (data model and archive format already allow it)
+- A task body with an unclosed code fence makes the rest of that archive file look like code. Later tasks for sections below it are added as a duplicate section at the end. Nothing is lost.
+- If any task file cannot be read (permissions, not UTF-8), loading fails with an error naming that file
+- The list creates its scroll state per frame. Scrolling works, but moving up in a long list scrolls a bit differently than expected. Fix: keep the `ListState` offset in `App`.
+- A heading changed outside markoff only syncs the filename the next time the task is opened with `<CR>`
+- The editor runs through `sh`, so Windows is not supported
+- No frontmatter support: a file starting with `---` is treated as having no heading
+
+## Next steps
+
+Rough priority, best decided after using v1 for a while:
+
+1. Use it daily with real todos and note what is missing
+2. Fix the list scroll state (see limitations), noticeable once a list is longer than the screen
+3. More navigation: `gg/G` and section jumps. `gg` is one row in `BINDINGS` with `Seq('g', 'g')` plus its `Action`.
+4. Filter or fuzzy find with `/`. Either in the TUI, or the tool writes all tasks into a temp file and opens it in the editor.
+5. `J/K` to reorder without the register (and Shift+arrows for non-vim users)
+6. `markoff add` CLI command for quick capture from the shell
+7. Redo `C-r`: the undo stack already stores inverses, redo is a second stack
+8. Footer with key hints
+
+Deferred, needs design first:
+
+- Nested sections (data model and archive format already allow it, archive heading would be `## private/garden`)
 - Section create, rename, reorder and delete in the TUI
-- Filter or fuzzy find with `/`. Either in the TUI, or the tool writes all tasks into a temp file and opens it in the editor.
-- `markoff add` CLI command
-- More vim keys: `gg/G`, counts, section jumps, `C-d/C-u`, redo `C-r`, repeat `.`
-- `J/K` to reorder without the register (and Shift+arrows for non-vim users)
-- Footer with key hints
-- Recurring tasks. One option is a `recur: weekly` key in frontmatter. On archive, the tool creates a fresh copy instead of only deleting the task.
+- Recurring tasks. One option is a `recur: weekly` key in frontmatter. On archive, the tool creates a fresh copy instead of only deleting the task. Needs frontmatter support in `task.rs` first.
+- More vim keys: counts, `C-d/C-u`, repeat `.`
