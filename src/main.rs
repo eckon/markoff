@@ -2,6 +2,7 @@ mod app;
 mod archive;
 mod config;
 mod edit;
+mod editor;
 mod keymap;
 mod load;
 mod name;

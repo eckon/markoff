@@ -47,6 +47,34 @@ pub fn archive(
     ops
 }
 
+/// After editing: renames the task if its heading no longer matches the slug.
+///
+/// Keeps the prefix. Tasks without heading or without prefix are left alone.
+pub fn sync_filename(section: &Section, index: usize) -> Option<Op> {
+    let task = &section.tasks[index];
+    let (heading, name) = (task.heading.as_ref()?, task.name.as_ref()?);
+    let slug = slugify(heading);
+    if slug == name.slug {
+        return None;
+    }
+
+    let others: Vec<Name> = section
+        .tasks
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != index)
+        .filter_map(|(_, t)| t.name.clone())
+        .collect();
+    let new_name = Name {
+        order: name.order,
+        slug: unique_slug(&others, slug),
+    };
+    Some(Op::Rename {
+        from: task.path.clone(),
+        to: section.dir.join(format!("{}.md", new_name.to_stem())),
+    })
+}
+
 /// `p` / `P`: writes `task` into `section` so it ends up at position `index`.
 ///
 /// The filename gets an order between its new neighbours and a slug from the title.
@@ -217,6 +245,38 @@ mod tests {
             describe(Some(ops)).unwrap(),
             ["update 2026-10-14.md", "remove 010-fix-bug.md"]
         );
+    }
+
+    #[test]
+    fn sync_filename_cases() {
+        let parse =
+            |file: &str, content: &str| Task::parse(PathBuf::from("todo/work").join(file), content);
+        let mut s = section(&[]);
+        s.tasks = vec![
+            parse("010-old.md", "# New title"),
+            parse("020-same.md", "# Same"),
+            parse("030-x.md", "no heading"),
+            parse("notes.md", "# Has heading"),
+            parse("040-y.md", "# New title"),
+        ];
+
+        assert_eq!(
+            sync_filename(&s, 0),
+            Some(Op::Rename {
+                from: "todo/work/010-old.md".into(),
+                to: "todo/work/010-new-title.md".into(),
+            })
+        );
+        assert_eq!(sync_filename(&s, 1), None, "slug already matches");
+        assert_eq!(sync_filename(&s, 2), None, "no heading");
+        assert_eq!(sync_filename(&s, 3), None, "no prefix");
+
+        // `new-title` is free for the first task, but the last one must not take it as well.
+        s.tasks[0] = parse("010-new-title.md", "# New title");
+        let Some(Op::Rename { to, .. }) = sync_filename(&s, 4) else {
+            panic!("expected a rename");
+        };
+        assert_eq!(to, PathBuf::from("todo/work/040-new-title-2.md"));
     }
 
     #[test]

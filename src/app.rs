@@ -13,7 +13,7 @@ use ratatui::{
 };
 
 use crate::{
-    edit,
+    edit, editor,
     keymap::{Action, Keymap},
     load,
     op::{self, Op},
@@ -47,6 +47,9 @@ pub struct App {
     undo: Vec<Vec<Op>>,
     /// Message for the status line, e.g. an error. Cleared on the next key press.
     pub status: Option<String>,
+    /// File to open in the editor. Set by `update`, handled by the run loop, which owns
+    /// the terminal. Keeps `update` testable without a terminal.
+    open_request: Option<PathBuf>,
 }
 
 impl App {
@@ -60,6 +63,7 @@ impl App {
             register: None,
             undo: Vec::new(),
             status: None,
+            open_request: None,
         }
     }
 
@@ -77,6 +81,11 @@ impl App {
         while self.running {
             terminal.draw(|frame| ui::render(&self, frame))?;
             self.handle_event(event::read()?);
+
+            if let Some(path) = self.open_request.take() {
+                let result = editor::open(terminal, &path).and_then(|()| self.after_edit(&path));
+                self.report(result);
+            }
         }
         Ok(())
     }
@@ -95,7 +104,12 @@ impl App {
 
     /// Runs an action. Errors end up in the status line instead of ending the app.
     pub fn update(&mut self, action: Action) {
-        if let Err(err) = self.try_update(action) {
+        let result = self.try_update(action);
+        self.report(result);
+    }
+
+    fn report(&mut self, result: Result<()>) {
+        if let Err(err) = result {
             self.status = Some(err.to_string());
         }
     }
@@ -107,6 +121,11 @@ impl App {
                 let last = self.rows().len().saturating_sub(1);
                 self.cursor = (self.cursor + 1).min(last);
             }
+            Action::Open => {
+                if let Some(Row::Task(s, t)) = self.selected() {
+                    self.open_request = Some(self.sections[s].tasks[t].path.clone());
+                }
+            }
             Action::Done => self.done()?,
             Action::Cut => self.cut()?,
             Action::PasteBelow => self.paste(false)?,
@@ -115,6 +134,36 @@ impl App {
             Action::Quit => self.running = false,
         }
         Ok(())
+    }
+
+    /// Reloads after the editor closed and renames the file if its heading changed.
+    ///
+    /// The rename is not added to undo: undoing only the rename would bring back the
+    /// mismatch, and the edit itself cannot be undone anyway.
+    fn after_edit(&mut self, path: &Path) -> Result<()> {
+        self.reload()?;
+        self.clamp_cursor();
+        let Some((s, t)) = self.find_task(path) else {
+            // Deleted in the editor.
+            return Ok(());
+        };
+        if let Some(rename) = edit::sync_filename(&self.sections[s], t) {
+            let Op::Rename { to, .. } = &rename else {
+                unreachable!("sync_filename only renames");
+            };
+            let to = to.clone();
+            op::apply_all(&[rename])?;
+            self.reload()?;
+            self.select_path(&to);
+        }
+        Ok(())
+    }
+
+    fn find_task(&self, path: &Path) -> Option<(usize, usize)> {
+        self.sections.iter().enumerate().find_map(|(s, section)| {
+            let t = section.tasks.iter().position(|task| task.path == path)?;
+            Some((s, t))
+        })
     }
 
     fn done(&mut self) -> Result<()> {
@@ -399,6 +448,36 @@ pub mod tests {
         let (_dir, mut app) = app_with_files(&["010-a.md"]);
         app.update(Action::PasteBelow);
         assert_eq!(app.status.as_deref(), Some("nothing to paste"));
+    }
+
+    #[test]
+    fn open_requests_editor_for_task_only() {
+        let (_dir, mut app) = app_with_files(&["010-a.md"]);
+        app.update(Action::Open);
+        assert_eq!(app.open_request, None, "section header opens nothing");
+
+        app.cursor = 1;
+        app.update(Action::Open);
+        let path = app.open_request.clone().unwrap();
+        assert!(path.ends_with("todo/010-a.md"));
+    }
+
+    #[test]
+    fn after_edit_renames_to_new_heading() {
+        let (_dir, mut app) = app_with_files(&["010-a.md", "020-b.md"]);
+        app.cursor = 1;
+        let path = app.sections[0].tasks[0].path.clone();
+
+        // What the user does in the editor.
+        fs::write(&path, "# Renamed task\n\nnotes").unwrap();
+        app.after_edit(&path).unwrap();
+
+        assert_eq!(
+            listing(&app),
+            ["[inbox]", "010-renamed-task.md", "020-b.md"]
+        );
+        assert_eq!(app.cursor, 1, "cursor follows the renamed file");
+        assert_eq!(app.sections[0].tasks[0].body, "notes");
     }
 
     #[test]
