@@ -83,6 +83,11 @@ impl App {
         }
         rows
     }
+
+    /// The row under the cursor, `None` only if there are no rows at all.
+    pub fn selected(&self) -> Option<Row> {
+        self.rows().get(self.cursor).copied()
+    }
 }
 
 #[cfg(test)]
