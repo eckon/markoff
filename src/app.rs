@@ -31,6 +31,16 @@ pub enum Row {
     Task(usize, usize),
 }
 
+/// Work that needs the editor. Set by `update`, handled by the run loop, which owns
+/// the terminal. Keeps `update` testable without a terminal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum EditorRequest {
+    /// `<CR>`: edit an existing task.
+    Open(PathBuf),
+    /// `o` / `O`: write a new task, inserted at `index` in section `section`.
+    Create { section: usize, index: usize },
+}
+
 /// Application state.
 #[derive(Debug)]
 pub struct App {
@@ -47,9 +57,7 @@ pub struct App {
     undo: Vec<Vec<Op>>,
     /// Message for the status line, e.g. an error. Cleared on the next key press.
     pub status: Option<String>,
-    /// File to open in the editor. Set by `update`, handled by the run loop, which owns
-    /// the terminal. Keeps `update` testable without a terminal.
-    open_request: Option<PathBuf>,
+    editor_request: Option<EditorRequest>,
 }
 
 impl App {
@@ -63,7 +71,7 @@ impl App {
             register: None,
             undo: Vec::new(),
             status: None,
-            open_request: None,
+            editor_request: None,
         }
     }
 
@@ -75,15 +83,20 @@ impl App {
     /// Main loop: draw, wait for input, update.
     ///
     /// Events are read on this thread (no background reader), so the TUI can hand the
-    /// terminal to `$EDITOR` with `ratatui::restore()` and take it back with
-    /// `ratatui::init()` without the two fighting over stdin.
+    /// terminal to `$EDITOR` without the two fighting over stdin.
     pub fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         while self.running {
             terminal.draw(|frame| ui::render(&self, frame))?;
             self.handle_event(event::read()?);
 
-            if let Some(path) = self.open_request.take() {
-                let result = editor::open(terminal, &path).and_then(|()| self.after_edit(&path));
+            if let Some(request) = self.editor_request.take() {
+                let result = match request {
+                    EditorRequest::Open(path) => {
+                        editor::open(terminal, &path).and_then(|()| self.after_edit(&path))
+                    }
+                    EditorRequest::Create { section, index } => editor::create(terminal)
+                        .and_then(|content| self.after_create(section, index, &content)),
+                };
                 self.report(result);
             }
         }
@@ -123,7 +136,13 @@ impl App {
             }
             Action::Open => {
                 if let Some(Row::Task(s, t)) = self.selected() {
-                    self.open_request = Some(self.sections[s].tasks[t].path.clone());
+                    let path = self.sections[s].tasks[t].path.clone();
+                    self.editor_request = Some(EditorRequest::Open(path));
+                }
+            }
+            Action::NewBelow | Action::NewAbove => {
+                if let Some((section, index)) = self.insert_position(action == Action::NewAbove) {
+                    self.editor_request = Some(EditorRequest::Create { section, index });
                 }
             }
             Action::Done => self.done()?,
@@ -157,6 +176,15 @@ impl App {
             self.select_path(&to);
         }
         Ok(())
+    }
+
+    /// Inserts what was written in the editor for `o` / `O`, like a paste.
+    fn after_create(&mut self, section: usize, index: usize, content: &str) -> Result<()> {
+        let task = Task::parse(PathBuf::from("new.md"), content);
+        if task.heading.is_none() {
+            return Err(eyre!("aborted, empty title"));
+        }
+        self.insert(section, index, &task)
     }
 
     fn find_task(&self, path: &Path) -> Option<(usize, usize)> {
@@ -200,17 +228,27 @@ impl App {
     }
 
     fn paste(&mut self, above: bool) -> Result<()> {
-        let Some(task) = &self.register else {
+        let Some(task) = self.register.clone() else {
             return Err(eyre!("nothing to paste"));
         };
-        let (s, index) = match self.selected() {
-            Some(Row::Task(s, t)) if above => (s, t),
-            Some(Row::Task(s, t)) => (s, t + 1),
-            // On a section header both `p` and `P` paste as its first task.
-            Some(Row::Section(s)) => (s, 0),
-            None => return Ok(()),
+        let Some((s, index)) = self.insert_position(above) else {
+            return Ok(());
         };
+        self.insert(s, index, &task)
+    }
 
+    /// Section and index where `p` / `o` (below) or `P` / `O` (above) put a task.
+    /// On a section header both put it first in that section.
+    fn insert_position(&self, above: bool) -> Option<(usize, usize)> {
+        match self.selected()? {
+            Row::Task(s, t) if above => Some((s, t)),
+            Row::Task(s, t) => Some((s, t + 1)),
+            Row::Section(s) => Some((s, 0)),
+        }
+    }
+
+    /// Writes `task` into section `s` at `index` and puts the cursor on it.
+    fn insert(&mut self, s: usize, index: usize, task: &Task) -> Result<()> {
         let ops = edit::paste(&self.sections[s], index, task)
             .ok_or_else(|| eyre!("section is full (999 tasks)"))?;
         let created = created_path(&ops);
@@ -454,12 +492,60 @@ pub mod tests {
     fn open_requests_editor_for_task_only() {
         let (_dir, mut app) = app_with_files(&["010-a.md"]);
         app.update(Action::Open);
-        assert_eq!(app.open_request, None, "section header opens nothing");
+        assert_eq!(app.editor_request, None, "section header opens nothing");
 
         app.cursor = 1;
         app.update(Action::Open);
-        let path = app.open_request.clone().unwrap();
+        let Some(EditorRequest::Open(path)) = app.editor_request.clone() else {
+            panic!("expected an open request");
+        };
         assert!(path.ends_with("todo/010-a.md"));
+    }
+
+    #[test]
+    fn new_requests_create_at_insert_position() {
+        let (_dir, mut app) = app_with_files(&["010-a.md", "020-b.md"]);
+        app.cursor = 1;
+        app.update(Action::NewBelow);
+        assert_eq!(
+            app.editor_request,
+            Some(EditorRequest::Create {
+                section: 0,
+                index: 1
+            })
+        );
+        app.update(Action::NewAbove);
+        assert_eq!(
+            app.editor_request,
+            Some(EditorRequest::Create {
+                section: 0,
+                index: 0
+            })
+        );
+    }
+
+    #[test]
+    fn after_create_inserts_and_undo_removes() {
+        let (_dir, mut app) = app_with_files(&["010-a.md", "020-b.md"]);
+        app.after_create(0, 1, "# New task\n\nnotes\n").unwrap();
+        assert_eq!(
+            listing(&app),
+            ["[inbox]", "010-a.md", "015-new-task.md", "020-b.md"]
+        );
+        assert_eq!(app.cursor, 2, "cursor is on the new task");
+
+        app.update(Action::Undo);
+        assert_eq!(listing(&app), ["[inbox]", "010-a.md", "020-b.md"]);
+    }
+
+    #[test]
+    fn after_create_aborts_without_title() {
+        let (_dir, mut app) = app_with_files(&["010-a.md"]);
+        for content in ["# \n", "", "text but no heading\n"] {
+            let err = app.after_create(0, 1, content).unwrap_err();
+            assert_eq!(err.to_string(), "aborted, empty title");
+        }
+        assert_eq!(listing(&app), ["[inbox]", "010-a.md"]);
     }
 
     #[test]

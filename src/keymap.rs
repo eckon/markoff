@@ -9,6 +9,8 @@ pub enum Action {
     Up,
     Down,
     Open,
+    NewBelow,
+    NewAbove,
     Done,
     Cut,
     PasteBelow,
@@ -43,6 +45,8 @@ impl Keymap {
             KeyCode::Char('j') | KeyCode::Down => Some(Action::Down),
             KeyCode::Char('k') | KeyCode::Up => Some(Action::Up),
             KeyCode::Enter => Some(Action::Open),
+            KeyCode::Char('o') => Some(Action::NewBelow),
+            KeyCode::Char('O') => Some(Action::NewAbove),
             KeyCode::Char('x') => Some(Action::Done),
             KeyCode::Char('d') => {
                 self.pending = Some('d');
@@ -96,6 +100,14 @@ mod tests {
         assert_eq!(press(&mut keymap, KeyCode::Char('u')), Some(Action::Undo));
         assert_eq!(press(&mut keymap, KeyCode::Char('x')), Some(Action::Done));
         assert_eq!(press(&mut keymap, KeyCode::Enter), Some(Action::Open));
+        assert_eq!(
+            press(&mut keymap, KeyCode::Char('o')),
+            Some(Action::NewBelow)
+        );
+        assert_eq!(
+            press(&mut keymap, KeyCode::Char('O')),
+            Some(Action::NewAbove)
+        );
     }
 
     #[test]

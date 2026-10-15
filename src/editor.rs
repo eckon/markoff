@@ -1,6 +1,6 @@
 //! Hands the terminal to `$EDITOR`, the same way git does for commit messages.
 
-use std::{io, path::Path, process::Command};
+use std::{fs, io, path::Path, process::Command};
 
 use color_eyre::{
     Result,
@@ -30,6 +30,22 @@ pub fn open(terminal: &mut DefaultTerminal, path: &Path) -> Result<()> {
         bail!("editor exited with {status}");
     }
     Ok(())
+}
+
+/// Opens the editor on a new temp file with an empty `# ` heading and returns what was saved.
+///
+/// The file lives in the system temp dir, not in `todo/`, so a half written task never shows
+/// up in the list. The `.md` suffix gives editors markdown highlighting.
+pub fn create(terminal: &mut DefaultTerminal) -> Result<String> {
+    let file = tempfile::Builder::new()
+        .prefix("markoff-new-")
+        .suffix(".md")
+        .tempfile()
+        .wrap_err("failed to create temp file")?;
+    fs::write(file.path(), "# \n")?;
+    open(terminal, file.path())?;
+    // Read by path: editors often replace the file instead of writing into it.
+    Ok(fs::read_to_string(file.path())?)
 }
 
 /// `$VISUAL`, then `$EDITOR`, then `vi`, like git.
