@@ -57,6 +57,8 @@ pub struct App {
     undo: Vec<Vec<Op>>,
     /// Message for the status line, e.g. an error. Cleared on the next key press.
     pub status: Option<String>,
+    /// Help overlay is open.
+    pub show_help: bool,
     editor_request: Option<EditorRequest>,
 }
 
@@ -71,6 +73,7 @@ impl App {
             register: None,
             undo: Vec::new(),
             status: None,
+            show_help: false,
             editor_request: None,
         }
     }
@@ -109,6 +112,12 @@ impl App {
             && key.kind == KeyEventKind::Press
         {
             self.status = None;
+            // Any key closes the help and does nothing else, so a stray key cannot change
+            // tasks that are hidden behind the overlay.
+            if self.show_help {
+                self.show_help = false;
+                return;
+            }
             if let Some(action) = self.keymap.handle(key) {
                 self.update(action);
             }
@@ -150,6 +159,7 @@ impl App {
             Action::PasteBelow => self.paste(false)?,
             Action::PasteAbove => self.paste(true)?,
             Action::Undo => self.undo()?,
+            Action::Help => self.show_help = !self.show_help,
             Action::Quit => self.running = false,
         }
         Ok(())
@@ -341,6 +351,7 @@ fn created_path(ops: &[Op]) -> Option<PathBuf> {
 pub mod tests {
     use std::fs;
 
+    use ratatui::crossterm::event::KeyCode;
     use tempfile::TempDir;
 
     use super::*;
@@ -420,6 +431,18 @@ pub mod tests {
         app.update(Action::Down);
         app.update(Action::Down);
         assert_eq!(app.cursor, 1);
+    }
+
+    #[test]
+    fn any_key_closes_help_without_acting() {
+        let (_dir, mut app) = app_with_files(&["010-a.md"]);
+        app.cursor = 1;
+        app.update(Action::Help);
+        assert!(app.show_help);
+
+        app.handle_event(Event::Key(KeyCode::Char('x').into()));
+        assert!(!app.show_help);
+        assert_eq!(listing(&app), ["[inbox]", "010-a.md"], "x did not archive");
     }
 
     #[test]

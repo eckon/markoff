@@ -3,10 +3,13 @@ use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Modifier, Style, Stylize},
     text::{Line, Text},
-    widgets::{Block, BorderType, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 
-use crate::app::{App, Row};
+use crate::{
+    app::{App, Row},
+    keymap::{BINDINGS, Binding},
+};
 
 /// Draws the whole screen from the current state. Rendering never mutates the app.
 pub fn render(app: &App, frame: &mut Frame) {
@@ -19,6 +22,38 @@ pub fn render(app: &App, frame: &mut Frame) {
     render_list(app, frame, list_area);
     render_preview(app, frame, preview_area);
     render_status(app, frame, status_area);
+    if app.show_help {
+        render_help(frame);
+    }
+}
+
+/// Centered popup listing [`BINDINGS`], so it always matches the real keys.
+fn render_help(frame: &mut Frame) {
+    let labels: Vec<String> = BINDINGS.iter().map(Binding::label).collect();
+    let width = labels.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+
+    let mut lines: Vec<Line> = BINDINGS
+        .iter()
+        .zip(&labels)
+        .map(|(binding, label)| {
+            Line::from(vec![
+                format!("{label:>width$}  ").bold(),
+                binding.help.into(),
+            ])
+        })
+        .collect();
+    lines.push(Line::default());
+    lines.push(Line::from("any key closes this help").dim().centered());
+
+    let height = lines.len() as u16 + 2;
+    let area = frame
+        .area()
+        .centered(Constraint::Length(44), Constraint::Length(height));
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(lines).block(block(" help ".to_string())),
+        area,
+    );
 }
 
 /// Last error or message, otherwise the pending key of an unfinished sequence (`d`).
@@ -147,6 +182,24 @@ mod tests {
             screen.contains("nothing to paste"),
             "missing status in\n{screen}"
         );
+    }
+
+    #[test]
+    fn help_lists_bindings() {
+        let mut app = App::new(PathBuf::new(), sections(&[(&[], &[])]));
+        app.update(Action::Help);
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let screen: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        for text in ["j / ↓  cursor down", "dd  cut task", "q / C-c  quit"] {
+            assert!(screen.contains(text), "missing {text:?}");
+        }
     }
 
     #[test]
