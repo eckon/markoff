@@ -8,20 +8,53 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub enum Action {
     Up,
     Down,
+    Cut,
+    PasteBelow,
+    PasteAbove,
+    Undo,
     Quit,
 }
 
-/// Translates a key press into an [`Action`].
-///
-/// This is the place for multi-key sequences (`gg`, `dd`, counts) later: turn it into a
-/// struct that holds the pending keys and returns `None` while a sequence is incomplete.
-pub fn map_key(key: KeyEvent) -> Option<Action> {
-    match key.code {
-        KeyCode::Char('j') | KeyCode::Down => Some(Action::Down),
-        KeyCode::Char('k') | KeyCode::Up => Some(Action::Up),
-        KeyCode::Char('q') => Some(Action::Quit),
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::Quit),
-        _ => None,
+/// Translates key presses into [`Action`]s, including multi-key sequences like `dd`.
+#[derive(Debug, Default)]
+pub struct Keymap {
+    /// First key of an unfinished sequence, e.g. `d` after the first `d` of `dd`.
+    pending: Option<char>,
+}
+
+impl Keymap {
+    /// Returns `None` while a sequence is incomplete, for `Esc` and for unmapped keys.
+    pub fn handle(&mut self, key: KeyEvent) -> Option<Action> {
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return Some(Action::Quit);
+        }
+
+        // Any key ends a pending sequence, whether it completes it or not (like vim).
+        if let Some(first) = self.pending.take() {
+            return match (first, key.code) {
+                ('d', KeyCode::Char('d')) => Some(Action::Cut),
+                _ => None,
+            };
+        }
+
+        match key.code {
+            KeyCode::Char('j') | KeyCode::Down => Some(Action::Down),
+            KeyCode::Char('k') | KeyCode::Up => Some(Action::Up),
+            KeyCode::Char('d') => {
+                self.pending = Some('d');
+                None
+            }
+            KeyCode::Char('p') => Some(Action::PasteBelow),
+            KeyCode::Char('P') => Some(Action::PasteAbove),
+            KeyCode::Char('u') => Some(Action::Undo),
+            KeyCode::Char('q') => Some(Action::Quit),
+            _ => None,
+        }
+    }
+
+    /// The unfinished sequence, to show in the status line.
+    pub fn pending(&self) -> Option<char> {
+        self.pending
     }
 }
 
@@ -29,36 +62,63 @@ pub fn map_key(key: KeyEvent) -> Option<Action> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn quit_keys() {
-        assert_eq!(
-            map_key(KeyEvent::from(KeyCode::Char('q'))),
-            Some(Action::Quit)
-        );
-        assert_eq!(
-            map_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
-            Some(Action::Quit)
-        );
+    fn press(keymap: &mut Keymap, code: KeyCode) -> Option<Action> {
+        keymap.handle(KeyEvent::from(code))
     }
 
     #[test]
-    fn movement_keys() {
+    fn quit_keys() {
+        let mut keymap = Keymap::default();
+        assert_eq!(press(&mut keymap, KeyCode::Char('q')), Some(Action::Quit));
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert_eq!(keymap.handle(ctrl_c), Some(Action::Quit));
+    }
+
+    #[test]
+    fn single_keys() {
+        let mut keymap = Keymap::default();
+        assert_eq!(press(&mut keymap, KeyCode::Char('j')), Some(Action::Down));
+        assert_eq!(press(&mut keymap, KeyCode::Down), Some(Action::Down));
+        assert_eq!(press(&mut keymap, KeyCode::Char('k')), Some(Action::Up));
+        assert_eq!(press(&mut keymap, KeyCode::Up), Some(Action::Up));
         assert_eq!(
-            map_key(KeyEvent::from(KeyCode::Char('j'))),
-            Some(Action::Down)
+            press(&mut keymap, KeyCode::Char('p')),
+            Some(Action::PasteBelow)
         );
-        assert_eq!(map_key(KeyEvent::from(KeyCode::Down)), Some(Action::Down));
         assert_eq!(
-            map_key(KeyEvent::from(KeyCode::Char('k'))),
-            Some(Action::Up)
+            press(&mut keymap, KeyCode::Char('P')),
+            Some(Action::PasteAbove)
         );
-        assert_eq!(map_key(KeyEvent::from(KeyCode::Up)), Some(Action::Up));
+        assert_eq!(press(&mut keymap, KeyCode::Char('u')), Some(Action::Undo));
+    }
+
+    #[test]
+    fn dd_is_a_sequence() {
+        let mut keymap = Keymap::default();
+        assert_eq!(press(&mut keymap, KeyCode::Char('d')), None);
+        assert_eq!(keymap.pending(), Some('d'));
+        assert_eq!(press(&mut keymap, KeyCode::Char('d')), Some(Action::Cut));
+        assert_eq!(keymap.pending(), None);
+    }
+
+    #[test]
+    fn other_key_cancels_sequence() {
+        let mut keymap = Keymap::default();
+        press(&mut keymap, KeyCode::Char('d'));
+        // The second key is swallowed, `dj` neither cuts nor moves.
+        assert_eq!(press(&mut keymap, KeyCode::Char('j')), None);
+        assert_eq!(keymap.pending(), None);
+
+        press(&mut keymap, KeyCode::Char('d'));
+        assert_eq!(press(&mut keymap, KeyCode::Esc), None);
+        assert_eq!(keymap.pending(), None);
     }
 
     #[test]
     fn unmapped_key() {
-        assert_eq!(map_key(KeyEvent::from(KeyCode::Char('z'))), None);
+        let mut keymap = Keymap::default();
+        assert_eq!(press(&mut keymap, KeyCode::Char('z')), None);
         // Esc only cancels, it never quits.
-        assert_eq!(map_key(KeyEvent::from(KeyCode::Esc)), None);
+        assert_eq!(press(&mut keymap, KeyCode::Esc), None);
     }
 }

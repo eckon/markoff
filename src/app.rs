@@ -1,12 +1,17 @@
-use color_eyre::Result;
+use std::path::{Path, PathBuf};
+
+use color_eyre::{Result, eyre::eyre};
 use ratatui::{
     DefaultTerminal,
     crossterm::event::{self, Event, KeyEventKind},
 };
 
 use crate::{
-    keymap::{self, Action},
-    task::Section,
+    edit,
+    keymap::{Action, Keymap},
+    load,
+    op::{self, Op},
+    task::{Section, Task},
     ui,
 };
 
@@ -24,18 +29,36 @@ pub enum Row {
 #[derive(Debug)]
 pub struct App {
     running: bool,
+    todo_dir: PathBuf,
     pub sections: Vec<Section>,
     /// Index into [`App::rows`].
     pub cursor: usize,
+    pub keymap: Keymap,
+    /// Last cut task, in memory only. Pasting does not clear it (like vim).
+    register: Option<Task>,
+    /// Applied op lists, newest last. Undo applies the inverse of the last one.
+    undo: Vec<Vec<Op>>,
+    /// Message for the status line, e.g. an error. Cleared on the next key press.
+    pub status: Option<String>,
 }
 
 impl App {
-    pub fn new(sections: Vec<Section>) -> Self {
+    pub fn new(todo_dir: PathBuf, sections: Vec<Section>) -> Self {
         Self {
             running: true,
+            todo_dir,
             sections,
             cursor: 0,
+            keymap: Keymap::default(),
+            register: None,
+            undo: Vec::new(),
+            status: None,
         }
+    }
+
+    pub fn load(todo_dir: PathBuf) -> Result<Self> {
+        let sections = load::load(&todo_dir)?;
+        Ok(Self::new(todo_dir, sections))
     }
 
     /// Main loop: draw, wait for input, update.
@@ -55,20 +78,112 @@ impl App {
         // Only presses: some terminals also report key releases.
         if let Event::Key(key) = event
             && key.kind == KeyEventKind::Press
-            && let Some(action) = keymap::map_key(key)
         {
-            self.update(action);
+            self.status = None;
+            if let Some(action) = self.keymap.handle(key) {
+                self.update(action);
+            }
         }
     }
 
+    /// Runs an action. Errors end up in the status line instead of ending the app.
     pub fn update(&mut self, action: Action) {
+        if let Err(err) = self.try_update(action) {
+            self.status = Some(err.to_string());
+        }
+    }
+
+    fn try_update(&mut self, action: Action) -> Result<()> {
         match action {
             Action::Up => self.cursor = self.cursor.saturating_sub(1),
             Action::Down => {
                 let last = self.rows().len().saturating_sub(1);
                 self.cursor = (self.cursor + 1).min(last);
             }
+            Action::Cut => self.cut()?,
+            Action::PasteBelow => self.paste(false)?,
+            Action::PasteAbove => self.paste(true)?,
+            Action::Undo => self.undo()?,
             Action::Quit => self.running = false,
+        }
+        Ok(())
+    }
+
+    fn cut(&mut self) -> Result<()> {
+        let Some(Row::Task(s, t)) = self.selected() else {
+            return Ok(());
+        };
+        let task = self.sections[s].tasks[t].clone();
+        self.apply(edit::cut(&task))?;
+        self.register = Some(task);
+        // Cursor stays on the same row, which is now the next task (like vim).
+        self.clamp_cursor();
+        Ok(())
+    }
+
+    fn paste(&mut self, above: bool) -> Result<()> {
+        let Some(task) = &self.register else {
+            return Err(eyre!("nothing to paste"));
+        };
+        let (s, index) = match self.selected() {
+            Some(Row::Task(s, t)) if above => (s, t),
+            Some(Row::Task(s, t)) => (s, t + 1),
+            // On a section header both `p` and `P` paste as its first task.
+            Some(Row::Section(s)) => (s, 0),
+            None => return Ok(()),
+        };
+
+        let ops = edit::paste(&self.sections[s], index, task)
+            .ok_or_else(|| eyre!("no gap at this position, renumbering is not implemented yet"))?;
+        let created = created_path(&ops);
+        self.apply(ops)?;
+        if let Some(path) = created {
+            self.select_path(&path);
+        }
+        Ok(())
+    }
+
+    fn undo(&mut self) -> Result<()> {
+        let Some(ops) = self.undo.last() else {
+            return Err(eyre!("nothing to undo"));
+        };
+        let inverse = op::inverse_all(ops);
+        // Only pop once the inverse worked, so a failed undo can be retried.
+        op::apply_all(&inverse)?;
+        self.undo.pop();
+        self.reload()?;
+        self.clamp_cursor();
+        // Undoing a cut brings the file back, put the cursor on it.
+        if let Some(path) = created_path(&inverse) {
+            self.select_path(&path);
+        }
+        Ok(())
+    }
+
+    /// Applies ops, records them for undo and reloads from disk.
+    fn apply(&mut self, ops: Vec<Op>) -> Result<()> {
+        op::apply_all(&ops)?;
+        self.undo.push(ops);
+        self.reload()
+    }
+
+    /// Reads `todo/` again. The disk is the source of truth, `sections` is only a view of it.
+    fn reload(&mut self) -> Result<()> {
+        self.sections = load::load(&self.todo_dir)?;
+        Ok(())
+    }
+
+    fn clamp_cursor(&mut self) {
+        self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
+    }
+
+    fn select_path(&mut self, path: &Path) {
+        let found = self.rows().iter().position(|row| match *row {
+            Row::Task(s, t) => self.sections[s].tasks[t].path == path,
+            Row::Section(_) => false,
+        });
+        if let Some(index) = found {
+            self.cursor = index;
         }
     }
 
@@ -90,14 +205,22 @@ impl App {
     }
 }
 
+fn created_path(ops: &[Op]) -> Option<PathBuf> {
+    ops.iter().find_map(|op| match op {
+        Op::Create { path, .. } => Some(path.clone()),
+        _ => None,
+    })
+}
+
 #[cfg(test)]
 pub mod tests {
-    use std::path::PathBuf;
+    use std::fs;
+
+    use tempfile::TempDir;
 
     use super::*;
-    use crate::task::Task;
 
-    /// Sections with the given names (empty = inbox) and task titles.
+    /// Sections with the given names (empty = inbox) and task titles. Nothing on disk.
     pub fn sections(spec: &[(&[&str], &[&str])]) -> Vec<Section> {
         spec.iter()
             .map(|(path, tasks)| Section {
@@ -111,13 +234,45 @@ pub mod tests {
             .collect()
     }
 
+    /// An app on a temp `todo/` with the given files. Paths ending in `/` become directories.
+    /// Each file gets its slug as heading: `010-a.md` -> `# a`.
+    fn app_with_files(files: &[&str]) -> (TempDir, App) {
+        let dir = TempDir::new().unwrap();
+        for file in files {
+            let path = dir.path().join(file);
+            if file.ends_with('/') {
+                fs::create_dir_all(path).unwrap();
+            } else {
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                let stem = path.file_stem().unwrap().to_str().unwrap();
+                let title = stem.split_once('-').map_or(stem, |(_, slug)| slug);
+                fs::write(&path, format!("# {title}")).unwrap();
+            }
+        }
+        let app = App::load(dir.path().to_path_buf()).unwrap();
+        (dir, app)
+    }
+
+    /// File names on disk in row order, sections as `[name]`.
+    fn listing(app: &App) -> Vec<String> {
+        app.rows()
+            .into_iter()
+            .map(|row| match row {
+                Row::Section(s) => format!("[{}]", app.sections[s].title()),
+                Row::Task(s, t) => {
+                    let path = &app.sections[s].tasks[t].path;
+                    path.file_name().unwrap().to_str().unwrap().to_string()
+                }
+            })
+            .collect()
+    }
+
     #[test]
     fn rows_include_section_headers() {
-        let app = App::new(sections(&[
-            (&[], &["a"]),
-            (&["work"], &[]),
-            (&["x"], &["b", "c"]),
-        ]));
+        let app = App::new(
+            PathBuf::new(),
+            sections(&[(&[], &["a"]), (&["work"], &[]), (&["x"], &["b", "c"])]),
+        );
         assert_eq!(
             app.rows(),
             [
@@ -133,7 +288,7 @@ pub mod tests {
 
     #[test]
     fn cursor_stays_in_bounds() {
-        let mut app = App::new(sections(&[(&[], &["a"])]));
+        let mut app = App::new(PathBuf::new(), sections(&[(&[], &["a"])]));
         app.update(Action::Up);
         assert_eq!(app.cursor, 0);
         app.update(Action::Down);
@@ -143,8 +298,74 @@ pub mod tests {
 
     #[test]
     fn quit_stops_running() {
-        let mut app = App::new(sections(&[]));
+        let mut app = App::new(PathBuf::new(), sections(&[]));
         app.update(Action::Quit);
         assert!(!app.running);
+    }
+
+    #[test]
+    fn cut_and_paste_into_other_section() {
+        let (_dir, mut app) = app_with_files(&["010-a.md", "020-b.md", "010-work/"]);
+        assert_eq!(listing(&app), ["[inbox]", "010-a.md", "020-b.md", "[work]"]);
+
+        app.cursor = 1;
+        app.update(Action::Cut);
+        assert_eq!(listing(&app), ["[inbox]", "020-b.md", "[work]"]);
+        assert_eq!(app.cursor, 1, "cursor moves onto the next task");
+
+        app.cursor = 2;
+        app.update(Action::PasteBelow);
+        assert_eq!(app.status, None);
+        assert_eq!(listing(&app), ["[inbox]", "020-b.md", "[work]", "010-a.md"]);
+        assert_eq!(app.cursor, 3, "cursor is on the pasted task");
+    }
+
+    #[test]
+    fn paste_above_and_below() {
+        let (_dir, mut app) = app_with_files(&["010-a.md", "020-b.md", "030-c.md"]);
+        app.cursor = 3;
+        app.update(Action::Cut);
+
+        app.cursor = 1;
+        app.update(Action::PasteAbove);
+        assert_eq!(listing(&app)[1], "005-c.md");
+
+        app.cursor = 2;
+        app.update(Action::PasteBelow);
+        assert_eq!(listing(&app)[3], "015-c-2.md");
+    }
+
+    #[test]
+    fn undo_reverts_paste_then_cut() {
+        let (_dir, mut app) = app_with_files(&["010-a.md", "010-work/"]);
+        let before = listing(&app);
+
+        app.cursor = 1;
+        app.update(Action::Cut);
+        app.cursor = 1;
+        app.update(Action::PasteBelow);
+
+        app.update(Action::Undo);
+        assert_eq!(listing(&app), ["[inbox]", "[work]"]);
+        app.update(Action::Undo);
+        assert_eq!(listing(&app), before);
+        assert_eq!(app.cursor, 1, "cursor is on the restored task");
+
+        app.update(Action::Undo);
+        assert_eq!(app.status.as_deref(), Some("nothing to undo"));
+    }
+
+    #[test]
+    fn errors_go_to_status() {
+        let (_dir, mut app) = app_with_files(&["010-a.md"]);
+        app.update(Action::PasteBelow);
+        assert_eq!(app.status.as_deref(), Some("nothing to paste"));
+
+        let (_dir, mut app) = app_with_files(&["010-a.md", "011-b.md", "012-c.md"]);
+        app.cursor = 3;
+        app.update(Action::Cut);
+        app.cursor = 1;
+        app.update(Action::PasteBelow);
+        assert!(app.status.unwrap().contains("no gap"));
     }
 }

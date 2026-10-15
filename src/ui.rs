@@ -10,12 +10,25 @@ use crate::app::{App, Row};
 
 /// Draws the whole screen from the current state. Rendering never mutates the app.
 pub fn render(app: &App, frame: &mut Frame) {
+    let [main_area, status_area] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
     let [list_area, preview_area] =
         Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
-            .areas(frame.area());
+            .areas(main_area);
 
     render_list(app, frame, list_area);
     render_preview(app, frame, preview_area);
+    render_status(app, frame, status_area);
+}
+
+/// Last error or message, otherwise the pending key of an unfinished sequence (`d`).
+fn render_status(app: &App, frame: &mut Frame, area: Rect) {
+    let line = match (&app.status, app.keymap.pending()) {
+        (Some(status), _) => Line::from(status.as_str().red()),
+        (None, Some(key)) => Line::from(key.to_string()).right_aligned(),
+        (None, None) => Line::default(),
+    };
+    frame.render_widget(line, area);
 }
 
 fn render_list(app: &App, frame: &mut Frame, area: Rect) {
@@ -82,12 +95,14 @@ fn block<'a>(title: String) -> Block<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
     use crate::{app::tests::sections, keymap::Action};
     use ratatui::{Terminal, backend::TestBackend};
 
     /// Renders the app and returns the screen as text, styles (bold, highlight) are ignored.
     fn screen(app: &App) -> String {
-        let mut terminal = Terminal::new(TestBackend::new(50, 8)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
         terminal.draw(|frame| render(app, frame)).unwrap();
 
         let buffer = terminal.backend().buffer();
@@ -101,10 +116,10 @@ mod tests {
 
     #[test]
     fn renders_sections_and_tasks() {
-        let app = App::new(sections(&[
-            (&[], &["Fix typo"]),
-            (&["work"], &["Review PR"]),
-        ]));
+        let app = App::new(
+            PathBuf::new(),
+            sections(&[(&[], &["Fix typo"]), (&["work"], &["Review PR"])]),
+        );
         let screen = screen(&app);
         for text in ["inbox", "  Fix typo", "work", "  Review PR"] {
             assert!(screen.contains(text), "missing {text:?} in\n{screen}");
@@ -113,7 +128,7 @@ mod tests {
 
     #[test]
     fn preview_shows_task_body() {
-        let mut app = App::new(sections(&[(&[], &["Fix typo"])]));
+        let mut app = App::new(PathBuf::new(), sections(&[(&[], &["Fix typo"])]));
         app.sections[0].tasks[0].body = "line one\n## Notes\nline two".to_string();
         app.update(Action::Down);
 
@@ -124,8 +139,19 @@ mod tests {
     }
 
     #[test]
+    fn status_line_shows_errors() {
+        let mut app = App::new(PathBuf::new(), sections(&[(&[], &[])]));
+        app.update(Action::PasteBelow);
+        let screen = screen(&app);
+        assert!(
+            screen.contains("nothing to paste"),
+            "missing status in\n{screen}"
+        );
+    }
+
+    #[test]
     fn preview_shows_section_count() {
-        let app = App::new(sections(&[(&[], &["a", "b"])]));
+        let app = App::new(PathBuf::new(), sections(&[(&[], &["a", "b"])]));
         let screen = screen(&app);
         assert!(screen.contains("2 tasks"), "missing count in\n{screen}");
     }

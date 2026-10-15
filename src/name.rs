@@ -3,9 +3,6 @@
 //! The numbered prefix sets the order, the slug is derived from the task title.
 //! Everything here is pure string handling, no file system access.
 
-// `slugify` and `to_stem` are used once file operations exist.
-#![allow(dead_code)]
-
 /// Width of the order prefix. `ls` only sorts correctly while all prefixes have the same width.
 const PREFIX_WIDTH: usize = 3;
 

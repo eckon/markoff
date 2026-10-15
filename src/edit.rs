@@ -1,8 +1,5 @@
 //! Turns user actions into [`Op`]s. Decides what should happen, applying is up to the caller.
 
-// Not used yet, the TUI wires this up next.
-#![allow(dead_code)]
-
 use crate::{
     name::{Name, order_between, slugify},
     op::Op,

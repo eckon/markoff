@@ -3,9 +3,6 @@
 //! Every [`Op`] has an exact [`Op::inverse`], which is what undo is built on.
 //! A user action (paste, renumber, ...) is a list of ops, applied with [`apply_all`].
 
-// Not used yet, cut and paste are the next step.
-#![allow(dead_code)]
-
 use std::{
     fs,
     io::Write,
@@ -25,6 +22,11 @@ pub enum Op {
     /// Fails if the file no longer has that content, so changes made since are never lost.
     Remove { path: PathBuf, content: String },
     /// Renames a file or directory. Fails if the target already exists.
+    // Only the tests use it so far.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "used by renumbering, which comes next")
+    )]
     Rename { from: PathBuf, to: PathBuf },
 }
 
