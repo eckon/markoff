@@ -275,7 +275,9 @@ impl App {
     /// Not added to undo: undoing it would only be redone by the next action. The cursor
     /// follows a renamed task.
     fn normalize(&mut self) -> Result<Vec<(PathBuf, PathBuf)>> {
-        let ops: Vec<Op> = self.sections.iter().flat_map(edit::normalize).collect();
+        // Tasks first: their renames use the current directory paths.
+        let mut ops: Vec<Op> = self.sections.iter().flat_map(edit::normalize).collect();
+        ops.extend(edit::normalize_sections(&self.sections));
         if ops.is_empty() {
             return Ok(Vec::new());
         }
@@ -291,11 +293,13 @@ impl App {
         op::apply_all(&ops)?;
         self.reload()?;
         self.clamp_cursor();
-        if let Some(path) = selected {
-            let path = renames
-                .iter()
-                .find(|(from, _)| *from == path)
-                .map_or(path, |(_, to)| to.clone());
+        if let Some(mut path) = selected {
+            // Follow each rename, also of the directory the selected task is in.
+            for (from, to) in &renames {
+                if let Ok(rest) = path.strip_prefix(from) {
+                    path = to.join(rest);
+                }
+            }
             self.select_path(&path);
         }
         Ok(renames)
@@ -328,9 +332,6 @@ impl App {
         let Some(Row::Task(s, t)) = self.selected() else {
             return Ok(());
         };
-        let section = &self.sections[s];
-        let task = &section.tasks[t];
-
         let date = jiff::Zoned::now().date().to_string();
         let archive_dir = self.root.join("archive");
         let archive_path = archive_dir.join(format!("{date}.md"));
@@ -339,7 +340,13 @@ impl App {
             .wrap_err_with(|| format!("failed to create {}", archive_dir.display()))?;
         let existing = read_if_exists(&archive_path)?;
 
-        let ops = edit::archive(task, section, &archive_path, existing.as_deref(), &date);
+        let ops = edit::archive(
+            &self.sections[s],
+            t,
+            &archive_path,
+            existing.as_deref(),
+            &date,
+        );
         self.apply(ops)?;
         self.clamp_cursor();
         Ok(())
@@ -348,7 +355,7 @@ impl App {
     /// `J` / `K`: moves the task or section under the cursor one place, the cursor follows.
     /// Nothing happens at the edges.
     fn move_selected(&mut self, down: bool) -> Result<()> {
-        let ops = match self.selected() {
+        let (ops, moved_to) = match self.selected() {
             Some(Row::Task(s, t)) => {
                 let Some((to, index)) = self.task_target(s, t, down) else {
                     return Ok(());
@@ -357,20 +364,13 @@ impl App {
                     .ok_or_else(|| eyre!("section is full (999 tasks)"))?
             }
             Some(Row::Section(s)) => match edit::move_section(&self.sections, s, down) {
-                Some(ops) => ops,
+                Some(result) => result,
                 None => return Ok(()),
             },
             None => return Ok(()),
         };
-        // The moved entry is always the last rename.
-        let moved_to = match ops.last() {
-            Some(Op::Rename { to, .. }) => Some(to.clone()),
-            _ => None,
-        };
         self.apply(ops)?;
-        if let Some(path) = moved_to {
-            self.select_path(&path);
-        }
+        self.select_path(&moved_to);
         Ok(())
     }
 
@@ -394,20 +394,18 @@ impl App {
 
     /// `D`: deletes the task without archiving. Undo brings it back.
     fn delete(&mut self) -> Result<()> {
-        let task = match self.selected() {
-            Some(Row::Task(s, t)) => self.sections[s].tasks[t].clone(),
+        let (s, t) = match self.selected() {
+            Some(Row::Task(s, t)) => (s, t),
             Some(Row::Section(_)) => {
                 return Err(eyre!("sections are deleted in the shell for now"));
             }
             None => return Ok(()),
         };
-        self.apply(edit::delete(&task))?;
+        let title = self.sections[s].tasks[t].title();
+        self.apply(edit::delete(&self.sections[s], t))?;
         // Cursor stays on the same row, which is now the next task (like vim).
         self.clamp_cursor();
-        self.status = Some(Status::Info(format!(
-            "deleted {} (u to undo)",
-            task.title()
-        )));
+        self.status = Some(Status::Info(format!("deleted {title} (u to undo)")));
         Ok(())
     }
 
@@ -659,7 +657,7 @@ pub mod tests {
         app.cursor = 1;
 
         app.update(Action::Delete);
-        assert_eq!(listing(&app), ["[inbox]", "020-b.md"]);
+        assert_eq!(listing(&app), ["[inbox]", "010-b.md"], "the gap is closed");
         assert_eq!(app.cursor, 1, "cursor moves onto the next task");
         assert_eq!(
             app.status,
@@ -741,7 +739,7 @@ pub mod tests {
         app.after_create(0, 1, "# New task\n\nnotes\n").unwrap();
         assert_eq!(
             listing(&app),
-            ["[inbox]", "010-a.md", "015-new-task.md", "020-b.md"]
+            ["[inbox]", "010-a.md", "020-new-task.md", "030-b.md"]
         );
         assert_eq!(app.cursor, 2, "cursor is on the new task");
 
@@ -803,6 +801,28 @@ pub mod tests {
     }
 
     #[test]
+    fn startup_cleans_section_dirs_and_cursor_follows() {
+        let (_dir, mut app) = app_with_files(&["005-work/010-a.md", "017-home/"]);
+        assert_eq!(
+            app.renamed,
+            [
+                ("005-work".into(), "010-work".into()),
+                ("017-home".into(), "020-home".into()),
+            ]
+        );
+        assert!(app.sections[1].dir.ends_with("010-work"));
+
+        // An action normalizes too, the cursor stays on the task inside the renamed dir.
+        let work = app.sections[1].dir.clone();
+        fs::rename(&work, work.with_file_name("015-work")).unwrap();
+        app.reload_keep_selection().unwrap();
+        app.cursor = 2;
+        app.update(Action::MoveDown);
+        assert_eq!(listing(&app), ["[inbox]", "[work]", "[home]", "010-a.md"]);
+        assert_eq!(app.cursor, 3, "cursor follows the task");
+    }
+
+    #[test]
     fn reload_from_watcher_does_not_rename() {
         let (dir, mut app) = app_with_files(&["010-a.md"]);
         fs::write(dir.path().join("todo/new.md"), "# New").unwrap();
@@ -820,7 +840,7 @@ pub mod tests {
         app.update(Action::MoveDown);
         assert_eq!(
             listing(&app),
-            ["[inbox]", "020-b.md", "025-a.md", "030-new.md"]
+            ["[inbox]", "010-b.md", "020-a.md", "030-new.md"]
         );
         assert_eq!(
             app.status,
@@ -845,14 +865,14 @@ pub mod tests {
         app.update(Action::MoveDown);
         assert_eq!(
             listing(&app),
-            ["[inbox]", "020-b.md", "030-a.md", "[work]", "010-c.md"]
+            ["[inbox]", "010-b.md", "020-a.md", "[work]", "010-c.md"]
         );
         assert_eq!(app.cursor, 2, "cursor follows the task");
 
         app.update(Action::MoveDown);
         assert_eq!(
             listing(&app),
-            ["[inbox]", "020-b.md", "[work]", "005-a.md", "010-c.md"]
+            ["[inbox]", "010-b.md", "[work]", "010-a.md", "020-c.md"]
         );
         assert_eq!(app.cursor, 3);
 
@@ -860,7 +880,7 @@ pub mod tests {
         app.update(Action::Undo);
         assert_eq!(
             listing(&app),
-            ["[inbox]", "020-b.md", "030-a.md", "[work]", "010-c.md"]
+            ["[inbox]", "010-b.md", "020-a.md", "[work]", "010-c.md"]
         );
         assert_eq!(app.cursor, 2);
         app.update(Action::Undo);
@@ -890,7 +910,8 @@ pub mod tests {
             ["[inbox]", "[home]", "010-b.md", "[work]", "010-a.md", "[x]"]
         );
         assert_eq!(app.cursor, 3, "cursor follows the section");
-        assert!(app.sections[2].dir.ends_with("025-work"));
+        assert!(app.sections[1].dir.ends_with("010-home"));
+        assert!(app.sections[2].dir.ends_with("020-work"));
 
         app.update(Action::Undo);
         assert!(app.sections[1].dir.ends_with("010-work"));

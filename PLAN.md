@@ -42,11 +42,10 @@ archive/
 - Sections are modelled as a path (`Vec<String>`) in code, so nesting can be added later without changing the data or archive format.
 - Sections are created, renamed and deleted in the shell (mkdir, mv). The TUI shows them, reorders them (`J/K`) and moves tasks between them.
 - A file is a task. Only `.md` files count, hidden files and directories (`.git`, swap files, markoff's own temp files and drafts) are ignored.
-- The numbered prefix sets the order, for both files and directories. Gaps (`010`, `020`) mean most moves only create one file.
-- A new task gets an order between its neighbours: `+10` when appended, the middle otherwise (`010`/`020` -> `015`).
-- Moving with `J/K` uses the same rule, for tasks and section directories: the moved one is renamed into the gap between its new neighbours, so usually only one file or directory is renamed. Its content is not touched.
-- When there is no gap left, the whole section is renumbered with even gaps, leaving a free slot where the task goes. Renumber and insert are one undo step.
-- Prefixes are 3 digits. Gaps of 10 fit 99 tasks per section. Above that, renumbering uses smaller gaps (5, 2, 1), so the hard limit is 999 tasks per section.
+- The numbered prefix sets the order, for both files and directories. The order is always clean: `010`, `020`, `030`, ...
+- Every action that changes the order (new task, move, delete, done) renumbers the affected section, a move between sections both of them, a section move the section directories. A move near the top renames every file below it. All renames of one action are one undo step. File contents are never touched by a renumber.
+- This was a change from v1, where a new or moved task took the middle of the gap between its neighbours (`010`/`020` -> `015`) so most moves renamed only one file. After a few moves the numbers looked random (`005`, `017`, `035`), which was confusing.
+- Prefixes are 3 digits. Steps of 10 fit 99 tasks per section. Above that, renumbering uses smaller steps (5, 2, 1), so the hard limit is 999 tasks per section.
 - Renames during renumbering are ordered so a target name is always free first (`009-x -> 010-x` waits until the old `010-x` moved on).
 - Files without a valid prefix are shown at the end of their section, sorted by name, until normalizing gives them a prefix (see [Normalize](#normalize)).
 - The section display name is the directory name without the prefix (`010-work` -> `work`).
@@ -64,12 +63,12 @@ archive/
 
 Files created or edited by hand get the same shape as markoff's own (`edit::normalize`):
 
-- A file without a valid prefix gets one after the last task of its section, `+10` each, in the order they are shown. If that does not fit into 999, the section is renumbered with even gaps.
+- The section is renumbered to clean `010`, `020`, ... in the order it is shown, so a file without a valid prefix gets one at the end (unprefixed files are shown last, by name).
 - The slug follows the heading. Without heading the name stays (`My Notes.md` -> `020-My Notes.md`).
 - A task never takes a slug another task already has, it gets `-2`, `-3`, ... instead
-- Only files. Section directories without prefix stay as they are for now.
+- Section directories too (`edit::normalize_sections`): clean prefixes, a hand-made `mkdir todo/home` gets one at the end. Task renames are applied first, they use the old directory paths.
 - Runs at startup, before every action that writes (`X`, `D`, `J/K`, inserting a new task) and after `<CR>`. Never on watcher reloads: renaming a file another editor has open would make its next save recreate the old name. Not before `u`, which reverts exactly what it recorded.
-- Not on the undo stack, undoing it would only be redone by the next action. The cursor follows a renamed task.
+- Not on the undo stack, undoing it would only be redone by the next action. The cursor follows a renamed task, also when its directory is renamed.
 - Renames at startup are listed in a popup (any key closes it), since names changing on start can be a surprise. After an action, the status line says `renamed N files to match their titles`.
 - If a rename fails, all are rolled back, the error goes to the status line and the action still runs on the unchanged files.
 
@@ -191,7 +190,7 @@ Picked from a few variants tried in the real terminal.
 | ------------ | ----------------------------------------------------------------------------- |
 | `main.rs`    | Resolve root, load, run the TUI                                               |
 | `config.rs`  | `--dir`, `MARKOFF_DIR`, config file                                           |
-| `name.rs`    | `010-slug` parsing, `slugify`, `order_between`                                |
+| `name.rs`    | `010-slug` parsing, `slugify`                                                 |
 | `task.rs`    | `Task` and `Section`, heading/body split                                      |
 | `load.rs`    | Read `todo/` into sections, sorted by prefix                                  |
 | `op.rs`      | File ops with inverses, `apply_all` with rollback, atomic writes              |
@@ -249,6 +248,5 @@ Deferred, needs design first:
 
 - Nested sections (data model and archive format already allow it, archive heading would be `## private/garden`)
 - Section create, rename and delete in the TUI. `D` on a section header deletes it only if it is empty, otherwise an error says so. The inbox can never be deleted. Creating a section in the TUI belongs to the same feature.
-- Normalize section directories too (prefix for a hand-made `mkdir todo/home`). Directory renames exist now (`J/K`), so this should be aligned with them.
 - Recurring tasks. One option is a `recur: weekly` key in frontmatter. On archive, the tool creates a fresh copy instead of only deleting the task. Needs frontmatter support in `task.rs` first.
 - More vim keys: counts, `C-d/C-u`, repeat `.`
