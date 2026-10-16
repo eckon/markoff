@@ -8,6 +8,10 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub enum Action {
     Up,
     Down,
+    Top,
+    Bottom,
+    PrevSection,
+    NextSection,
     MoveUp,
     MoveDown,
     Open,
@@ -44,7 +48,7 @@ pub struct Binding {
 }
 
 use Action as A;
-use KeyCode::{Char, Down, Enter, Up};
+use KeyCode::{Char, Down, End, Enter, Home, Up};
 use Trigger::{Ctrl, Key, Seq, Shift};
 
 /// The single source of truth for keys: [`Keymap::handle`] reads it and so does the help
@@ -53,6 +57,10 @@ use Trigger::{Ctrl, Key, Seq, Shift};
 pub const BINDINGS: &[Binding] = &[
     Binding { triggers: &[Key(Char('j')), Key(Down)], action: A::Down, help: "cursor down" },
     Binding { triggers: &[Key(Char('k')), Key(Up)], action: A::Up, help: "cursor up" },
+    Binding { triggers: &[Seq('g', 'g'), Key(Home)], action: A::Top, help: "go to top" },
+    Binding { triggers: &[Key(Char('G')), Key(End)], action: A::Bottom, help: "go to bottom" },
+    Binding { triggers: &[Key(Char('{'))], action: A::PrevSection, help: "previous section" },
+    Binding { triggers: &[Key(Char('}'))], action: A::NextSection, help: "next section" },
     Binding { triggers: &[Key(Char('J')), Shift(Down)], action: A::MoveDown, help: "move task or section down" },
     Binding { triggers: &[Key(Char('K')), Shift(Up)], action: A::MoveUp, help: "move task or section up" },
     Binding { triggers: &[Key(Enter)], action: A::Open, help: "open task in $EDITOR" },
@@ -223,6 +231,7 @@ mod tests {
         };
         assert_eq!(label(Action::Down), "j / ↓");
         assert_eq!(label(Action::Delete), "D");
+        assert_eq!(label(Action::Top), "gg / Home");
         assert_eq!(label(Action::Quit), "q / C-c");
     }
 
@@ -242,6 +251,37 @@ mod tests {
         let mut keymap = Keymap::default();
         let ctrl_j = KeyEvent::new(Char('j'), KeyModifiers::CONTROL);
         assert_eq!(keymap.handle(ctrl_j), None);
+    }
+
+    #[test]
+    fn gg_is_a_sequence() {
+        let mut keymap = Keymap::default();
+        assert_eq!(press(&mut keymap, Char('g')), None);
+        assert_eq!(keymap.pending(), Some('g'));
+        assert_eq!(press(&mut keymap, Char('g')), Some(Action::Top));
+        assert_eq!(keymap.pending(), None);
+    }
+
+    #[test]
+    fn other_key_cancels_sequence() {
+        let mut keymap = Keymap::default();
+        press(&mut keymap, Char('g'));
+        // The second key is swallowed, `gj` neither jumps nor moves.
+        assert_eq!(press(&mut keymap, Char('j')), None);
+        assert_eq!(keymap.pending(), None);
+
+        press(&mut keymap, Char('g'));
+        assert_eq!(press(&mut keymap, KeyCode::Esc), None);
+        assert_eq!(keymap.pending(), None);
+    }
+
+    #[test]
+    fn ctrl_c_quits_during_sequence() {
+        let mut keymap = Keymap::default();
+        press(&mut keymap, Char('g'));
+        let ctrl_c = KeyEvent::new(Char('c'), KeyModifiers::CONTROL);
+        assert_eq!(keymap.handle(ctrl_c), Some(Action::Quit));
+        assert_eq!(keymap.pending(), None);
     }
 
     #[test]

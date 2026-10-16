@@ -48,19 +48,22 @@ archive/
 
 ## Keys
 
-| Key          | Action                                    |
-| ------------ | ----------------------------------------- |
-| `j` / `Down` | Cursor down                               |
-| `k` / `Up`   | Cursor up                                 |
-| `J` / `S-↓`  | Move task or section down                 |
-| `K` / `S-↑`  | Move task or section up                   |
-| `<CR>`       | Open task in `$EDITOR`                    |
-| `o` / `O`    | New task below / above, via `$EDITOR`     |
-| `X`          | Done: move to archive                     |
-| `D`          | Delete task, without archiving            |
-| `u`          | Undo                                      |
-| `?`          | Help                                      |
-| `q` / `C-c`  | Quit                                      |
+| Key           | Action                                |
+| ------------- | ------------------------------------- |
+| `j` / `Down`  | Cursor down                           |
+| `k` / `Up`    | Cursor up                             |
+| `gg` / `Home` | Go to top                             |
+| `G` / `End`   | Go to bottom                          |
+| `{` / `}`     | Previous / next section               |
+| `J` / `S-↓`   | Move task or section down             |
+| `K` / `S-↑`   | Move task or section up               |
+| `<CR>`        | Open task in `$EDITOR`                |
+| `o` / `O`     | New task below / above, via `$EDITOR` |
+| `X`           | Done: move to archive                 |
+| `D`           | Delete task, without archiving        |
+| `u`           | Undo                                  |
+| `?`           | Help                                  |
+| `q` / `C-c`   | Quit                                  |
 
 The editor is `$VISUAL`, then `$EDITOR`, then `vi`.
 

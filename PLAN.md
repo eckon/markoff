@@ -142,6 +142,9 @@ Picked from a few variants tried in the real terminal.
 | -------------- | ----------------------------------------------------------- |
 | `j` / `Down`   | Cursor down                                                 |
 | `k` / `Up`     | Cursor up                                                   |
+| `gg` / `Home`  | Go to top                                                   |
+| `G` / `End`    | Go to bottom                                                |
+| `{` / `}`      | Previous / next section (`{` on a task: its own section)    |
 | `J` / `S-Down` | Move the task or section down                               |
 | `K` / `S-Up`   | Move the task or section up                                 |
 | `<CR>`         | Open task in `$EDITOR`                                      |
@@ -158,7 +161,7 @@ Picked from a few variants tried in the real terminal.
 - The destructive actions are uppercase (`X`, `D`), so they are not hit by accident. Lowercase `x` and `d` only show a hint in the status line (`d does nothing, use D to delete`). The hints are a separate table (`HINTS`), not shown in the help.
 - `D` on a section header is an error (`sections are deleted in the shell for now`). After a delete the status line says `deleted <title> (u to undo)`.
 - `Esc` never quits.
-- The keymap supports two-key sequences (`Seq`), currently no binding uses one. `Esc` or any other key cancels a pending one, `C-c` quits even halfway through.
+- `gg` is a two-key sequence (`Seq`). `Esc` or any other key cancels a pending one, `C-c` quits even halfway through.
 - All keys live in one table (`BINDINGS` in `keymap.rs`). Key handling and the help overlay both read it, so they cannot disagree. A test presses every trigger in the table.
 
 ### Editor handoff
@@ -233,7 +236,6 @@ From daily use (notes in `notes/todo/markoff`), refined in an interview. Work in
 
 #### D. Navigation and structure (050, 060)
 
-8. **Jumps.** `gg`/`G` for first/last row, `{`/`}` for previous/next section header. `gg` is the first binding using the sequence support again, so it brings back the sequence tests that were removed with `dd`.
 9. **Fold sections.** `za` (and `<Tab>`) toggles the section under the cursor (or the one the cursor is in). Folded headers show their count. Fold state is per session, in memory. `J/K` over a folded section moves the task past the whole section.
 10. **Focus one section.** A key (`f`, still free) shows only the section under the cursor. Same key again shows everything. Decide whether the inbox stays visible.
 11. **`/` filter.** Typing filters the list live, fuzzy over titles, section names and task bodies. A matching section name shows all its tasks. A body match shows the matching line (in the preview or dim under the title). `<CR>` keeps the filter and the cursor on the match, `Esc` clears it. This is the first text input in the TUI, so it gets its own small input mode.

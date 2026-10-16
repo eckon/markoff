@@ -231,6 +231,10 @@ impl App {
                 let last = self.rows().len().saturating_sub(1);
                 self.cursor = (self.cursor + 1).min(last);
             }
+            Action::Top => self.cursor = 0,
+            Action::Bottom => self.cursor = self.rows().len().saturating_sub(1),
+            Action::PrevSection => self.cursor = self.prev_section_row(),
+            Action::NextSection => self.cursor = self.next_section_row(),
             Action::MoveDown | Action::MoveUp => {
                 self.normalize_before_action();
                 self.move_selected(action == Action::MoveDown)?;
@@ -372,6 +376,23 @@ impl App {
         self.apply(ops)?;
         self.select_path(&moved_to);
         Ok(())
+    }
+
+    /// `{`: the nearest section header above the cursor. On a task that is its own section.
+    fn prev_section_row(&self) -> usize {
+        let rows = self.rows();
+        (0..self.cursor)
+            .rev()
+            .find(|&i| matches!(rows[i], Row::Section(_)))
+            .unwrap_or(0)
+    }
+
+    /// `}`: the next section header below the cursor, the last row if there is none (like vim).
+    fn next_section_row(&self) -> usize {
+        let rows = self.rows();
+        (self.cursor + 1..rows.len())
+            .find(|&i| matches!(rows[i], Row::Section(_)))
+            .unwrap_or(rows.len().saturating_sub(1))
     }
 
     /// Where `J` / `K` put task `t` of section `s`, as section and index among the other
@@ -880,6 +901,29 @@ pub mod tests {
         app.update(Action::Undo);
         assert_eq!(app.cursor, 1);
         assert_eq!(listing(&app)[1], "01-a.md");
+    }
+
+    #[test]
+    fn jumps() {
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[(&[], &["a"]), (&["work"], &["b", "c"]), (&["x"], &["d"])]),
+        );
+        // Rows: inbox, a, work, b, c, x, d
+        app.update(Action::Bottom);
+        assert_eq!(app.cursor, 6);
+        app.update(Action::PrevSection);
+        assert_eq!(app.cursor, 5, "from a task to its own section");
+        app.update(Action::PrevSection);
+        assert_eq!(app.cursor, 2);
+        app.update(Action::NextSection);
+        assert_eq!(app.cursor, 5);
+        app.update(Action::NextSection);
+        assert_eq!(app.cursor, 6, "no next section: last row");
+        app.update(Action::Top);
+        assert_eq!(app.cursor, 0);
+        app.update(Action::PrevSection);
+        assert_eq!(app.cursor, 0, "nothing above the top");
     }
 
     #[test]
