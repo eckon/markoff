@@ -5,7 +5,7 @@ use std::{
 };
 
 use color_eyre::{
-    Result,
+    Report, Result,
     eyre::{WrapErr, eyre},
 };
 use ratatui::{
@@ -17,6 +17,7 @@ use crate::{
     edit, editor,
     keymap::{Action, Keymap},
     load,
+    name::MAX_ORDER,
     op::{self, Op},
     task::{Section, Task},
     ui,
@@ -356,8 +357,7 @@ impl App {
                 let Some((to, index)) = self.task_target(s, t, down) else {
                     return Ok(());
                 };
-                edit::move_task(&self.sections, s, t, to, index)
-                    .ok_or_else(|| eyre!("section is full (99 tasks)"))?
+                edit::move_task(&self.sections, s, t, to, index).ok_or_else(section_full)?
             }
             Some(Row::Section(s)) => match edit::move_section(&self.sections, s, down) {
                 Some(result) => result,
@@ -433,8 +433,8 @@ impl App {
 
     /// Writes `task` into section `s` at `index` and puts the cursor on it.
     fn insert(&mut self, s: usize, index: usize, task: &Task) -> Result<()> {
-        let (ops, created) = edit::insert(&self.sections[s], index, task)
-            .ok_or_else(|| eyre!("section is full (99 tasks)"))?;
+        let (ops, created) =
+            edit::insert(&self.sections[s], index, task).ok_or_else(section_full)?;
         self.apply(ops)?;
         self.select_path(&created);
         Ok(())
@@ -506,6 +506,10 @@ fn read_if_exists(path: &Path) -> Result<Option<String>> {
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err).wrap_err_with(|| format!("failed to read {}", path.display())),
     }
+}
+
+fn section_full() -> Report {
+    eyre!("section is full ({MAX_ORDER} tasks)")
 }
 
 fn renamed_message(count: usize) -> String {
