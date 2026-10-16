@@ -38,10 +38,10 @@ Findings from a full code review, to work through before folding. Delete this fi
 
 ### Rust config
 
-- [ ] `rust-toolchain.toml`: pinned stable with `rustfmt` and `clippy`
-- [ ] `Cargo.toml`: `rust-version` (let-chains need 1.88+), `description`, `license`, `repository`
-- [ ] `[lints]`: `unsafe_code = "forbid"`, clippy `dbg_macro`, `todo`, `unwrap_used` (allowed in tests). Maybe `pedantic` as warn with a few allows.
-- [ ] `rustfmt.toml`: defaults are fine. `group_imports` would fix the import order automatically but needs nightly.
+- [x] `rust-toolchain.toml`: pinned stable with `rustfmt` and `clippy`
+- [x] `Cargo.toml`: `rust-version` (let-chains need 1.88+), `description`, `license`, `repository`
+- [x] `[lints]`: `unsafe_code = "forbid"`, clippy `dbg_macro`, `todo`, `unwrap_used` (allowed in tests). Maybe `pedantic` as warn with a few allows.
+- [x] `rustfmt.toml`: defaults are fine, no file. `group_imports` would fix the import order automatically but needs nightly.
 
 ### Dependencies and quality
 

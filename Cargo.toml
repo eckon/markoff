@@ -2,6 +2,9 @@
 name = "markoff"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.89"
+description = "A TUI for todos stored as markdown files"
+repository = "https://github.com/eckon/markoff"
 
 [dependencies]
 color-eyre = "0.6.5"
@@ -11,3 +14,10 @@ notify = "8.2.0"
 ratatui = "0.30.2"
 tempfile = "3.27.0"
 toml = "1.1.8"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
