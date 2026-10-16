@@ -2,8 +2,6 @@
 
 use std::{fs, io, path::Path, process::Command};
 
-use tempfile::NamedTempFile;
-
 use color_eyre::{
     Result,
     eyre::{WrapErr, bail},
@@ -15,6 +13,7 @@ use ratatui::{
         terminal::{EnterAlternateScreen, enable_raw_mode},
     },
 };
+use tempfile::NamedTempFile;
 
 /// Leaves the TUI, opens `path` in the editor, and comes back once the editor exits.
 /// `args` go to the editor before the path.
