@@ -20,9 +20,18 @@ pub fn render(app: &App, frame: &mut Frame) {
     let [list_area, preview_area] =
         Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
             .areas(main_area);
+    // Rules keep the split width even when the list gets the whole screen,
+    // so they don't jump while moving between tasks with and without a body.
+    let rule_width = list_block().inner(list_area).width as usize;
 
-    render_list(app, frame, list_area);
-    render_preview(app, frame, preview_area);
+    // The preview only shows up for a task with a body, otherwise the list takes all the width.
+    match app.selected() {
+        Some(Row::Task(s, t)) if !app.sections[s].tasks[t].body.trim().is_empty() => {
+            render_list(app, frame, list_area, rule_width);
+            render_preview(app, frame, preview_area, s, t);
+        }
+        _ => render_list(app, frame, main_area, rule_width),
+    }
     render_status(app, frame, status_area);
     if app.show_help {
         render_help(frame);
@@ -81,10 +90,8 @@ fn section_color(index: usize) -> Color {
 
 /// No box around the list. Sections are rules, tasks get a bullet in the section color,
 /// the cursor is a bar in the gutter.
-fn render_list(app: &App, frame: &mut Frame, area: Rect) {
-    // Space on the right so rules stop before the preview divider.
-    let block = Block::new().padding(Padding::new(1, 2, 0, 0));
-    let width = block.inner(area).width as usize;
+fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) {
+    let block = list_block();
 
     let mut items: Vec<ListItem> = Vec::new();
     let mut selected = 0;
@@ -143,6 +150,11 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_stateful_widget(list, area, &mut state);
 }
 
+/// Space on the right so rules stop before the preview divider.
+fn list_block<'a>() -> Block<'a> {
+    Block::new().padding(Padding::new(1, 2, 0, 0))
+}
+
 /// `── work ─────── 2`, filled to `width`. Section headers and the preview title.
 fn rule(title: &str, count: Option<usize>, color: Color, width: usize) -> Vec<Span<'static>> {
     let count = count.map(|c| format!(" {c}")).unwrap_or_default();
@@ -156,22 +168,11 @@ fn rule(title: &str, count: Option<usize>, color: Color, width: usize) -> Vec<Sp
     ]
 }
 
-/// Task body as raw text, read only. On a section header: name and task count.
-fn render_preview(app: &App, frame: &mut Frame, area: Rect) {
-    let (title, text, color) = match app.selected() {
-        Some(Row::Task(s, t)) => {
-            let task = &app.sections[s].tasks[t];
-            (task.title(), body_text(&task.body), section_color(s))
-        }
-        Some(Row::Section(s)) => {
-            let section = &app.sections[s];
-            let count = section.tasks.len();
-            let noun = if count == 1 { "task" } else { "tasks" };
-            let text = Text::from(format!("{count} {noun}"));
-            (section.title(), text, section_color(s))
-        }
-        None => (String::new(), Text::default(), Color::Reset),
-    };
+/// Task body as raw text, read only.
+fn render_preview(app: &App, frame: &mut Frame, area: Rect, s: usize, t: usize) {
+    let task = &app.sections[s].tasks[t];
+    let color = section_color(s);
+    let text = body_text(&task.body);
 
     // No box: a divider on the left, the title as a rule on the first row.
     let divider = Block::new()
@@ -183,7 +184,7 @@ fn render_preview(app: &App, frame: &mut Frame, area: Rect) {
 
     let [title_area, body_area] =
         Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
-    let title = rule(&title, None, color, title_area.width as usize);
+    let title = rule(&task.title(), None, color, title_area.width as usize);
     frame.render_widget(Line::from(title), title_area);
     frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }), body_area);
 }
@@ -284,9 +285,15 @@ mod tests {
     }
 
     #[test]
-    fn preview_shows_section_count() {
-        let app = App::new(PathBuf::new(), sections(&[(&[], &["a", "b"])]));
-        let screen = screen(&app);
-        assert!(screen.contains("2 tasks"), "missing count in\n{screen}");
+    fn preview_hidden_for_empty_task_and_section() {
+        let mut app = App::new(PathBuf::new(), sections(&[(&[], &["Fix typo"])]));
+        app.sections[0].tasks[0].body = "\n  \n".to_string();
+
+        // On the section header, then on the task with a blank body.
+        for _ in 0..2 {
+            let screen = screen(&app);
+            assert!(!screen.contains('│'), "preview shown in\n{screen}");
+            app.update(Action::Down);
+        }
     }
 }

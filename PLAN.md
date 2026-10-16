@@ -103,7 +103,7 @@ body of the task
 ## TUI
 
 - List of sections and tasks on the left, inbox first. The cursor can also sit on a section header, so `p` and `o` work on empty sections.
-- Preview pane on the right shows the task body as raw text, read only, heading lines in bold. On a section header it shows the task count.
+- Preview pane on the right shows the task body as raw text, read only, heading lines in bold. It only appears when the selected task has a body (more than blank lines). On empty tasks and section headers the list takes the full width.
 
 ### Look
 
@@ -116,6 +116,7 @@ Picked from a few variants tried in the real terminal.
 - Cursor: a `▌` bar in the section color in a one-column gutter, the row bold, a selected task's title in the section color
 - The preview title is a rule in the same style (without count), on the same row as the first list row
 - The list keeps two columns free on the right, so the rules end before the divider
+- Rules keep the width of the split list even when the preview is hidden, so they don't jump while moving
 - Status line at the bottom: errors in red, or the pending key of an unfinished `dd`. Cleared on the next key.
 - The TUI has no text input. Anything that edits text (create, rename, body) goes through `$EDITOR`, where the user has their own keybindings.
 - Only one mode (normal) plus the help overlay. While the help is open, any key closes it and does nothing else.
@@ -216,10 +217,6 @@ Picked from a few variants tried in the real terminal.
 ### Feedback round 1
 
 From daily use (notes in `notes/todo/markoff`), refined in an interview. Work in this order, each step small and committed on its own. When a step is done, its behavior moves into the sections above and the step is removed here.
-
-#### C. Look and feel (030, 040)
-
-2. **Collapsing preview.** The preview pane only appears when the selected task has a body. On empty tasks and on section headers, the list takes the full width (no divider). The section task count is already in the list, so headers don't need the preview.
 
 #### A. Creating tasks in the editor (010, 070)
 
