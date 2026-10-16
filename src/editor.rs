@@ -116,8 +116,11 @@ mod tests {
         let path = dir.path().join("a 'quoted' file.md");
         fs::write(&path, "# Old\n").unwrap();
 
-        // An "editor" with its own argument (`-i`), plus an extra argument (the script).
-        let status = command("sed -i", &["s/Old/New/"], &path).status().unwrap();
+        // An "editor" with its own argument, plus an extra argument (the script). `-i.bak`, not
+        // `-i`: BSD sed (macOS) needs a backup suffix.
+        let status = command("sed -i.bak", &["s/Old/New/"], &path)
+            .status()
+            .unwrap();
         assert!(status.success());
         assert_eq!(fs::read_to_string(&path).unwrap(), "# New\n");
     }
