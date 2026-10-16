@@ -177,12 +177,7 @@ impl App {
     /// appeared or disappeared.
     fn reload_keep_selection(&mut self) -> Result<()> {
         let selected = self.selected().map(|row| self.row_path(row));
-        self.reload()?;
-        self.clamp_cursor();
-        if let Some(path) = selected {
-            self.select_path(&path);
-        }
-        Ok(())
+        self.reload(selected.as_deref())
     }
 
     /// Path behind a row: the task file or the section directory.
@@ -268,8 +263,7 @@ impl App {
 
     /// Reloads after the editor closed. Normalizing renames the file if its heading changed.
     fn after_edit(&mut self) -> Result<()> {
-        self.reload()?;
-        self.clamp_cursor();
+        self.reload(None)?;
         self.normalize_before_action();
         Ok(())
     }
@@ -293,19 +287,18 @@ impl App {
             })
             .collect();
 
-        let selected = self.selected().map(|row| self.row_path(row));
-        op::apply_all(&ops)?;
-        self.reload()?;
-        self.clamp_cursor();
-        if let Some(mut path) = selected {
+        let selected = self.selected().map(|row| {
+            let mut path = self.row_path(row);
             // Follow each rename, also of the directory the selected task is in.
             for (from, to) in &renames {
                 if let Ok(rest) = path.strip_prefix(from) {
                     path = to.join(rest);
                 }
             }
-            self.select_path(&path);
-        }
+            path
+        });
+        op::apply_all(&ops)?;
+        self.reload(selected.as_deref())?;
         Ok(renames)
     }
 
@@ -354,9 +347,7 @@ impl App {
             existing.as_deref(),
             &date,
         );
-        self.apply(ops)?;
-        self.clamp_cursor();
-        Ok(())
+        self.apply(ops)
     }
 
     /// `J` / `K`: moves the task or section under the cursor one place, the cursor follows.
@@ -426,9 +417,8 @@ impl App {
             None => return Ok(()),
         };
         let title = self.sections[s].tasks[t].title();
-        self.apply(edit::delete(&self.sections[s], t))?;
         // Cursor stays on the same row, which is now the next task (like vim).
-        self.clamp_cursor();
+        self.apply(edit::delete(&self.sections[s], t))?;
         self.status = Some(Status::Info(format!("deleted {title} (u to undo)")));
         Ok(())
     }
@@ -460,12 +450,7 @@ impl App {
         op::apply_all(&op::inverse_all(&entry.ops))?;
         let cursor = entry.cursor.clone();
         self.undo.pop();
-        self.reload()?;
-        self.clamp_cursor();
-        if let Some(path) = cursor {
-            self.select_path(&path);
-        }
-        Ok(())
+        self.reload(cursor.as_deref())
     }
 
     /// Applies ops, records them for undo together with the cursor position, and reloads.
@@ -473,17 +458,18 @@ impl App {
         let cursor = self.selected().map(|row| self.row_path(row));
         op::apply_all(&ops)?;
         self.undo.push(UndoEntry { ops, cursor });
-        self.reload()
+        self.reload(None)
     }
 
-    /// Reads `todo/` again. The disk is the source of truth, `sections` is only a view of it.
-    fn reload(&mut self) -> Result<()> {
+    /// Reads `todo/` again and puts the cursor on `select` if it still exists, else keeps the
+    /// row number, clamped. The disk is the source of truth, `sections` is only a view of it.
+    fn reload(&mut self, select: Option<&Path>) -> Result<()> {
         self.sections = load::load(&self.root.join("todo"))?;
-        Ok(())
-    }
-
-    fn clamp_cursor(&mut self) {
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
+        if let Some(path) = select {
+            self.select_path(path);
+        }
+        Ok(())
     }
 
     /// Moves the cursor to the task file or section directory at `path`, if it exists.
