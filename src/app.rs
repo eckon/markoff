@@ -514,9 +514,9 @@ fn section_full() -> Report {
 
 fn renamed_message(count: usize) -> String {
     if count == 1 {
-        "renamed 1 file to match its title".to_string()
+        "renamed 1 file to match title and order".to_string()
     } else {
-        format!("renamed {count} files to match their titles")
+        format!("renamed {count} files to match titles and order")
     }
 }
 
@@ -858,7 +858,7 @@ pub mod tests {
         assert_eq!(
             app.status,
             Some(Status::Info(
-                "renamed 1 file to match its title".to_string()
+                "renamed 1 file to match title and order".to_string()
             ))
         );
 

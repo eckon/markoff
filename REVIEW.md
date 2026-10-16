@@ -18,7 +18,7 @@ Findings from a full code review, to work through before folding (PLAN.md step 9
 ### Leftovers
 
 - [x] Stale doc comments: `dd`/`d` in `keymap.rs` (label, `Keymap`, `pending`) and `ui.rs` (`render_status`), `NNN-` in `task.rs` and `edit.rs` (`Entry`)
-- [ ] Status "renamed N files to match their titles" is often wrong now (renames also fix the order). Decide the new text, e.g. "renamed N files (title/order)".
+- [x] Status "renamed N files to match their titles" is often wrong now (renames also fix the order). Decide the new text, e.g. "renamed N files (title/order)".
 - [ ] `op::write_atomic` and `keymap::HINTS` are `pub` but only used in their module
 - [ ] Help popup has a fixed width of 44, measure the content like the rename popup
 - [ ] `editor.rs`: `use tempfile` sits between the std and color_eyre imports
