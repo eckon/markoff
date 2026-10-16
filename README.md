@@ -40,8 +40,9 @@ archive/
   2026-10-14.md             <- tasks done that day
 ```
 
-- A task file starts with `# Title`. The filename follows the title when you edit it with `<CR>`.
+- A task file starts with `# Title`. The filename follows the title.
 - The number prefix is the order. markoff picks and renumbers prefixes itself.
+- Files created or edited by hand are renamed into this shape on start and with the next action. Renames on start are listed in a popup.
 - Sections are created and renamed in the shell (`mkdir todo/030-home`).
 - Done tasks are appended to `archive/YYYY-MM-DD.md` under their section, then deleted from `todo/`.
 

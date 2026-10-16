@@ -47,32 +47,118 @@ pub fn archive(
     ops
 }
 
-/// After editing: renames the task if its heading no longer matches the slug.
+/// Renames the tasks of a section into the shape markoff itself creates.
 ///
-/// Keeps the prefix. Tasks without heading or without prefix are left alone.
-pub fn sync_filename(section: &Section, index: usize) -> Option<Op> {
-    let task = &section.tasks[index];
-    let (heading, name) = (task.heading.as_ref()?, task.name.as_ref()?);
-    let slug = slugify(heading);
-    if slug == name.slug {
-        return None;
-    }
+/// Tasks without prefix get one after the last task, in the order they are shown. If that
+/// does not fit into 999, the whole section is renumbered. Slugs follow the heading, tasks
+/// without heading keep their name. Returns no ops if everything already matches.
+pub fn normalize(section: &Section) -> Vec<Op> {
+    let Some(orders) = normalized_orders(section) else {
+        return Vec::new();
+    };
+    let names = target_names(section, &orders);
+    renames_to(section, &names)
+}
 
-    let others: Vec<Name> = section
+/// Prefixed tasks keep their order, the others are appended [`ORDER_GAP`] apart.
+/// If that does not fit, all tasks get even gaps. `None` if the section is too big even for that.
+fn normalized_orders(section: &Section) -> Option<Vec<u32>> {
+    let last = section
         .tasks
         .iter()
-        .enumerate()
-        .filter(|(i, _)| *i != index)
-        .filter_map(|(_, t)| t.name.clone())
+        .filter_map(|task| task.name.as_ref().map(|name| name.order))
+        .max()
+        .unwrap_or(0);
+    let mut next = last;
+    let appended: Option<Vec<u32>> = section
+        .tasks
+        .iter()
+        .map(|task| match &task.name {
+            Some(name) => Some(name.order),
+            None => {
+                next += ORDER_GAP;
+                (next <= MAX_ORDER).then_some(next)
+            }
+        })
         .collect();
-    let new_name = Name {
-        order: name.order,
-        slug: unique_slug(&others, slug),
-    };
-    Some(Op::Rename {
-        from: task.path.clone(),
-        to: section.dir.join(format!("{}.md", new_name.to_stem())),
+
+    appended.or_else(|| {
+        let gap = gap_for(section.tasks.len())?;
+        Some(
+            (1..=section.tasks.len() as u32)
+                .map(|position| position * gap)
+                .collect(),
+        )
     })
+}
+
+/// Names for all tasks at `orders`: slug from the heading, otherwise the current name.
+///
+/// Tasks whose slug stays the same keep it, the others get a unique one (`-2`, ...), so a
+/// task never takes the slug another task already has.
+fn target_names(section: &Section, orders: &[u32]) -> Vec<Name> {
+    let slugs: Vec<String> = section.tasks.iter().map(wanted_slug).collect();
+    let keeps_slug: Vec<bool> = section
+        .tasks
+        .iter()
+        .zip(&slugs)
+        .map(|(task, slug)| task.name.as_ref().map(|name| &name.slug) == Some(slug))
+        .collect();
+
+    let mut taken: Vec<Name> = (0..slugs.len())
+        .filter(|&i| keeps_slug[i])
+        .map(|i| Name {
+            order: orders[i],
+            slug: slugs[i].clone(),
+        })
+        .collect();
+
+    slugs
+        .into_iter()
+        .zip(orders)
+        .enumerate()
+        .map(|(i, (slug, &order))| {
+            if keeps_slug[i] {
+                return Name { order, slug };
+            }
+            let name = Name {
+                order,
+                slug: unique_slug(&taken, slug),
+            };
+            taken.push(name.clone());
+            name
+        })
+        .collect()
+}
+
+/// Slug from the heading. Without heading the name stays: the slug, or the whole file stem
+/// if there is no prefix (`My Notes.md` -> `010-My Notes.md`).
+fn wanted_slug(task: &Task) -> String {
+    match (&task.heading, &task.name) {
+        (Some(heading), _) => slugify(heading),
+        (None, Some(name)) => name.slug.clone(),
+        (None, None) => task
+            .path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or_default()
+            .to_string(),
+    }
+}
+
+/// Renames for every task whose file name differs from `names`, ordered to avoid clashes.
+fn renames_to(section: &Section, names: &[Name]) -> Vec<Op> {
+    let renames = section
+        .tasks
+        .iter()
+        .zip(names)
+        .map(|(task, name)| {
+            let to = section.dir.join(format!("{}.md", name.to_stem()));
+            (task.path.clone(), to)
+        })
+        .filter(|(from, to)| from != to)
+        .collect();
+    order_renames(renames)
 }
 
 /// `p` / `P`: writes `task` into `section` so it ends up at position `index`.
@@ -126,35 +212,22 @@ fn free_order(section: &Section, index: usize) -> Option<u32> {
 /// Renumbers all tasks with even gaps, leaving position `slot` free for a new task.
 ///
 /// Returns the renames, the new names of all tasks and the order for the free slot.
-/// The gap is the largest of 10, 5, 2, 1 that fits all tasks plus the new one into 999.
-/// Tasks without prefix get one, with their title as slug.
 fn renumber(section: &Section, slot: usize) -> Option<(Vec<Op>, Vec<Name>, u32)> {
-    let total = section.tasks.len() as u32 + 1;
-    let gap = [ORDER_GAP, 5, 2, 1]
-        .into_iter()
-        .find(|gap| total * gap <= MAX_ORDER)?;
+    let gap = gap_for(section.tasks.len() + 1)?;
     let order_at = |position: usize| (position as u32 + 1) * gap;
+    let orders: Vec<u32> = (0..section.tasks.len())
+        .map(|i| order_at(if i < slot { i } else { i + 1 }))
+        .collect();
 
-    let mut renames = Vec::new();
-    let mut names = Vec::new();
-    for (i, task) in section.tasks.iter().enumerate() {
-        let position = if i < slot { i } else { i + 1 };
-        let slug = match &task.name {
-            Some(name) => name.slug.clone(),
-            None => slugify(&task.title()),
-        };
-        let name = Name {
-            order: order_at(position),
-            slug,
-        };
-        let to = section.dir.join(format!("{}.md", name.to_stem()));
-        if to != task.path {
-            renames.push((task.path.clone(), to));
-        }
-        names.push(name);
-    }
+    let names = target_names(section, &orders);
+    Some((renames_to(section, &names), names, order_at(slot)))
+}
 
-    Some((order_renames(renames), names, order_at(slot)))
+/// The largest of 10, 5, 2, 1 that fits `count` tasks into 999.
+fn gap_for(count: usize) -> Option<u32> {
+    [ORDER_GAP, 5, 2, 1]
+        .into_iter()
+        .find(|gap| count as u32 * gap <= MAX_ORDER)
 }
 
 /// Orders renames so each target is free when its turn comes.
@@ -247,36 +320,69 @@ mod tests {
         );
     }
 
-    #[test]
-    fn sync_filename_cases() {
-        let parse =
-            |file: &str, content: &str| Task::parse(PathBuf::from("todo/work").join(file), content);
+    /// A section in `todo/work` from `(file, content)` pairs.
+    fn section_with(files: &[(&str, &str)]) -> Section {
         let mut s = section(&[]);
-        s.tasks = vec![
-            parse("010-old.md", "# New title"),
-            parse("020-same.md", "# Same"),
-            parse("030-x.md", "no heading"),
-            parse("notes.md", "# Has heading"),
-            parse("040-y.md", "# New title"),
-        ];
+        s.tasks = files
+            .iter()
+            .map(|(file, content)| Task::parse(s.dir.join(file), content))
+            .collect();
+        s
+    }
 
+    #[test]
+    fn normalize_leaves_clean_section_alone() {
+        let s = section_with(&[("010-a.md", "# A"), ("020-notes.md", "no heading")]);
+        assert_eq!(normalize(&s), []);
+    }
+
+    #[test]
+    fn normalize_syncs_slug_to_heading() {
+        let s = section_with(&[("010-old.md", "# New title")]);
         assert_eq!(
-            sync_filename(&s, 0),
-            Some(Op::Rename {
-                from: "todo/work/010-old.md".into(),
-                to: "todo/work/010-new-title.md".into(),
-            })
+            describe(Some(normalize(&s))).unwrap(),
+            ["rename 010-old.md -> 010-new-title.md"]
         );
-        assert_eq!(sync_filename(&s, 1), None, "slug already matches");
-        assert_eq!(sync_filename(&s, 2), None, "no heading");
-        assert_eq!(sync_filename(&s, 3), None, "no prefix");
+    }
 
-        // `new-title` is free for the first task, but the last one must not take it as well.
-        s.tasks[0] = parse("010-new-title.md", "# New title");
-        let Some(Op::Rename { to, .. }) = sync_filename(&s, 4) else {
-            panic!("expected a rename");
-        };
-        assert_eq!(to, PathBuf::from("todo/work/040-new-title-2.md"));
+    #[test]
+    fn normalize_appends_unprefixed_in_shown_order() {
+        // Loaded order: prefixed first, then unprefixed by name.
+        let s = section_with(&[
+            ("010-a.md", "# A"),
+            ("Call Bob.md", "no heading"),
+            ("random.md", "# Fix login"),
+        ]);
+        assert_eq!(
+            describe(Some(normalize(&s))).unwrap(),
+            [
+                "rename Call Bob.md -> 020-Call Bob.md",
+                "rename random.md -> 030-fix-login.md",
+            ]
+        );
+    }
+
+    #[test]
+    fn normalize_never_takes_a_used_slug() {
+        // `010-x-2` keeps its `-2` because `020-x` already has `x`.
+        let s = section_with(&[
+            ("010-x-2.md", "# X"),
+            ("020-x.md", "# X"),
+            ("030-old.md", "# X"),
+        ]);
+        assert_eq!(
+            describe(Some(normalize(&s))).unwrap(),
+            ["rename 030-old.md -> 030-x-3.md"]
+        );
+    }
+
+    #[test]
+    fn normalize_renumbers_if_appending_does_not_fit() {
+        let s = section_with(&[("995-a.md", "# A"), ("b.md", "# B")]);
+        assert_eq!(
+            describe(Some(normalize(&s))).unwrap(),
+            ["rename 995-a.md -> 010-a.md", "rename b.md -> 020-b.md"]
+        );
     }
 
     #[test]
@@ -337,7 +443,7 @@ mod tests {
         let s = section(&["010-a.md", "My Notes.md"]);
         assert_eq!(
             describe(paste(&s, 2, &task("New"))).unwrap(),
-            ["rename My Notes.md -> 020-my-notes.md", "create 030-new.md"]
+            ["rename My Notes.md -> 020-My Notes.md", "create 030-new.md"]
         );
         // Before the first task needs no renumber, its neighbour has a prefix.
         assert_eq!(

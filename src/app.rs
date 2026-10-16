@@ -46,6 +46,13 @@ enum EditorRequest {
     Create { section: usize, index: usize },
 }
 
+/// Message for the status line, cleared on the next key press.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Status {
+    Error(String),
+    Info(String),
+}
+
 /// Application state.
 #[derive(Debug)]
 pub struct App {
@@ -60,10 +67,11 @@ pub struct App {
     register: Option<Task>,
     /// Applied op lists, newest last. Undo applies the inverse of the last one.
     undo: Vec<Vec<Op>>,
-    /// Message for the status line, e.g. an error. Cleared on the next key press.
-    pub status: Option<String>,
+    pub status: Option<Status>,
     /// Help overlay is open.
     pub show_help: bool,
+    /// Renames done at startup, relative to `todo/`. Shown as a popup until the next key.
+    pub renamed: Vec<(PathBuf, PathBuf)>,
     editor_request: Option<EditorRequest>,
 }
 
@@ -79,13 +87,32 @@ impl App {
             undo: Vec::new(),
             status: None,
             show_help: false,
+            renamed: Vec::new(),
             editor_request: None,
         }
     }
 
+    /// Loads `todo/` and normalizes it. Renames are listed in a popup, since files changing
+    /// their names on start can be a surprise.
     pub fn load(root: PathBuf) -> Result<Self> {
-        let sections = load::load(&root.join("todo"))?;
-        Ok(Self::new(root, sections))
+        let todo_dir = root.join("todo");
+        let sections = load::load(&todo_dir)?;
+        let mut app = Self::new(root, sections);
+        match app.normalize() {
+            Ok(renames) => {
+                let relative = |path: PathBuf| {
+                    path.strip_prefix(&todo_dir)
+                        .map(Path::to_path_buf)
+                        .unwrap_or(path)
+                };
+                app.renamed = renames
+                    .into_iter()
+                    .map(|(from, to)| (relative(from), relative(to)))
+                    .collect();
+            }
+            Err(err) => app.report(Err(err)),
+        }
+        Ok(app)
     }
 
     /// Main loop: draw if needed, wait briefly for a key, check for outside changes.
@@ -126,7 +153,7 @@ impl App {
             if let Some(request) = self.editor_request.take() {
                 let result = match request {
                     EditorRequest::Open(path) => {
-                        editor::open(terminal, &path, &[]).and_then(|()| self.after_edit(&path))
+                        editor::open(terminal, &path, &[]).and_then(|()| self.after_edit())
                     }
                     EditorRequest::Create { section, index } => {
                         editor::create(terminal, &self.sections[section].dir)
@@ -168,8 +195,9 @@ impl App {
             self.status = None;
             // Any key closes the help and does nothing else, so a stray key cannot change
             // tasks that are hidden behind the overlay.
-            if self.show_help {
+            if self.show_help || !self.renamed.is_empty() {
                 self.show_help = false;
+                self.renamed.clear();
                 return;
             }
             if let Some(action) = self.keymap.handle(key) {
@@ -186,7 +214,7 @@ impl App {
 
     fn report(&mut self, result: Result<()>) {
         if let Err(err) = result {
-            self.status = Some(err.to_string());
+            self.status = Some(Status::Error(err.to_string()));
         }
     }
 
@@ -208,10 +236,18 @@ impl App {
                     self.editor_request = Some(EditorRequest::Create { section, index });
                 }
             }
-            Action::Done => self.done()?,
-            Action::Cut => self.cut()?,
-            Action::PasteBelow => self.paste(false)?,
-            Action::PasteAbove => self.paste(true)?,
+            Action::Done => {
+                self.normalize_before_action();
+                self.done()?;
+            }
+            Action::Cut => {
+                self.normalize_before_action();
+                self.cut()?;
+            }
+            Action::PasteBelow | Action::PasteAbove => {
+                self.normalize_before_action();
+                self.paste(action == Action::PasteAbove)?;
+            }
             Action::Undo => self.undo()?,
             Action::Help => self.show_help = !self.show_help,
             Action::Quit => self.running = false,
@@ -219,27 +255,55 @@ impl App {
         Ok(())
     }
 
-    /// Reloads after the editor closed and renames the file if its heading changed.
-    ///
-    /// The rename is not added to undo: undoing only the rename would bring back the
-    /// mismatch, and the edit itself cannot be undone anyway.
-    fn after_edit(&mut self, path: &Path) -> Result<()> {
+    /// Reloads after the editor closed. Normalizing renames the file if its heading changed.
+    fn after_edit(&mut self) -> Result<()> {
         self.reload()?;
         self.clamp_cursor();
-        let Some((s, t)) = self.find_task(path) else {
-            // Deleted in the editor.
-            return Ok(());
-        };
-        if let Some(rename) = edit::sync_filename(&self.sections[s], t) {
-            let Op::Rename { to, .. } = &rename else {
-                unreachable!("sync_filename only renames");
-            };
-            let to = to.clone();
-            op::apply_all(&[rename])?;
-            self.reload()?;
-            self.select_path(&to);
-        }
+        self.normalize_before_action();
         Ok(())
+    }
+
+    /// Renames all tasks into shape with [`edit::normalize`] and returns the renames.
+    ///
+    /// Not added to undo: undoing it would only be redone by the next action. The cursor
+    /// follows a renamed task.
+    fn normalize(&mut self) -> Result<Vec<(PathBuf, PathBuf)>> {
+        let ops: Vec<Op> = self.sections.iter().flat_map(edit::normalize).collect();
+        if ops.is_empty() {
+            return Ok(Vec::new());
+        }
+        let renames: Vec<(PathBuf, PathBuf)> = ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::Rename { from, to } => Some((from.clone(), to.clone())),
+                _ => None,
+            })
+            .collect();
+
+        let selected = self.selected().map(|row| self.row_path(row));
+        op::apply_all(&ops)?;
+        self.reload()?;
+        self.clamp_cursor();
+        if let Some(path) = selected {
+            let path = renames
+                .iter()
+                .find(|(from, _)| *from == path)
+                .map_or(path, |(_, to)| to.clone());
+            self.select_path(&path);
+        }
+        Ok(renames)
+    }
+
+    /// [`Self::normalize`] before an action that writes, so the action sees clean names.
+    ///
+    /// Renames are mentioned in the status line. A failure is reported there too, everything
+    /// was rolled back then, so the action still runs on the unchanged files.
+    fn normalize_before_action(&mut self) {
+        match self.normalize() {
+            Ok(renames) if renames.is_empty() => {}
+            Ok(renames) => self.status = Some(Status::Info(renamed_message(renames.len()))),
+            Err(err) => self.report(Err(err)),
+        }
     }
 
     /// Inserts what was written in the editor for `o` / `O`, like a paste.
@@ -248,14 +312,9 @@ impl App {
         if task.heading.is_none() {
             return Err(eyre!("aborted, empty title"));
         }
+        // Renames keep the order of tasks and sections, so `section` and `index` stay valid.
+        self.normalize_before_action();
         self.insert(section, index, &task)
-    }
-
-    fn find_task(&self, path: &Path) -> Option<(usize, usize)> {
-        self.sections.iter().enumerate().find_map(|(s, section)| {
-            let t = section.tasks.iter().position(|task| task.path == path)?;
-            Some((s, t))
-        })
     }
 
     fn done(&mut self) -> Result<()> {
@@ -392,6 +451,14 @@ fn read_if_exists(path: &Path) -> Result<Option<String>> {
         Ok(content) => Ok(Some(content)),
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err).wrap_err_with(|| format!("failed to read {}", path.display())),
+    }
+}
+
+fn renamed_message(count: usize) -> String {
+    if count == 1 {
+        "renamed 1 file to match its title".to_string()
+    } else {
+        format!("renamed {count} files to match their titles")
     }
 }
 
@@ -584,14 +651,20 @@ pub mod tests {
         assert_eq!(app.cursor, 1, "cursor is on the restored task");
 
         app.update(Action::Undo);
-        assert_eq!(app.status.as_deref(), Some("nothing to undo"));
+        assert_eq!(
+            app.status,
+            Some(Status::Error("nothing to undo".to_string()))
+        );
     }
 
     #[test]
     fn errors_go_to_status() {
         let (_dir, mut app) = app_with_files(&["010-a.md"]);
         app.update(Action::PasteBelow);
-        assert_eq!(app.status.as_deref(), Some("nothing to paste"));
+        assert_eq!(
+            app.status,
+            Some(Status::Error("nothing to paste".to_string()))
+        );
     }
 
     #[test]
@@ -662,7 +735,7 @@ pub mod tests {
 
         // What the user does in the editor.
         fs::write(&path, "# Renamed task\n\nnotes").unwrap();
-        app.after_edit(&path).unwrap();
+        app.after_edit().unwrap();
 
         assert_eq!(
             listing(&app),
@@ -670,6 +743,59 @@ pub mod tests {
         );
         assert_eq!(app.cursor, 1, "cursor follows the renamed file");
         assert_eq!(app.sections[0].tasks[0].body, "notes");
+    }
+
+    #[test]
+    fn startup_normalizes_and_lists_renames() {
+        let (_dir, mut app) = app_with_files(&["010-a.md", "b.md", "010-work/old.md"]);
+        assert_eq!(
+            listing(&app),
+            ["[inbox]", "010-a.md", "020-b.md", "[work]", "010-old.md"]
+        );
+        assert_eq!(
+            app.renamed,
+            [
+                ("b.md".into(), "020-b.md".into()),
+                ("010-work/old.md".into(), "010-work/010-old.md".into()),
+            ]
+        );
+
+        // Any key closes the popup and does nothing else.
+        app.handle_event(Event::Key(KeyCode::Char('j').into()));
+        assert!(app.renamed.is_empty());
+        assert_eq!(app.cursor, 0);
+    }
+
+    #[test]
+    fn reload_from_watcher_does_not_rename() {
+        let (dir, mut app) = app_with_files(&["010-a.md"]);
+        fs::write(dir.path().join("todo/new.md"), "# New").unwrap();
+        app.reload_keep_selection().unwrap();
+        assert_eq!(listing(&app), ["[inbox]", "010-a.md", "new.md"]);
+    }
+
+    #[test]
+    fn action_normalizes_first_and_says_so() {
+        let (dir, mut app) = app_with_files(&["010-a.md", "020-b.md"]);
+        fs::write(dir.path().join("todo/new.md"), "# New").unwrap();
+        app.reload_keep_selection().unwrap();
+        app.cursor = 1;
+
+        app.update(Action::Cut);
+        assert_eq!(listing(&app), ["[inbox]", "020-b.md", "030-new.md"]);
+        assert_eq!(
+            app.status,
+            Some(Status::Info(
+                "renamed 1 file to match its title".to_string()
+            ))
+        );
+
+        // Undo only reverts the cut, the rename stays.
+        app.update(Action::Undo);
+        assert_eq!(
+            listing(&app),
+            ["[inbox]", "010-a.md", "020-b.md", "030-new.md"]
+        );
     }
 
     #[test]

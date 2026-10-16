@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use crate::{
-    app::{App, Row},
+    app::{App, Row, Status},
     keymap::{BINDINGS, Binding},
 };
 
@@ -36,6 +36,47 @@ pub fn render(app: &App, frame: &mut Frame) {
     if app.show_help {
         render_help(frame);
     }
+    if !app.renamed.is_empty() {
+        render_renamed(app, frame);
+    }
+}
+
+/// Centered popup listing the renames done at startup, old name above the new one.
+fn render_renamed(app: &App, frame: &mut Frame) {
+    let mut lines = vec![
+        Line::from("Files were renamed to match"),
+        Line::from("their titles and order:"),
+        Line::default(),
+    ];
+
+    // Borders, the 3 lines above and the 2 below take 7 rows, each rename takes 2.
+    let room = (frame.area().height as usize).saturating_sub(7);
+    let total = app.renamed.len();
+    let shown = if total * 2 <= room {
+        total
+    } else {
+        room.saturating_sub(1) / 2
+    };
+    for (from, to) in &app.renamed[..shown] {
+        lines.push(Line::from(from.display().to_string()));
+        lines.push(Line::from(format!("  -> {}", to.display())));
+    }
+    if shown < total {
+        lines.push(Line::from(format!("… and {} more", total - shown)).dim());
+    }
+    lines.push(Line::default());
+    lines.push(Line::from("any key closes this").dim().centered());
+
+    let width = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4;
+    let height = lines.len() as u16 + 2;
+    let area = frame
+        .area()
+        .centered(Constraint::Length(width), Constraint::Length(height));
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(lines).block(block(" renamed ".to_string()).padding(Padding::horizontal(1))),
+        area,
+    );
 }
 
 /// Centered popup listing [`BINDINGS`], so it always matches the real keys.
@@ -70,7 +111,8 @@ fn render_help(frame: &mut Frame) {
 /// Last error or message, otherwise the pending key of an unfinished sequence (`d`).
 fn render_status(app: &App, frame: &mut Frame, area: Rect) {
     let line = match (&app.status, app.keymap.pending()) {
-        (Some(status), _) => Line::from(status.as_str().red()),
+        (Some(Status::Error(message)), _) => Line::from(message.as_str().red()),
+        (Some(Status::Info(message)), _) => Line::from(message.as_str()),
         (None, Some(key)) => Line::from(key.to_string()).right_aligned(),
         (None, None) => Line::default(),
     };
@@ -276,6 +318,24 @@ mod tests {
             .map(|c| c.symbol())
             .collect();
         for text in ["j / ↓  cursor down", "dd  cut task", "q / C-c  quit"] {
+            assert!(screen.contains(text), "missing {text:?}");
+        }
+    }
+
+    #[test]
+    fn renamed_popup_lists_renames() {
+        let mut app = App::new(PathBuf::new(), sections(&[(&[], &[])]));
+        app.renamed = vec![("b.md".into(), "020-b.md".into())];
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let screen: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        for text in [" renamed ", "b.md", "-> 020-b.md", "any key closes this"] {
             assert!(screen.contains(text), "missing {text:?}");
         }
     }
