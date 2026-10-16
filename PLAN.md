@@ -201,20 +201,52 @@ body of the task
 
 ## Next steps
 
-Rough priority, best decided after using v1 for a while:
+### Feedback round 1
 
-1. Use it daily with real todos and note what is missing
-2. Fix the list scroll state (see limitations), noticeable once a list is longer than the screen
-3. More navigation: `gg/G` and section jumps. `gg` is one row in `BINDINGS` with `Seq('g', 'g')` plus its `Action`.
-4. Filter or fuzzy find with `/`. Either in the TUI, or the tool writes all tasks into a temp file and opens it in the editor.
-5. `J/K` to reorder without the register (and Shift+arrows for non-vim users)
-6. `markoff add` CLI command for quick capture from the shell
-7. Redo `C-r`: the undo stack already stores inverses, redo is a second stack
-8. Footer with key hints
+From daily use (notes in `notes/todo/markoff`), refined in an interview. Work in this order, each step small and committed on its own. When a step is done, its behavior moves into the sections above and the step is removed here.
+
+#### C. Look and feel (030, 040)
+
+1. **More visual flavour.** The layout is plain black and white. Before settling on one look, build 2-3 variants and show them to the user (screenshots or a temporary switch) for feedback. Things to vary:
+   - Section headers easy to tell apart: color, a blank line or separator above them, task count next to the name (`work (3)`)
+   - A softer selection than `REVERSED`: theme color for the cursor row, accent colors for borders and titles
+   - Keep it readable on both dark and light terminals (use the 16 ANSI colors, not hardcoded RGB)
+2. **Collapsing preview.** The preview pane only appears when the selected task has a body. On empty tasks and on section headers, the list takes the full width. The section task count moves into the list (see above), so headers don't need the preview.
+
+#### A. Creating tasks in the editor (010, 070)
+
+3. **Insert mode on new tasks.** If the editor command's program name is `vi`, `vim` or `nvim`, `o/O` add `+startinsert!` so the cursor is in insert mode after `# `. Only for new tasks, not for `<CR>`. Other editors are unchanged.
+4. **Draft file inside `todo/`.** `o/O` create the draft as a hidden file in the target section dir (`todo/010-work/.markoff-new-XXXX.md`, inbox: `todo/`), so relative links, links into the wider notes folder and the markdown LSP all work while writing. The loader already ignores hidden files. On save, the draft becomes the task (a `Create` op as today, then the draft is deleted). On abort (empty title), the draft is deleted. Check first whether the LSP indexes hidden files. If not, use a non-hidden name the loader skips instead.
+
+#### B. Keep filenames consistent (020)
+
+5. **Normalize pass.** Files created or renamed by hand get the same shape as the tool's own:
+   - A file without a valid prefix gets one, placed last in its section
+   - A file with a heading gets its slug synced to the heading (prefix kept)
+   - A file without a heading keeps its name and only gets a prefix. Its content is not touched.
+   - Runs at startup and as part of every action that writes (create, done, delete, move, `<CR>`). It does not run on watcher reloads, so a file open in another editor is not renamed while markoff only displays it.
+   - Not on the undo stack, like today's `<CR>` rename
+   - Pure function in `edit.rs` (sections -> rename ops). Replaces `sync_filename` and the known limitation about headings changed outside markoff.
+
+#### D. Navigation and structure (050, 060)
+
+6. **`J/K` move.** On a task: move it one row down/up. At the section edge it moves into the neighbouring section (first/last position). On a section header: swap the section with its neighbour by renaming the dir prefixes. The inbox stays first and cannot be moved. Each move is one undo step. Needs a dir rename op in `op.rs` (`Rename` may already cover dirs, check the overwrite guard).
+7. **Remove the register.** `dd`, `p`, `P` go away. `d` (single key) deletes the task without archiving. No confirmation: the status line says `deleted <title> (u to undo)`. This removes the only multi-key sequence and the "register lost on quit" tradeoff. `keymap.rs` keeps its sequence support for `gg`.
+8. **Jumps.** `gg`/`G` for first/last row, `{`/`}` for previous/next section header
+9. **Fold sections.** `za` (and `<Tab>`) toggles the section under the cursor (or the one the cursor is in). Folded headers show their count. Fold state is per session, in memory. `J/K` over a folded section moves the task past the whole section.
+10. **Focus one section.** A key (`f`, still free) shows only the section under the cursor. Same key again shows everything. Decide whether the inbox stays visible.
+11. **`/` filter.** Typing filters the list live, fuzzy over titles, section names and task bodies. A matching section name shows all its tasks. A body match shows the matching line (in the preview or dim under the title). `<CR>` keeps the filter and the cursor on the match, `Esc` clears it. This is the first text input in the TUI, so it gets its own small input mode.
+
+### Later
+
+1. Fix the list scroll state (see limitations), noticeable once a list is longer than the screen. Best done together with folding/filter, which change the rows.
+2. `markoff add` CLI command for quick capture from the shell
+3. Redo `C-r`: the undo stack already stores inverses, redo is a second stack
+4. Footer with key hints
 
 Deferred, needs design first:
 
 - Nested sections (data model and archive format already allow it, archive heading would be `## private/garden`)
-- Section create, rename, reorder and delete in the TUI
+- Section create, rename and delete in the TUI
 - Recurring tasks. One option is a `recur: weekly` key in frontmatter. On archive, the tool creates a fresh copy instead of only deleting the task. Needs frontmatter support in `task.rs` first.
 - More vim keys: counts, `C-d/C-u`, repeat `.`
