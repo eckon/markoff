@@ -8,6 +8,8 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub enum Action {
     Up,
     Down,
+    MoveUp,
+    MoveDown,
     Open,
     NewBelow,
     NewAbove,
@@ -27,6 +29,8 @@ pub enum Trigger {
     Key(KeyCode),
     /// Ctrl plus a letter.
     Ctrl(char),
+    /// Shift plus a non-letter key, like `Shift+Down`. Shifted letters are just `Key('J')`.
+    Shift(KeyCode),
     /// Two keys in a row, like `dd`.
     Seq(char, char),
 }
@@ -41,7 +45,7 @@ pub struct Binding {
 
 use Action as A;
 use KeyCode::{Char, Down, Enter, Up};
-use Trigger::{Ctrl, Key, Seq};
+use Trigger::{Ctrl, Key, Seq, Shift};
 
 /// The single source of truth for keys: [`Keymap::handle`] reads it and so does the help
 /// overlay, so the two can never disagree. One line per binding, hence no rustfmt.
@@ -49,6 +53,8 @@ use Trigger::{Ctrl, Key, Seq};
 pub const BINDINGS: &[Binding] = &[
     Binding { triggers: &[Key(Char('j')), Key(Down)], action: A::Down, help: "cursor down" },
     Binding { triggers: &[Key(Char('k')), Key(Up)], action: A::Up, help: "cursor up" },
+    Binding { triggers: &[Key(Char('J')), Shift(Down)], action: A::MoveDown, help: "move task or section down" },
+    Binding { triggers: &[Key(Char('K')), Shift(Up)], action: A::MoveUp, help: "move task or section up" },
     Binding { triggers: &[Key(Enter)], action: A::Open, help: "open task in $EDITOR" },
     Binding { triggers: &[Key(Char('o'))], action: A::NewBelow, help: "new task below" },
     Binding { triggers: &[Key(Char('O'))], action: A::NewAbove, help: "new task above" },
@@ -71,6 +77,9 @@ impl Binding {
             Key(Enter) => "<CR>".to_string(),
             Key(other) => format!("{other:?}"),
             Ctrl(c) => format!("C-{c}"),
+            Shift(Down) => "S-↓".to_string(),
+            Shift(Up) => "S-↑".to_string(),
+            Shift(other) => format!("S-{other:?}"),
             Seq(a, b) => format!("{a}{b}"),
         };
         self.triggers
@@ -117,9 +126,12 @@ impl Keymap {
                 .find_map(|(t, action)| (t == Seq(first, second)).then_some(action));
         }
 
+        // Shift only counts for non-letters: a shifted letter already arrives as `J`.
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT) && !matches!(key.code, Char(_));
         for (trigger, action) in triggers {
             match trigger {
-                Key(code) if code == key.code => return Some(action),
+                Key(code) if code == key.code && !shift => return Some(action),
+                Shift(code) if code == key.code && shift => return Some(action),
                 Seq(first, _) if key.code == Char(first) => {
                     self.pending = Some(first);
                     return None;
@@ -188,6 +200,7 @@ mod tests {
                 let action = match *trigger {
                     Key(code) => press(&mut keymap, code),
                     Ctrl(c) => keymap.handle(KeyEvent::new(Char(c), KeyModifiers::CONTROL)),
+                    Shift(code) => keymap.handle(KeyEvent::new(code, KeyModifiers::SHIFT)),
                     Seq(a, b) => {
                         press(&mut keymap, Char(a));
                         press(&mut keymap, Char(b))
@@ -210,6 +223,17 @@ mod tests {
         assert_eq!(label(Action::Down), "j / ↓");
         assert_eq!(label(Action::Cut), "dd");
         assert_eq!(label(Action::Quit), "q / C-c");
+    }
+
+    #[test]
+    fn shift_arrow_moves_instead_of_cursor() {
+        let mut keymap = Keymap::default();
+        let shift_down = KeyEvent::new(Down, KeyModifiers::SHIFT);
+        assert_eq!(keymap.handle(shift_down), Some(Action::MoveDown));
+        // Terminals send `J` with the shift modifier set, it still is `J`.
+        let shift_j = KeyEvent::new(Char('J'), KeyModifiers::SHIFT);
+        assert_eq!(keymap.handle(shift_j), Some(Action::MoveDown));
+        assert_eq!(press(&mut keymap, Down), Some(Action::Down));
     }
 
     #[test]

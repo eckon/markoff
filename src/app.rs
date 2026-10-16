@@ -225,6 +225,10 @@ impl App {
                 let last = self.rows().len().saturating_sub(1);
                 self.cursor = (self.cursor + 1).min(last);
             }
+            Action::MoveDown | Action::MoveUp => {
+                self.normalize_before_action();
+                self.move_selected(action == Action::MoveDown)?;
+            }
             Action::Open => {
                 if let Some(Row::Task(s, t)) = self.selected() {
                     let path = self.sections[s].tasks[t].path.clone();
@@ -336,6 +340,53 @@ impl App {
         self.apply(ops)?;
         self.clamp_cursor();
         Ok(())
+    }
+
+    /// `J` / `K`: moves the task or section under the cursor one place, the cursor follows.
+    /// Nothing happens at the edges.
+    fn move_selected(&mut self, down: bool) -> Result<()> {
+        let ops = match self.selected() {
+            Some(Row::Task(s, t)) => {
+                let Some((to, index)) = self.task_target(s, t, down) else {
+                    return Ok(());
+                };
+                edit::move_task(&self.sections, s, t, to, index)
+                    .ok_or_else(|| eyre!("section is full (999 tasks)"))?
+            }
+            Some(Row::Section(s)) => match edit::move_section(&self.sections, s, down) {
+                Some(ops) => ops,
+                None => return Ok(()),
+            },
+            None => return Ok(()),
+        };
+        // The moved entry is always the last rename.
+        let moved_to = match ops.last() {
+            Some(Op::Rename { to, .. }) => Some(to.clone()),
+            _ => None,
+        };
+        self.apply(ops)?;
+        if let Some(path) = moved_to {
+            self.select_path(&path);
+        }
+        Ok(())
+    }
+
+    /// Where `J` / `K` put task `t` of section `s`, as section and index among the other
+    /// tasks there. At a section edge it goes into the neighbouring section, first or last.
+    /// `None` at the very top or bottom.
+    fn task_target(&self, s: usize, t: usize, down: bool) -> Option<(usize, usize)> {
+        if down {
+            if t + 1 < self.sections[s].tasks.len() {
+                Some((s, t + 1))
+            } else {
+                (s + 1 < self.sections.len()).then_some((s + 1, 0))
+            }
+        } else if t > 0 {
+            Some((s, t - 1))
+        } else {
+            let previous = s.checked_sub(1)?;
+            Some((previous, self.sections[previous].tasks.len()))
+        }
     }
 
     fn cut(&mut self) -> Result<()> {
@@ -796,6 +847,63 @@ pub mod tests {
             listing(&app),
             ["[inbox]", "010-a.md", "020-b.md", "030-new.md"]
         );
+    }
+
+    #[test]
+    fn move_task_within_and_across_sections() {
+        let (_dir, mut app) = app_with_files(&["010-a.md", "020-b.md", "010-work/010-c.md"]);
+        app.cursor = 1;
+
+        app.update(Action::MoveDown);
+        assert_eq!(
+            listing(&app),
+            ["[inbox]", "020-b.md", "030-a.md", "[work]", "010-c.md"]
+        );
+        assert_eq!(app.cursor, 2, "cursor follows the task");
+
+        app.update(Action::MoveDown);
+        assert_eq!(
+            listing(&app),
+            ["[inbox]", "020-b.md", "[work]", "005-a.md", "010-c.md"]
+        );
+        assert_eq!(app.cursor, 3);
+
+        // One undo per move.
+        app.update(Action::Undo);
+        assert_eq!(
+            listing(&app),
+            ["[inbox]", "020-b.md", "030-a.md", "[work]", "010-c.md"]
+        );
+    }
+
+    #[test]
+    fn move_task_stops_at_the_ends() {
+        let (_dir, mut app) = app_with_files(&["010-a.md", "010-work/010-b.md"]);
+        app.cursor = 1;
+        app.update(Action::MoveUp);
+        app.cursor = 3;
+        app.update(Action::MoveDown);
+        assert_eq!(listing(&app), ["[inbox]", "010-a.md", "[work]", "010-b.md"]);
+        assert_eq!(app.status, None);
+    }
+
+    #[test]
+    fn move_section_with_its_tasks() {
+        let (_dir, mut app) = app_with_files(&["010-work/010-a.md", "020-home/010-b.md", "030-x/"]);
+        app.cursor = 1;
+
+        app.update(Action::MoveDown);
+        assert_eq!(
+            listing(&app),
+            ["[inbox]", "[home]", "010-b.md", "[work]", "010-a.md", "[x]"]
+        );
+        assert_eq!(app.cursor, 3, "cursor follows the section");
+        assert!(app.sections[2].dir.ends_with("025-work"));
+
+        // The inbox never moves.
+        app.cursor = 0;
+        app.update(Action::MoveDown);
+        assert_eq!(app.sections[1].title(), "home");
     }
 
     #[test]

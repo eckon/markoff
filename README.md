@@ -43,7 +43,7 @@ archive/
 - A task file starts with `# Title`. The filename follows the title.
 - The number prefix is the order. markoff picks and renumbers prefixes itself.
 - Files created or edited by hand are renamed into this shape on start and with the next action. Renames on start are listed in a popup.
-- Sections are created and renamed in the shell (`mkdir todo/030-home`).
+- Sections are created and renamed in the shell (`mkdir todo/030-home`), and reordered with `J`/`K`.
 - Done tasks are appended to `archive/YYYY-MM-DD.md` under their section, then deleted from `todo/`.
 
 ## Keys
@@ -52,6 +52,8 @@ archive/
 | ------------ | ----------------------------------------- |
 | `j` / `Down` | Cursor down                               |
 | `k` / `Up`   | Cursor up                                 |
+| `J` / `S-↓`  | Move task or section down                 |
+| `K` / `S-↑`  | Move task or section up                   |
 | `<CR>`       | Open task in `$EDITOR`                    |
 | `o` / `O`    | New task below / above, via `$EDITOR`     |
 | `x`          | Done: move to archive                     |

@@ -40,10 +40,11 @@ archive/
 - A directory is a section. One level only, deeper directories are ignored.
 - Files directly in `todo/` are the inbox. It is always shown first, even when empty, so there is always somewhere to paste to.
 - Sections are modelled as a path (`Vec<String>`) in code, so nesting can be added later without changing the data or archive format.
-- Sections are managed in the shell (mkdir, mv). The TUI shows them and moves tasks between them.
+- Sections are created, renamed and deleted in the shell (mkdir, mv). The TUI shows them, reorders them (`J/K`) and moves tasks between them.
 - A file is a task. Only `.md` files count, hidden files and directories (`.git`, swap files, markoff's own temp files and drafts) are ignored.
 - The numbered prefix sets the order, for both files and directories. Gaps (`010`, `020`) mean most moves only create one file.
 - A new or pasted task gets an order between its neighbours: `+10` when appended, the middle otherwise (`010`/`020` -> `015`).
+- Moving with `J/K` uses the same rule, for tasks and section directories: the moved one is renamed into the gap between its new neighbours, so usually only one file or directory is renamed. Its content is not touched.
 - When there is no gap left, the whole section is renumbered with even gaps, leaving a free slot where the task goes. Renumber and insert are one undo step.
 - Prefixes are 3 digits. Gaps of 10 fit 99 tasks per section. Above that, renumbering uses smaller gaps (5, 2, 1), so the hard limit is 999 tasks per section.
 - Renames during renumbering are ordered so a target name is always free first (`009-x -> 010-x` waits until the old `010-x` moved on).
@@ -137,20 +138,24 @@ Picked from a few variants tried in the real terminal.
 
 ### Keys
 
-| Key           | Action                                                         |
-| ------------- | -------------------------------------------------------------- |
-| `j` / `Down`  | Cursor down                                                    |
-| `k` / `Up`    | Cursor up                                                      |
-| `<CR>`        | Open task in `$EDITOR`                                         |
-| `o` / `O`     | New task below / above the cursor, via `$EDITOR`               |
-| `x`           | Done: archive the task                                         |
-| `dd`          | Cut the task into the register                                 |
-| `p` / `P`     | Paste the register below / above the cursor, in any section    |
-| `u`           | Undo                                                           |
-| `?`           | Toggle help overlay                                            |
-| `q` / `C-c`   | Quit                                                           |
+| Key            | Action                                                      |
+| -------------- | ----------------------------------------------------------- |
+| `j` / `Down`   | Cursor down                                                 |
+| `k` / `Up`     | Cursor up                                                   |
+| `J` / `S-Down` | Move the task or section down                               |
+| `K` / `S-Up`   | Move the task or section up                                 |
+| `<CR>`         | Open task in `$EDITOR`                                      |
+| `o` / `O`      | New task below / above the cursor, via `$EDITOR`            |
+| `x`            | Done: archive the task                                      |
+| `dd`           | Cut the task into the register                              |
+| `p` / `P`      | Paste the register below / above the cursor, in any section |
+| `u`            | Undo                                                        |
+| `?`            | Toggle help overlay                                         |
+| `q` / `C-c`    | Quit                                                        |
 
 - On a section header, `p`/`P` and `o`/`O` all put the task first in that section
+- `J/K` on a task move it one place. At the edge of a section it goes into the neighbouring section, first or last place. On a section header they move the whole section. The inbox stays first. At the very top or bottom nothing happens. The cursor follows, each move is one undo step.
+- `S-Down`/`S-Up` are Shift plus arrow keys. Shift only counts for non-letters, a shifted letter arrives as the uppercase key.
 - `Esc` (or any other key) cancels a pending `d`. `Esc` never quits.
 - `dd` is the only multi-key sequence. `C-c` quits even halfway through it.
 - All keys live in one table (`BINDINGS` in `keymap.rs`). Key handling and the help overlay both read it, so they cannot disagree. A test presses every trigger in the table.
@@ -195,7 +200,7 @@ Picked from a few variants tried in the real terminal.
 | `task.rs`    | `Task` and `Section`, heading/body split                                      |
 | `load.rs`    | Read `todo/` into sections, sorted by prefix                                  |
 | `op.rs`      | File ops with inverses, `apply_all` with rollback, atomic writes              |
-| `edit.rs`    | Pure: turn cut, paste, archive and normalize into ops (incl. renumbering)     |
+| `edit.rs`    | Pure: turn cut, paste, move, archive and normalize into ops (incl. renumbering) |
 | `archive.rs` | Pure: archive file text, heading shift, code fence handling                   |
 | `keymap.rs`  | `BINDINGS` table, key -> `Action`, pending `dd`                               |
 | `app.rs`     | State, run loop, `update(Action)`, undo stack, register                       |
@@ -233,7 +238,6 @@ From daily use (notes in `notes/todo/markoff`), refined in an interview. Work in
 
 #### D. Navigation and structure (050, 060)
 
-6. **`J/K` move.** On a task: move it one row down/up. At the section edge it moves into the neighbouring section (first/last position). On a section header: swap the section with its neighbour by renaming the dir prefixes. The inbox stays first and cannot be moved. Each move is one undo step. Needs a dir rename op in `op.rs` (`Rename` may already cover dirs, check the overwrite guard). Once dirs can be renamed, normalize should cover section directories too (prefix for hand-made `mkdir todo/home`), aligned with section moves.
 7. **Remove the register.** `dd`, `p`, `P` go away. `d` (single key) deletes the task without archiving. No confirmation: the status line says `deleted <title> (u to undo)`. This removes the only multi-key sequence and the "register lost on quit" tradeoff. `keymap.rs` keeps its sequence support for `gg`.
 8. **Jumps.** `gg`/`G` for first/last row, `{`/`}` for previous/next section header
 9. **Fold sections.** `za` (and `<Tab>`) toggles the section under the cursor (or the one the cursor is in). Folded headers show their count. Fold state is per session, in memory. `J/K` over a folded section moves the task past the whole section.
@@ -251,5 +255,6 @@ Deferred, needs design first:
 
 - Nested sections (data model and archive format already allow it, archive heading would be `## private/garden`)
 - Section create, rename and delete in the TUI
+- Normalize section directories too (prefix for a hand-made `mkdir todo/home`). Directory renames exist now (`J/K`), so this should be aligned with them.
 - Recurring tasks. One option is a `recur: weekly` key in frontmatter. On archive, the tool creates a fresh copy instead of only deleting the task. Needs frontmatter support in `task.rs` first.
 - More vim keys: counts, `C-d/C-u`, repeat `.`

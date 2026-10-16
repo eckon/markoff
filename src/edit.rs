@@ -47,86 +47,51 @@ pub fn archive(
     ops
 }
 
-/// Renames the tasks of a section into the shape markoff itself creates.
-///
-/// Tasks without prefix get one after the last task, in the order they are shown. If that
-/// does not fit into 999, the whole section is renumbered. Slugs follow the heading, tasks
-/// without heading keep their name. Returns no ops if everything already matches.
-pub fn normalize(section: &Section) -> Vec<Op> {
-    let Some(orders) = normalized_orders(section) else {
-        return Vec::new();
-    };
-    let names = target_names(section, &orders);
-    renames_to(section, &names)
+/// A task file or section directory, as far as naming and order are concerned.
+struct Entry {
+    path: PathBuf,
+    /// `None` without a valid `NNN-` prefix.
+    name: Option<Name>,
+    /// The slug it should have: from the heading for tasks, the current one otherwise.
+    slug: String,
+    /// `.md` for task files, empty for directories.
+    suffix: &'static str,
 }
 
-/// Prefixed tasks keep their order, the others are appended [`ORDER_GAP`] apart.
-/// If that does not fit, all tasks get even gaps. `None` if the section is too big even for that.
-fn normalized_orders(section: &Section) -> Option<Vec<u32>> {
-    let last = section
+/// The tasks of a section as [`Entry`]s, in display order.
+fn task_entries(section: &Section) -> Vec<Entry> {
+    section
         .tasks
         .iter()
-        .filter_map(|task| task.name.as_ref().map(|name| name.order))
-        .max()
-        .unwrap_or(0);
-    let mut next = last;
-    let appended: Option<Vec<u32>> = section
-        .tasks
-        .iter()
-        .map(|task| match &task.name {
-            Some(name) => Some(name.order),
-            None => {
-                next += ORDER_GAP;
-                (next <= MAX_ORDER).then_some(next)
-            }
+        .map(|task| Entry {
+            path: task.path.clone(),
+            name: task.name.clone(),
+            slug: wanted_slug(task),
+            suffix: ".md",
         })
-        .collect();
-
-    appended.or_else(|| {
-        let gap = gap_for(section.tasks.len())?;
-        Some(
-            (1..=section.tasks.len() as u32)
-                .map(|position| position * gap)
-                .collect(),
-        )
-    })
+        .collect()
 }
 
-/// Names for all tasks at `orders`: slug from the heading, otherwise the current name.
-///
-/// Tasks whose slug stays the same keep it, the others get a unique one (`-2`, ...), so a
-/// task never takes the slug another task already has.
-fn target_names(section: &Section, orders: &[u32]) -> Vec<Name> {
-    let slugs: Vec<String> = section.tasks.iter().map(wanted_slug).collect();
-    let keeps_slug: Vec<bool> = section
-        .tasks
+/// The section directories as [`Entry`]s, in display order. The inbox is not one of them.
+fn section_entries(sections: &[Section]) -> Vec<Entry> {
+    sections[1..]
         .iter()
-        .zip(&slugs)
-        .map(|(task, slug)| task.name.as_ref().map(|name| &name.slug) == Some(slug))
-        .collect();
-
-    let mut taken: Vec<Name> = (0..slugs.len())
-        .filter(|&i| keeps_slug[i])
-        .map(|i| Name {
-            order: orders[i],
-            slug: slugs[i].clone(),
-        })
-        .collect();
-
-    slugs
-        .into_iter()
-        .zip(orders)
-        .enumerate()
-        .map(|(i, (slug, &order))| {
-            if keeps_slug[i] {
-                return Name { order, slug };
+        .map(|section| {
+            let dir_name = section
+                .dir
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
+            let name = Name::parse(dir_name);
+            let slug = name
+                .as_ref()
+                .map_or_else(|| dir_name.to_string(), |name| name.slug.clone());
+            Entry {
+                path: section.dir.clone(),
+                name,
+                slug,
+                suffix: "",
             }
-            let name = Name {
-                order,
-                slug: unique_slug(&taken, slug),
-            };
-            taken.push(name.clone());
-            name
         })
         .collect()
 }
@@ -146,15 +111,100 @@ fn wanted_slug(task: &Task) -> String {
     }
 }
 
-/// Renames for every task whose file name differs from `names`, ordered to avoid clashes.
-fn renames_to(section: &Section, names: &[Name]) -> Vec<Op> {
-    let renames = section
-        .tasks
+/// Renames the tasks of a section into the shape markoff itself creates.
+///
+/// Tasks without prefix get one after the last task, in the order they are shown. If that
+/// does not fit into 999, the whole section is renumbered. Slugs follow the heading, tasks
+/// without heading keep their name. Returns no ops if everything already matches.
+pub fn normalize(section: &Section) -> Vec<Op> {
+    let entries = task_entries(section);
+    let Some(orders) = normalized_orders(&entries) else {
+        return Vec::new();
+    };
+    let names = target_names(&entries, &orders);
+    renames_to(&entries, &section.dir, &names)
+}
+
+/// Prefixed entries keep their order, the others are appended [`ORDER_GAP`] apart.
+/// If that does not fit, all get even gaps. `None` if there are too many even for that.
+fn normalized_orders(entries: &[Entry]) -> Option<Vec<u32>> {
+    let last = entries
+        .iter()
+        .filter_map(|entry| entry.name.as_ref().map(|name| name.order))
+        .max()
+        .unwrap_or(0);
+    let mut next = last;
+    let appended: Option<Vec<u32>> = entries
+        .iter()
+        .map(|entry| match &entry.name {
+            Some(name) => Some(name.order),
+            None => {
+                next += ORDER_GAP;
+                (next <= MAX_ORDER).then_some(next)
+            }
+        })
+        .collect();
+
+    appended.or_else(|| {
+        let gap = gap_for(entries.len())?;
+        Some(
+            (1..=entries.len() as u32)
+                .map(|position| position * gap)
+                .collect(),
+        )
+    })
+}
+
+/// Names for all entries at `orders`, with their wanted slug.
+///
+/// Entries whose slug stays the same keep it, the others get a unique one (`-2`, ...), so
+/// an entry never takes the slug another one already has.
+fn target_names(entries: &[Entry], orders: &[u32]) -> Vec<Name> {
+    let keeps_slug: Vec<bool> = entries
+        .iter()
+        .map(|entry| entry.name.as_ref().map(|name| &name.slug) == Some(&entry.slug))
+        .collect();
+
+    let mut taken: Vec<Name> = entries
+        .iter()
+        .zip(orders)
+        .zip(&keeps_slug)
+        .filter(|(_, keeps)| **keeps)
+        .map(|((entry, &order), _)| Name {
+            order,
+            slug: entry.slug.clone(),
+        })
+        .collect();
+
+    entries
+        .iter()
+        .zip(orders)
+        .zip(keeps_slug)
+        .map(|((entry, &order), keeps)| {
+            if keeps {
+                return Name {
+                    order,
+                    slug: entry.slug.clone(),
+                };
+            }
+            let name = Name {
+                order,
+                slug: unique_slug(&taken, entry.slug.clone()),
+            };
+            taken.push(name.clone());
+            name
+        })
+        .collect()
+}
+
+/// Renames for every entry whose name differs from `names`, ordered to avoid clashes.
+fn renames_to(entries: &[Entry], dir: &Path, names: &[Name]) -> Vec<Op> {
+    let renames = entries
         .iter()
         .zip(names)
-        .map(|(task, name)| {
-            let to = section.dir.join(format!("{}.md", name.to_stem()));
-            (task.path.clone(), to)
+        .map(|(entry, name)| {
+            let to = dir.join(format!("{}{}", name.to_stem(), entry.suffix));
+            (entry.path.clone(), to)
         })
         .filter(|(from, to)| from != to)
         .collect();
@@ -167,22 +217,8 @@ fn renames_to(section: &Section, names: &[Name]) -> Vec<Op> {
 /// If there is no free order at that spot, the section is renumbered first (same op list,
 /// so one undo reverts both). Returns `None` only if the section is full.
 pub fn paste(section: &Section, index: usize, task: &Task) -> Option<Vec<Op>> {
-    let (mut ops, names, order) = match free_order(section, index) {
-        Some(order) => {
-            let names = section
-                .tasks
-                .iter()
-                .filter_map(|t| t.name.clone())
-                .collect();
-            (Vec::new(), names, order)
-        }
-        None => renumber(section, index)?,
-    };
-
-    let name = Name {
-        order,
-        slug: unique_slug(&names, slugify(&task.title())),
-    };
+    let entries = task_entries(section);
+    let (mut ops, name) = place(&entries, &section.dir, index, slugify(&task.title()))?;
     ops.push(Op::Create {
         path: section.dir.join(format!("{}.md", name.to_stem())),
         content: task.content.clone(),
@@ -190,40 +226,111 @@ pub fn paste(section: &Section, index: usize, task: &Task) -> Option<Vec<Op>> {
     Some(ops)
 }
 
-/// An unused order between the tasks around `index`.
+/// `J` / `K` on a task: moves task `t` of section `from` to position `index` of section `to`.
+///
+/// `index` counts the tasks of `to` without the moved one. Like a paste, but the file is
+/// renamed instead of created, so its content is never touched. `None` if `to` is full.
+pub fn move_task(
+    sections: &[Section],
+    from: usize,
+    t: usize,
+    to: usize,
+    index: usize,
+) -> Option<Vec<Op>> {
+    let task = &sections[from].tasks[t];
+    let target = &sections[to];
+    let others: Vec<Entry> = task_entries(target)
+        .into_iter()
+        .filter(|entry| entry.path != task.path)
+        .collect();
+
+    let (mut ops, name) = place(&others, &target.dir, index, wanted_slug(task))?;
+    ops.push(Op::Rename {
+        from: task.path.clone(),
+        to: target.dir.join(format!("{}.md", name.to_stem())),
+    });
+    Some(ops)
+}
+
+/// `J` / `K` on a section header: moves section `s` one place down or up by renaming its
+/// directory into the gap between its new neighbours.
+///
+/// `None` at the edge: the inbox never moves and nothing moves above it.
+pub fn move_section(sections: &[Section], s: usize, down: bool) -> Option<Vec<Op>> {
+    // Position among the section directories, the inbox is not one of them.
+    let i = s.checked_sub(1)?;
+    let entries = section_entries(sections);
+    let index = if down { i + 1 } else { i.checked_sub(1)? };
+    if index >= entries.len() {
+        return None;
+    }
+
+    let mut others = entries;
+    let moved = others.remove(i);
+    let todo_dir = &sections[0].dir;
+    let (mut ops, name) = place(&others, todo_dir, index, moved.slug.clone())?;
+    ops.push(Op::Rename {
+        from: moved.path.clone(),
+        to: todo_dir.join(name.to_stem()),
+    });
+    Some(ops)
+}
+
+/// Name for a new entry at position `index` among `others` in `dir`: an order between its
+/// new neighbours and a unique slug. Renumbers `others` if there is no gap (their renames are
+/// returned). `None` if there is no room even after renumbering.
+fn place(others: &[Entry], dir: &Path, index: usize, slug: String) -> Option<(Vec<Op>, Name)> {
+    let (ops, names, order) = match free_order(others, index) {
+        Some(order) => {
+            let names = others
+                .iter()
+                .filter_map(|entry| entry.name.clone())
+                .collect();
+            (Vec::new(), names, order)
+        }
+        None => renumber(others, dir, index)?,
+    };
+    let name = Name {
+        order,
+        slug: unique_slug(&names, slug),
+    };
+    Some((ops, name))
+}
+
+/// An unused order between the entries around `index`.
 ///
 /// `None` if there is no gap, or if a neighbour has no prefix (then there is nothing
-/// to place the new task relative to).
-fn free_order(section: &Section, index: usize) -> Option<u32> {
-    let order_of = |task: &Task| task.name.as_ref().map(|name| name.order);
+/// to place the new entry relative to).
+fn free_order(entries: &[Entry], index: usize) -> Option<u32> {
+    let order_of = |entry: &Entry| entry.name.as_ref().map(|name| name.order);
 
     // The `?` inside these returns `None` from `free_order` if a neighbour has no prefix.
     let before = match index.checked_sub(1) {
-        Some(i) => Some(order_of(&section.tasks[i])?),
+        Some(i) => Some(order_of(&entries[i])?),
         None => None,
     };
-    let after = match section.tasks.get(index) {
-        Some(task) => Some(order_of(task)?),
+    let after = match entries.get(index) {
+        Some(entry) => Some(order_of(entry)?),
         None => None,
     };
     order_between(before, after)
 }
 
-/// Renumbers all tasks with even gaps, leaving position `slot` free for a new task.
+/// Renumbers all entries with even gaps, leaving position `slot` free for a new one.
 ///
-/// Returns the renames, the new names of all tasks and the order for the free slot.
-fn renumber(section: &Section, slot: usize) -> Option<(Vec<Op>, Vec<Name>, u32)> {
-    let gap = gap_for(section.tasks.len() + 1)?;
+/// Returns the renames, the new names of all entries and the order for the free slot.
+fn renumber(entries: &[Entry], dir: &Path, slot: usize) -> Option<(Vec<Op>, Vec<Name>, u32)> {
+    let gap = gap_for(entries.len() + 1)?;
     let order_at = |position: usize| (position as u32 + 1) * gap;
-    let orders: Vec<u32> = (0..section.tasks.len())
+    let orders: Vec<u32> = (0..entries.len())
         .map(|i| order_at(if i < slot { i } else { i + 1 }))
         .collect();
 
-    let names = target_names(section, &orders);
-    Some((renames_to(section, &names), names, order_at(slot)))
+    let names = target_names(entries, &orders);
+    Some((renames_to(entries, dir, &names), names, order_at(slot)))
 }
 
-/// The largest of 10, 5, 2, 1 that fits `count` tasks into 999.
+/// The largest of 10, 5, 2, 1 that fits `count` entries into 999.
 fn gap_for(count: usize) -> Option<u32> {
     [ORDER_GAP, 5, 2, 1]
         .into_iter()
@@ -489,5 +596,114 @@ mod tests {
         let s = section(&["010-new.md", "020-new-2.md"]);
         let path = pasted_path(paste(&s, 2, &task("New")));
         assert_eq!(path, Some(Path::new("todo/work/030-new-3.md").into()));
+    }
+
+    /// Inbox in `todo/` plus section dirs, each with task files (no headings).
+    fn tree(spec: &[(&str, &[&str])]) -> Vec<Section> {
+        spec.iter()
+            .map(|(dir, files)| {
+                let dir = Path::new("todo").join(dir);
+                Section {
+                    path: vec![],
+                    tasks: files
+                        .iter()
+                        .map(|file| Task::parse(dir.join(file), ""))
+                        .collect(),
+                    dir,
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn move_task_within_section_renames_once() {
+        let s = tree(&[("", &["010-a.md", "020-b.md", "030-c.md"])]);
+        // `a` down: after `b`, between `b` and `c`.
+        assert_eq!(
+            describe(move_task(&s, 0, 0, 0, 1)).unwrap(),
+            ["rename 010-a.md -> 025-a.md"]
+        );
+        // `c` up: before `b`, between `a` and `b`.
+        assert_eq!(
+            describe(move_task(&s, 0, 2, 0, 1)).unwrap(),
+            ["rename 030-c.md -> 015-c.md"]
+        );
+    }
+
+    #[test]
+    fn move_task_into_other_section() {
+        let s = tree(&[("", &["010-a.md"]), ("010-work", &["010-b.md"])]);
+        let ops = move_task(&s, 0, 0, 1, 0).unwrap();
+        assert_eq!(
+            ops,
+            [Op::Rename {
+                from: "todo/010-a.md".into(),
+                to: "todo/010-work/005-a.md".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn move_task_keeps_slug_unique_in_target() {
+        let s = tree(&[("", &["010-a.md"]), ("010-work", &["010-a.md"])]);
+        assert_eq!(
+            describe(move_task(&s, 0, 0, 1, 1)).unwrap(),
+            ["rename 010-a.md -> 020-a-2.md"]
+        );
+    }
+
+    #[test]
+    fn move_task_renumbers_without_gap() {
+        let s = tree(&[("", &["010-a.md", "011-b.md", "012-c.md"])]);
+        // `c` up between `a` and `b`: no gap, so `b` moves away first.
+        assert_eq!(
+            describe(move_task(&s, 0, 2, 0, 1)).unwrap(),
+            ["rename 011-b.md -> 030-b.md", "rename 012-c.md -> 020-c.md"]
+        );
+    }
+
+    #[test]
+    fn move_section_into_gap() {
+        let s = tree(&[
+            ("", &[]),
+            ("010-work", &[]),
+            ("020-home", &[]),
+            ("030-x", &[]),
+        ]);
+        assert_eq!(
+            describe(move_section(&s, 1, true)).unwrap(),
+            ["rename 010-work -> 025-work"]
+        );
+        assert_eq!(
+            describe(move_section(&s, 3, false)).unwrap(),
+            ["rename 030-x -> 015-x"]
+        );
+    }
+
+    #[test]
+    fn move_section_stops_at_edges() {
+        let s = tree(&[("", &[]), ("010-work", &[]), ("020-home", &[])]);
+        assert_eq!(move_section(&s, 0, true), None, "inbox never moves");
+        assert_eq!(
+            move_section(&s, 1, false),
+            None,
+            "nothing moves above the inbox"
+        );
+        assert_eq!(move_section(&s, 2, true), None, "already last");
+    }
+
+    #[test]
+    fn move_section_renumbers_and_prefixes_hand_made_dirs() {
+        let s = tree(&[("", &[]), ("010-work", &[]), ("home", &[])]);
+        // `home` up before `work`: room before `010`, one rename.
+        assert_eq!(
+            describe(move_section(&s, 2, false)).unwrap(),
+            ["rename home -> 005-home"]
+        );
+        // `work` down after `home`: no order next to an unprefixed dir, so both are renumbered.
+        assert_eq!(
+            describe(move_section(&s, 1, true)).unwrap(),
+            ["rename home -> 010-home", "rename 010-work -> 020-work"]
+        );
     }
 }
