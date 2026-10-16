@@ -4,10 +4,6 @@ Findings from a full code review, to work through before folding (PLAN.md step 9
 
 ## Code
 
-### Bug
-
-- [ ] `after_create` inserts without reloading after the editor, so changes made meanwhile (git pull, other editor) make the ops fail. Fix: store the section dir in `EditorRequest::Create` instead of the index, reload after the editor, find the section by dir.
-
 ### Simplify
 
 - [ ] `edit.rs`: `Entry.name: Option<Name>` is only used to compare slugs, `current_slug: Option<String>` is enough
@@ -30,6 +26,7 @@ Findings from a full code review, to work through before folding (PLAN.md step 9
 
 ### Left as is (on purpose)
 
+- `after_create` does not reload after the editor: if the files changed meanwhile, the ops refuse and roll back, the status says "task not added". Rare, not worth more logic.
 - `Section.path: Vec<String>` (for nesting), `order_renames` (guards hand-made duplicate slugs), hand-written `--dir` parsing, `Debounce`/`Fence`/`config`/`op`
 
 ## Setup

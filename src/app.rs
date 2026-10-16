@@ -329,7 +329,10 @@ impl App {
         }
         // Renames keep the order of tasks and sections, so `section` and `index` stay valid.
         self.normalize_before_action();
+        // `sections` is from before the editor. If the files changed meanwhile, the ops refuse
+        // and the text is lost, so say that clearly.
         self.insert(section, index, &task)
+            .map_err(|err| eyre!("task not added: {err}"))
     }
 
     fn done(&mut self) -> Result<()> {
@@ -777,6 +780,23 @@ pub mod tests {
             assert_eq!(err.to_string(), "aborted, empty title");
         }
         assert_eq!(listing(&app), ["[inbox]", "01-a.md"]);
+    }
+
+    #[test]
+    fn after_create_fails_on_changes_made_while_editing() {
+        let (dir, mut app) = app_with_files(&["01-a.md", "02-b.md"]);
+        app.cursor = 1;
+        // A sync renames `b` while the editor is open.
+        let todo = dir.path().join("todo");
+        fs::rename(todo.join("02-b.md"), todo.join("02-c.md")).unwrap();
+
+        let err = app.after_create(0, 1, "# New").unwrap_err();
+        assert!(err.to_string().starts_with("task not added: "), "{err}");
+        assert_eq!(
+            fs::read_dir(&todo).unwrap().count(),
+            2,
+            "nothing written, `01-a.md` and `02-c.md` only"
+        );
     }
 
     #[test]
