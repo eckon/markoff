@@ -6,7 +6,7 @@ Findings from a full code review, to work through before folding (PLAN.md step 9
 
 ### Simplify
 
-- [ ] `edit.rs`: `Entry.name: Option<Name>` is only used to compare slugs, `current_slug: Option<String>` is enough
+- [x] `edit.rs`: `Entry.name: Option<Name>` is only used to compare slugs, `current_slug: Option<String>` is enough
 - [ ] `edit.rs`: `target_names` takes `orders`, which is always `1..=n`, take the order from the position
 - [ ] `edit.rs`: `unique_slug(&[Name], ..)` only reads slugs, take `&[String]`
 - [ ] `edit.rs`: `renumber(..).map(|(r, _)| r).unwrap_or_default()` 3 times (delete, normalize, normalize_sections), one small helper

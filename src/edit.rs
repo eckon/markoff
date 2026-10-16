@@ -64,9 +64,9 @@ pub fn archive(
 struct Entry {
     /// `None` for a task that does not exist yet.
     path: Option<PathBuf>,
-    /// `None` without a valid `NNN-` prefix, or if the entry comes from somewhere else and
-    /// has to make room for the ones already there.
-    name: Option<Name>,
+    /// The slug it has now. `None` without a valid `01-` prefix, or if the entry comes from
+    /// somewhere else and has to make room for the ones already there.
+    current_slug: Option<String>,
     /// The slug it should have: from the heading for tasks, the current one otherwise.
     slug: String,
     /// `.md` for task files, empty for directories.
@@ -77,7 +77,7 @@ impl Entry {
     fn task(task: &Task) -> Self {
         Self {
             path: Some(task.path.clone()),
-            name: task.name.clone(),
+            current_slug: task.name.as_ref().map(|name| name.slug.clone()),
             slug: wanted_slug(task),
             suffix: ".md",
         }
@@ -99,13 +99,11 @@ fn section_entries(sections: &[Section]) -> Vec<Entry> {
                 .file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or_default();
-            let name = Name::parse(dir_name);
-            let slug = name
-                .as_ref()
-                .map_or_else(|| dir_name.to_string(), |name| name.slug.clone());
+            let current_slug = Name::parse(dir_name).map(|name| name.slug);
+            let slug = current_slug.clone().unwrap_or_else(|| dir_name.to_string());
             Entry {
                 path: Some(section.dir.clone()),
-                name,
+                current_slug,
                 slug,
                 suffix: "",
             }
@@ -155,7 +153,7 @@ pub fn insert(section: &Section, index: usize, task: &Task) -> Option<Vec<Op>> {
         index,
         Entry {
             path: None,
-            name: None,
+            current_slug: None,
             slug: slugify(&task.title()),
             suffix: ".md",
         },
@@ -187,7 +185,7 @@ pub fn move_task(
         target.remove(t);
     } else {
         // Coming from another section: give way to the slugs already there.
-        moved.name = None;
+        moved.current_slug = None;
         let mut rest = task_entries(&sections[from]);
         rest.remove(t);
         ops.extend(renumber(&rest, &sections[from].dir)?.0);
@@ -250,7 +248,7 @@ fn renumber(entries: &[Entry], dir: &Path) -> Option<(Vec<Op>, Vec<Name>)> {
 fn target_names(entries: &[Entry], orders: &[u32]) -> Vec<Name> {
     let keeps_slug: Vec<bool> = entries
         .iter()
-        .map(|entry| entry.name.as_ref().map(|name| &name.slug) == Some(&entry.slug))
+        .map(|entry| entry.current_slug.as_ref() == Some(&entry.slug))
         .collect();
 
     let mut taken: Vec<Name> = entries
