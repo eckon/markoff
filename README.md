@@ -50,8 +50,8 @@ archive/
 
 | Key           | Action                                |
 | ------------- | ------------------------------------- |
-| `j` / `Down`  | Cursor down                           |
-| `k` / `Up`    | Cursor up                             |
+| `j` / `↓`     | Cursor down                           |
+| `k` / `↑`     | Cursor up                             |
 | `gg` / `Home` | Go to top                             |
 | `G` / `End`   | Go to bottom                          |
 | `{` / `}`     | Previous / next section               |

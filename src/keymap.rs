@@ -168,6 +168,8 @@ impl Keymap {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
 
     fn press(keymap: &mut Keymap, code: KeyCode) -> Option<Action> {
@@ -235,6 +237,37 @@ mod tests {
         assert_eq!(label(Action::Delete), "D");
         assert_eq!(label(Action::Top), "gg / Home");
         assert_eq!(label(Action::Quit), "q / C-c");
+    }
+
+    /// AGENTS.md: a key change updates `BINDINGS` and the README table together. Only the keys
+    /// are compared, README may group them and word the actions differently.
+    #[test]
+    fn readme_lists_the_same_keys() {
+        let readme = include_str!("../README.md");
+        let table = readme
+            .split("## Keys")
+            .nth(1)
+            .expect("README has a Keys section");
+        let readme_keys: BTreeSet<String> = table
+            .lines()
+            .skip_while(|line| !line.starts_with('|'))
+            .take_while(|line| line.starts_with('|'))
+            // Header and separator row.
+            .skip(2)
+            .filter_map(|line| line.split('|').nth(1))
+            .flat_map(|keys| keys.split(" / "))
+            .map(|key| key.trim().trim_matches('`').to_string())
+            .collect();
+        let bindings: BTreeSet<String> = BINDINGS
+            .iter()
+            .flat_map(|b| {
+                b.label()
+                    .split(" / ")
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(readme_keys, bindings);
     }
 
     #[test]

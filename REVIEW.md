@@ -45,12 +45,12 @@ Findings from a full code review, to work through before folding. Delete this fi
 
 ### Dependencies and quality
 
-- [ ] `cargo deny` or `cargo audit`
+- [x] `cargo deny` or `cargo audit`: left out, GitHub's Dependabot alerts read RustSec (turn on in the repo settings)
 - [x] Dependabot or Renovate
-- [ ] `cargo machete` (all 7 deps are used today)
-- [ ] `typos` for spelling
-- [ ] Test that the README key table matches `BINDINGS`
-- [ ] Optional: `cargo llvm-cov` coverage, `insta` snapshots for the UI
+- [x] `cargo machete` (all 7 deps are used today): left out
+- [x] `typos` for spelling: left out, another tool outside cargo
+- [x] Test that the README key table matches `BINDINGS`
+- [x] Optional: `cargo llvm-cov` coverage, `insta` snapshots for the UI: left out for now
 
 ### Repo
 
