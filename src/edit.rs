@@ -21,11 +21,7 @@ pub fn delete(section: &Section, t: usize) -> Vec<Op> {
     }];
     let mut rest = task_entries(section);
     rest.remove(t);
-    ops.extend(
-        renumber(&rest, &section.dir)
-            .map(|(renames, _)| renames)
-            .unwrap_or_default(),
-    );
+    ops.extend(renames(&rest, &section.dir));
     ops
 }
 
@@ -130,17 +126,13 @@ fn wanted_slug(task: &Task) -> String {
 /// order they are shown (unprefixed ones last), slugs from the heading. Tasks without heading
 /// keep their name. Returns no ops if everything already matches.
 pub fn normalize(section: &Section) -> Vec<Op> {
-    renumber(&task_entries(section), &section.dir)
-        .map(|(renames, _)| renames)
-        .unwrap_or_default()
+    renames(&task_entries(section), &section.dir)
 }
 
 /// Like [`normalize`] for the section directories in `todo/`. The inbox is `todo/` itself
 /// and never renamed.
 pub fn normalize_sections(sections: &[Section]) -> Vec<Op> {
-    renumber(&section_entries(sections), &sections[0].dir)
-        .map(|(renames, _)| renames)
-        .unwrap_or_default()
+    renames(&section_entries(sections), &sections[0].dir)
 }
 
 /// `o` / `O`: writes `task` into `section` so it ends up at position `index`.
@@ -238,6 +230,13 @@ fn renumber(entries: &[Entry], dir: &Path) -> Option<(Vec<Op>, Vec<Name>)> {
         })
         .collect();
     Some((order_renames(renames), names))
+}
+
+/// Only the renames of [`renumber`]. More than [`MAX_ORDER`] entries stay as they are.
+fn renames(entries: &[Entry], dir: &Path) -> Vec<Op> {
+    renumber(entries, dir)
+        .map(|(renames, _)| renames)
+        .unwrap_or_default()
 }
 
 /// Names for all entries, numbered in this order, with their wanted slug.

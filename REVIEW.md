@@ -9,7 +9,7 @@ Findings from a full code review, to work through before folding (PLAN.md step 9
 - [x] `edit.rs`: `Entry.name: Option<Name>` is only used to compare slugs, `current_slug: Option<String>` is enough
 - [x] `edit.rs`: `target_names` takes `orders`, which is always `1..=n`, take the order from the position
 - [x] `edit.rs`: `unique_slug(&[Name], ..)` only reads slugs, take `&[String]`
-- [ ] `edit.rs`: `renumber(..).map(|(r, _)| r).unwrap_or_default()` 3 times (delete, normalize, normalize_sections), one small helper
+- [x] `edit.rs`: `renumber(..).map(|(r, _)| r).unwrap_or_default()` 3 times (delete, normalize, normalize_sections), one small helper
 - [ ] `edit::insert` returns the new path like `move_task`, then `created_path` in `app.rs` goes away
 - [ ] `app.rs`: "remember path, reload, clamp, select" 4 times (`reload_keep_selection`, `normalize`, `undo`, `apply` + `select_path`), one `reload_and_select(path)`
 - [ ] `app.rs`: `normalize_before_action()` in 4 match arms, group the writing actions
