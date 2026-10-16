@@ -12,7 +12,7 @@ Findings from a full code review, to work through before folding (PLAN.md step 9
 - [x] `edit.rs`: `renumber(..).map(|(r, _)| r).unwrap_or_default()` 3 times (delete, normalize, normalize_sections), one small helper
 - [x] `edit::insert` returns the new path like `move_task`, then `created_path` in `app.rs` goes away
 - [x] `app.rs`: "remember path, reload, clamp, select" 4 times (`reload_keep_selection`, `normalize`, `undo`, `apply` + `select_path`), one `reload_and_select(path)`
-- [ ] `app.rs`: `normalize_before_action()` in 4 match arms, group the writing actions
+- [x] `app.rs`: `normalize_before_action()` in 4 match arms, group the writing actions
 - [ ] "section is full (99 tasks)" twice, build it once from `MAX_ORDER`
 
 ### Leftovers

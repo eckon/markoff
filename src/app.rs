@@ -220,6 +220,13 @@ impl App {
     }
 
     fn try_update(&mut self, action: Action) -> Result<()> {
+        // Writing actions see clean names. Not undo: its inverse fits the files as they are.
+        if matches!(
+            action,
+            Action::MoveDown | Action::MoveUp | Action::Done | Action::Delete
+        ) {
+            self.normalize_before_action();
+        }
         match action {
             Action::Up => self.cursor = self.cursor.saturating_sub(1),
             Action::Down => {
@@ -230,10 +237,7 @@ impl App {
             Action::Bottom => self.cursor = self.rows().len().saturating_sub(1),
             Action::PrevSection => self.cursor = self.prev_section_row(),
             Action::NextSection => self.cursor = self.next_section_row(),
-            Action::MoveDown | Action::MoveUp => {
-                self.normalize_before_action();
-                self.move_selected(action == Action::MoveDown)?;
-            }
+            Action::MoveDown | Action::MoveUp => self.move_selected(action == Action::MoveDown)?,
             Action::Open => {
                 if let Some(Row::Task(s, t)) = self.selected() {
                     let path = self.sections[s].tasks[t].path.clone();
@@ -245,14 +249,8 @@ impl App {
                     self.editor_request = Some(EditorRequest::Create { section, index });
                 }
             }
-            Action::Done => {
-                self.normalize_before_action();
-                self.done()?;
-            }
-            Action::Delete => {
-                self.normalize_before_action();
-                self.delete()?;
-            }
+            Action::Done => self.done()?,
+            Action::Delete => self.delete()?,
             Action::Undo => self.undo()?,
             Action::Help => self.show_help = !self.show_help,
             Action::Quit => self.running = false,
