@@ -53,6 +53,15 @@ pub enum Status {
     Info(String),
 }
 
+/// One user action on the undo stack.
+#[derive(Debug)]
+struct UndoEntry {
+    ops: Vec<Op>,
+    /// Task file or section directory the cursor was on before the action. Undo puts it back
+    /// there: the undo restores the old names, so the path exists again.
+    cursor: Option<PathBuf>,
+}
+
 /// Application state.
 #[derive(Debug)]
 pub struct App {
@@ -65,8 +74,8 @@ pub struct App {
     pub keymap: Keymap,
     /// Last cut task, in memory only. Pasting does not clear it (like vim).
     register: Option<Task>,
-    /// Applied op lists, newest last. Undo applies the inverse of the last one.
-    undo: Vec<Vec<Op>>,
+    /// Applied actions, newest last. Undo applies the inverse of the last one.
+    undo: Vec<UndoEntry>,
     pub status: Option<Status>,
     /// Help overlay is open.
     pub show_help: bool,
@@ -434,26 +443,26 @@ impl App {
     }
 
     fn undo(&mut self) -> Result<()> {
-        let Some(ops) = self.undo.last() else {
+        let Some(entry) = self.undo.last() else {
             return Err(eyre!("nothing to undo"));
         };
-        let inverse = op::inverse_all(ops);
         // Only pop once the inverse worked, so a failed undo can be retried.
-        op::apply_all(&inverse)?;
+        op::apply_all(&op::inverse_all(&entry.ops))?;
+        let cursor = entry.cursor.clone();
         self.undo.pop();
         self.reload()?;
         self.clamp_cursor();
-        // Undoing a cut brings the file back, put the cursor on it.
-        if let Some(path) = created_path(&inverse) {
+        if let Some(path) = cursor {
             self.select_path(&path);
         }
         Ok(())
     }
 
-    /// Applies ops, records them for undo and reloads from disk.
+    /// Applies ops, records them for undo together with the cursor position, and reloads.
     fn apply(&mut self, ops: Vec<Op>) -> Result<()> {
+        let cursor = self.selected().map(|row| self.row_path(row));
         op::apply_all(&ops)?;
-        self.undo.push(ops);
+        self.undo.push(UndoEntry { ops, cursor });
         self.reload()
     }
 
@@ -757,6 +766,8 @@ pub mod tests {
     #[test]
     fn after_create_inserts_and_undo_removes() {
         let (_dir, mut app) = app_with_files(&["010-a.md", "020-b.md"]);
+        // `o` was pressed on `a`.
+        app.cursor = 1;
         app.after_create(0, 1, "# New task\n\nnotes\n").unwrap();
         assert_eq!(
             listing(&app),
@@ -766,6 +777,10 @@ pub mod tests {
 
         app.update(Action::Undo);
         assert_eq!(listing(&app), ["[inbox]", "010-a.md", "020-b.md"]);
+        assert_eq!(
+            app.cursor, 1,
+            "cursor is back on `a`, where `o` was pressed"
+        );
     }
 
     #[test]
@@ -868,12 +883,16 @@ pub mod tests {
         );
         assert_eq!(app.cursor, 3);
 
-        // One undo per move.
+        // One undo per move, the cursor goes back with the task.
         app.update(Action::Undo);
         assert_eq!(
             listing(&app),
             ["[inbox]", "020-b.md", "030-a.md", "[work]", "010-c.md"]
         );
+        assert_eq!(app.cursor, 2);
+        app.update(Action::Undo);
+        assert_eq!(app.cursor, 1);
+        assert_eq!(listing(&app)[1], "010-a.md");
     }
 
     #[test]
@@ -900,10 +919,14 @@ pub mod tests {
         assert_eq!(app.cursor, 3, "cursor follows the section");
         assert!(app.sections[2].dir.ends_with("025-work"));
 
+        app.update(Action::Undo);
+        assert!(app.sections[1].dir.ends_with("010-work"));
+        assert_eq!(app.cursor, 1, "cursor goes back with the section");
+
         // The inbox never moves.
         app.cursor = 0;
         app.update(Action::MoveDown);
-        assert_eq!(app.sections[1].title(), "home");
+        assert_eq!(app.sections[1].title(), "work");
     }
 
     #[test]
@@ -954,7 +977,12 @@ pub mod tests {
         // One undo reverts the paste including the renumbering, the next one the cut.
         app.update(Action::Undo);
         assert_eq!(listing(&app), ["[inbox]", "010-a.md", "011-b.md"]);
+        assert_eq!(
+            app.cursor, 1,
+            "cursor is back on `a`, where `p` was pressed"
+        );
         app.update(Action::Undo);
         assert_eq!(listing(&app), before);
+        assert_eq!(app.cursor, 3, "cursor is on the restored `c`");
     }
 }

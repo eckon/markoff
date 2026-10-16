@@ -179,7 +179,7 @@ Picked from a few variants tried in the real terminal.
 - Ops: `Create`, `Remove`, `Rename`, `Update` (replace content). Each has an exact inverse, e.g. `Create` <-> `Remove` with the same content.
 - Cut is `Remove`, paste and create are `Create` (plus `Rename`s if renumbered), archive is `Create`/`Update` of the archive file plus `Remove` of the task.
 - Archive writes the archive first, then removes the task. If the remove fails, the rollback takes the archive entry out again: a task is never in both places or in neither.
-- Undoing a cut or archive puts the cursor on the restored task.
+- Undo puts the cursor back where it was before the action: on the restored task after a cut or archive, on the row where `p`/`o` was pressed, on the task or section at its old place after a move. Each undo entry stores that path next to its ops.
 - External changes do not clear the stack. An undo that would touch a file changed since fails with "changed on disk" and stays on the stack, so it can be retried.
 
 ## Writes
