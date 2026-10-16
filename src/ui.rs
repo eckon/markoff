@@ -82,14 +82,14 @@ fn render_renamed(app: &App, frame: &mut Frame) {
 /// Centered popup listing [`BINDINGS`], so it always matches the real keys.
 fn render_help(frame: &mut Frame) {
     let labels: Vec<String> = BINDINGS.iter().map(Binding::label).collect();
-    let width = labels.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+    let label_width = labels.iter().map(|l| l.chars().count()).max().unwrap_or(0);
 
     let mut lines: Vec<Line> = BINDINGS
         .iter()
         .zip(&labels)
         .map(|(binding, label)| {
             Line::from(vec![
-                format!("{label:>width$}  ").bold(),
+                format!("{label:>label_width$}  ").bold(),
                 binding.help.into(),
             ])
         })
@@ -97,13 +97,14 @@ fn render_help(frame: &mut Frame) {
     lines.push(Line::default());
     lines.push(Line::from("any key closes this help").dim().centered());
 
+    let width = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4;
     let height = lines.len() as u16 + 2;
     let area = frame
         .area()
-        .centered(Constraint::Length(44), Constraint::Length(height));
+        .centered(Constraint::Length(width), Constraint::Length(height));
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Paragraph::new(lines).block(block(" help ".to_string())),
+        Paragraph::new(lines).block(block(" help ".to_string()).padding(Padding::horizontal(1))),
         area,
     );
 }
