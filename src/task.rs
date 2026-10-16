@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use crate::name::Name;
 
-/// One task file, e.g. `todo/010-work/010-fix-login-bug.md`.
+/// One task file, e.g. `todo/01-work/01-fix-login-bug.md`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Task {
     pub path: PathBuf,
@@ -33,7 +33,7 @@ impl Task {
         }
     }
 
-    /// The heading, or the filename without prefix if there is none: `010-call-bob.md` -> `call bob`.
+    /// The heading, or the filename without prefix if there is none: `01-call-bob.md` -> `call bob`.
     pub fn title(&self) -> String {
         if let Some(heading) = &self.heading {
             return heading.clone();
@@ -102,7 +102,7 @@ mod tests {
 
     #[test]
     fn heading_and_body() {
-        let t = task("todo/010-fix.md", "# Fix login bug\n\nsome body\n");
+        let t = task("todo/01-fix.md", "# Fix login bug\n\nsome body\n");
         assert_eq!(t.heading.as_deref(), Some("Fix login bug"));
         assert_eq!(t.body, "some body\n");
         assert_eq!(t.title(), "Fix login bug");
@@ -110,21 +110,21 @@ mod tests {
 
     #[test]
     fn heading_after_blank_lines() {
-        let t = task("todo/010-fix.md", "\n\n# Fix\r\nbody");
+        let t = task("todo/01-fix.md", "\n\n# Fix\r\nbody");
         assert_eq!(t.heading.as_deref(), Some("Fix"));
         assert_eq!(t.body, "body");
     }
 
     #[test]
     fn heading_only() {
-        let t = task("todo/010-fix.md", "# Fix");
+        let t = task("todo/01-fix.md", "# Fix");
         assert_eq!(t.heading.as_deref(), Some("Fix"));
         assert_eq!(t.body, "");
     }
 
     #[test]
     fn no_heading_keeps_whole_content() {
-        let t = task("todo/010-call-bob.md", "just text\n# Not first\n");
+        let t = task("todo/01-call-bob.md", "just text\n# Not first\n");
         assert_eq!(t.heading, None);
         assert_eq!(t.body, "just text\n# Not first\n");
         assert_eq!(t.title(), "call bob");
@@ -132,12 +132,12 @@ mod tests {
 
     #[test]
     fn level_two_is_not_a_heading() {
-        assert_eq!(task("todo/010-x.md", "## Sub\n").heading, None);
+        assert_eq!(task("todo/01-x.md", "## Sub\n").heading, None);
     }
 
     #[test]
     fn empty_heading_is_none() {
-        let t = task("todo/010-x.md", "# \n");
+        let t = task("todo/01-x.md", "# \n");
         assert_eq!(t.heading, None);
         assert_eq!(t.body, "");
     }

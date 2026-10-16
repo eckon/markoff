@@ -127,7 +127,7 @@ mod tests {
     fn notices_a_new_file() {
         let dir = TempDir::new().unwrap();
         let mut watcher = TodoWatcher::new(dir.path()).unwrap();
-        fs::write(dir.path().join("010-new.md"), "# New").unwrap();
+        fs::write(dir.path().join("01-new.md"), "# New").unwrap();
 
         // Real file system events take a moment, poll until the debounce fires.
         let deadline = Instant::now() + Duration::from_secs(5);

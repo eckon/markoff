@@ -329,7 +329,7 @@ mod tests {
     #[test]
     fn renamed_popup_lists_renames() {
         let mut app = App::new(PathBuf::new(), sections(&[(&[], &[])]));
-        app.renamed = vec![("b.md".into(), "020-b.md".into())];
+        app.renamed = vec![("b.md".into(), "02-b.md".into())];
         let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
         terminal.draw(|frame| render(&app, frame)).unwrap();
         let screen: String = terminal
@@ -339,7 +339,7 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect();
-        for text in [" renamed ", "b.md", "-> 020-b.md", "any key closes this"] {
+        for text in [" renamed ", "b.md", "-> 02-b.md", "any key closes this"] {
             assert!(screen.contains(text), "missing {text:?}");
         }
     }

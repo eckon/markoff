@@ -361,7 +361,7 @@ impl App {
                     return Ok(());
                 };
                 edit::move_task(&self.sections, s, t, to, index)
-                    .ok_or_else(|| eyre!("section is full (999 tasks)"))?
+                    .ok_or_else(|| eyre!("section is full (99 tasks)"))?
             }
             Some(Row::Section(s)) => match edit::move_section(&self.sections, s, down) {
                 Some(result) => result,
@@ -422,7 +422,7 @@ impl App {
     /// Writes `task` into section `s` at `index` and puts the cursor on it.
     fn insert(&mut self, s: usize, index: usize, task: &Task) -> Result<()> {
         let ops = edit::insert(&self.sections[s], index, task)
-            .ok_or_else(|| eyre!("section is full (999 tasks)"))?;
+            .ok_or_else(|| eyre!("section is full (99 tasks)"))?;
         let created = created_path(&ops);
         self.apply(ops)?;
         if let Some(path) = created {
@@ -542,7 +542,7 @@ pub mod tests {
     }
 
     /// An app on a temp root with the given files in `todo/`. Paths ending in `/` become directories.
-    /// Each file gets its slug as heading: `010-a.md` -> `# a`.
+    /// Each file gets its slug as heading: `01-a.md` -> `# a`.
     fn app_with_files(files: &[&str]) -> (TempDir, App) {
         let dir = TempDir::new().unwrap();
         fs::create_dir(dir.path().join("todo")).unwrap();
@@ -606,40 +606,37 @@ pub mod tests {
 
     #[test]
     fn any_key_closes_help_without_acting() {
-        let (_dir, mut app) = app_with_files(&["010-a.md"]);
+        let (_dir, mut app) = app_with_files(&["01-a.md"]);
         app.cursor = 1;
         app.update(Action::Help);
         assert!(app.show_help);
 
         app.handle_event(Event::Key(KeyCode::Char('x').into()));
         assert!(!app.show_help);
-        assert_eq!(listing(&app), ["[inbox]", "010-a.md"], "x did not archive");
+        assert_eq!(listing(&app), ["[inbox]", "01-a.md"], "x did not archive");
     }
 
     #[test]
     fn reload_keeps_cursor_on_the_same_task() {
-        let (dir, mut app) = app_with_files(&["010-a.md", "020-b.md"]);
+        let (dir, mut app) = app_with_files(&["01-a.md", "02-b.md"]);
         app.cursor = 2;
 
         // Changes from outside: a task appears above, one disappears.
         let todo = dir.path().join("todo");
-        fs::write(todo.join("005-z.md"), "# z").unwrap();
-        fs::write(todo.join("003-y.md"), "# y").unwrap();
-        fs::remove_file(todo.join("010-a.md")).unwrap();
+        fs::write(todo.join("01-z.md"), "# z").unwrap();
+        fs::write(todo.join("00-y.md"), "# y").unwrap();
+        fs::remove_file(todo.join("01-a.md")).unwrap();
         app.reload_keep_selection().unwrap();
 
-        assert_eq!(
-            listing(&app),
-            ["[inbox]", "003-y.md", "005-z.md", "020-b.md"]
-        );
-        assert_eq!(app.cursor, 3, "still on 020-b.md");
+        assert_eq!(listing(&app), ["[inbox]", "00-y.md", "01-z.md", "02-b.md"]);
+        assert_eq!(app.cursor, 3, "still on 02-b.md");
     }
 
     #[test]
     fn reload_clamps_cursor_if_task_is_gone() {
-        let (dir, mut app) = app_with_files(&["010-a.md"]);
+        let (dir, mut app) = app_with_files(&["01-a.md"]);
         app.cursor = 1;
-        fs::remove_file(dir.path().join("todo/010-a.md")).unwrap();
+        fs::remove_file(dir.path().join("todo/01-a.md")).unwrap();
         app.reload_keep_selection().unwrap();
         assert_eq!(app.cursor, 0);
     }
@@ -653,11 +650,11 @@ pub mod tests {
 
     #[test]
     fn delete_and_undo() {
-        let (_dir, mut app) = app_with_files(&["010-a.md", "020-b.md"]);
+        let (_dir, mut app) = app_with_files(&["01-a.md", "02-b.md"]);
         app.cursor = 1;
 
         app.update(Action::Delete);
-        assert_eq!(listing(&app), ["[inbox]", "010-b.md"], "the gap is closed");
+        assert_eq!(listing(&app), ["[inbox]", "01-b.md"], "the gap is closed");
         assert_eq!(app.cursor, 1, "cursor moves onto the next task");
         assert_eq!(
             app.status,
@@ -665,7 +662,7 @@ pub mod tests {
         );
 
         app.update(Action::Undo);
-        assert_eq!(listing(&app), ["[inbox]", "010-a.md", "020-b.md"]);
+        assert_eq!(listing(&app), ["[inbox]", "01-a.md", "02-b.md"]);
         assert_eq!(app.cursor, 1, "cursor is on the restored task");
 
         app.update(Action::Undo);
@@ -677,7 +674,7 @@ pub mod tests {
 
     #[test]
     fn delete_on_section_is_an_error() {
-        let (_dir, mut app) = app_with_files(&["010-a.md"]);
+        let (_dir, mut app) = app_with_files(&["01-a.md"]);
         app.update(Action::Delete);
         assert_eq!(
             app.status,
@@ -685,7 +682,7 @@ pub mod tests {
                 "sections are deleted in the shell for now".to_string()
             ))
         );
-        assert_eq!(listing(&app), ["[inbox]", "010-a.md"]);
+        assert_eq!(listing(&app), ["[inbox]", "01-a.md"]);
     }
 
     #[test]
@@ -697,7 +694,7 @@ pub mod tests {
 
     #[test]
     fn open_requests_editor_for_task_only() {
-        let (_dir, mut app) = app_with_files(&["010-a.md"]);
+        let (_dir, mut app) = app_with_files(&["01-a.md"]);
         app.update(Action::Open);
         assert_eq!(app.editor_request, None, "section header opens nothing");
 
@@ -706,12 +703,12 @@ pub mod tests {
         let Some(EditorRequest::Open(path)) = app.editor_request.clone() else {
             panic!("expected an open request");
         };
-        assert!(path.ends_with("todo/010-a.md"));
+        assert!(path.ends_with("todo/01-a.md"));
     }
 
     #[test]
     fn new_requests_create_at_insert_position() {
-        let (_dir, mut app) = app_with_files(&["010-a.md", "020-b.md"]);
+        let (_dir, mut app) = app_with_files(&["01-a.md", "02-b.md"]);
         app.cursor = 1;
         app.update(Action::NewBelow);
         assert_eq!(
@@ -733,18 +730,18 @@ pub mod tests {
 
     #[test]
     fn after_create_inserts_and_undo_removes() {
-        let (_dir, mut app) = app_with_files(&["010-a.md", "020-b.md"]);
+        let (_dir, mut app) = app_with_files(&["01-a.md", "02-b.md"]);
         // `o` was pressed on `a`.
         app.cursor = 1;
         app.after_create(0, 1, "# New task\n\nnotes\n").unwrap();
         assert_eq!(
             listing(&app),
-            ["[inbox]", "010-a.md", "020-new-task.md", "030-b.md"]
+            ["[inbox]", "01-a.md", "02-new-task.md", "03-b.md"]
         );
         assert_eq!(app.cursor, 2, "cursor is on the new task");
 
         app.update(Action::Undo);
-        assert_eq!(listing(&app), ["[inbox]", "010-a.md", "020-b.md"]);
+        assert_eq!(listing(&app), ["[inbox]", "01-a.md", "02-b.md"]);
         assert_eq!(
             app.cursor, 1,
             "cursor is back on `a`, where `o` was pressed"
@@ -753,17 +750,17 @@ pub mod tests {
 
     #[test]
     fn after_create_aborts_without_title() {
-        let (_dir, mut app) = app_with_files(&["010-a.md"]);
+        let (_dir, mut app) = app_with_files(&["01-a.md"]);
         for content in ["# \n", "", "text but no heading\n"] {
             let err = app.after_create(0, 1, content).unwrap_err();
             assert_eq!(err.to_string(), "aborted, empty title");
         }
-        assert_eq!(listing(&app), ["[inbox]", "010-a.md"]);
+        assert_eq!(listing(&app), ["[inbox]", "01-a.md"]);
     }
 
     #[test]
     fn after_edit_renames_to_new_heading() {
-        let (_dir, mut app) = app_with_files(&["010-a.md", "020-b.md"]);
+        let (_dir, mut app) = app_with_files(&["01-a.md", "02-b.md"]);
         app.cursor = 1;
         let path = app.sections[0].tasks[0].path.clone();
 
@@ -771,26 +768,23 @@ pub mod tests {
         fs::write(&path, "# Renamed task\n\nnotes").unwrap();
         app.after_edit().unwrap();
 
-        assert_eq!(
-            listing(&app),
-            ["[inbox]", "010-renamed-task.md", "020-b.md"]
-        );
+        assert_eq!(listing(&app), ["[inbox]", "01-renamed-task.md", "02-b.md"]);
         assert_eq!(app.cursor, 1, "cursor follows the renamed file");
         assert_eq!(app.sections[0].tasks[0].body, "notes");
     }
 
     #[test]
     fn startup_normalizes_and_lists_renames() {
-        let (_dir, mut app) = app_with_files(&["010-a.md", "b.md", "010-work/old.md"]);
+        let (_dir, mut app) = app_with_files(&["01-a.md", "b.md", "01-work/old.md"]);
         assert_eq!(
             listing(&app),
-            ["[inbox]", "010-a.md", "020-b.md", "[work]", "010-old.md"]
+            ["[inbox]", "01-a.md", "02-b.md", "[work]", "01-old.md"]
         );
         assert_eq!(
             app.renamed,
             [
-                ("b.md".into(), "020-b.md".into()),
-                ("010-work/old.md".into(), "010-work/010-old.md".into()),
+                ("b.md".into(), "02-b.md".into()),
+                ("01-work/old.md".into(), "01-work/01-old.md".into()),
             ]
         );
 
@@ -802,37 +796,37 @@ pub mod tests {
 
     #[test]
     fn startup_cleans_section_dirs_and_cursor_follows() {
-        let (_dir, mut app) = app_with_files(&["005-work/010-a.md", "017-home/"]);
+        let (_dir, mut app) = app_with_files(&["005-work/01-a.md", "017-home/"]);
         assert_eq!(
             app.renamed,
             [
-                ("005-work".into(), "010-work".into()),
-                ("017-home".into(), "020-home".into()),
+                ("005-work".into(), "01-work".into()),
+                ("017-home".into(), "02-home".into()),
             ]
         );
-        assert!(app.sections[1].dir.ends_with("010-work"));
+        assert!(app.sections[1].dir.ends_with("01-work"));
 
         // An action normalizes too, the cursor stays on the task inside the renamed dir.
         let work = app.sections[1].dir.clone();
-        fs::rename(&work, work.with_file_name("015-work")).unwrap();
+        fs::rename(&work, work.with_file_name("001-work")).unwrap();
         app.reload_keep_selection().unwrap();
         app.cursor = 2;
         app.update(Action::MoveDown);
-        assert_eq!(listing(&app), ["[inbox]", "[work]", "[home]", "010-a.md"]);
+        assert_eq!(listing(&app), ["[inbox]", "[work]", "[home]", "01-a.md"]);
         assert_eq!(app.cursor, 3, "cursor follows the task");
     }
 
     #[test]
     fn reload_from_watcher_does_not_rename() {
-        let (dir, mut app) = app_with_files(&["010-a.md"]);
+        let (dir, mut app) = app_with_files(&["01-a.md"]);
         fs::write(dir.path().join("todo/new.md"), "# New").unwrap();
         app.reload_keep_selection().unwrap();
-        assert_eq!(listing(&app), ["[inbox]", "010-a.md", "new.md"]);
+        assert_eq!(listing(&app), ["[inbox]", "01-a.md", "new.md"]);
     }
 
     #[test]
     fn action_normalizes_first_and_says_so() {
-        let (dir, mut app) = app_with_files(&["010-a.md", "020-b.md"]);
+        let (dir, mut app) = app_with_files(&["01-a.md", "02-b.md"]);
         fs::write(dir.path().join("todo/new.md"), "# New").unwrap();
         app.reload_keep_selection().unwrap();
         app.cursor = 1;
@@ -840,7 +834,7 @@ pub mod tests {
         app.update(Action::MoveDown);
         assert_eq!(
             listing(&app),
-            ["[inbox]", "010-b.md", "020-a.md", "030-new.md"]
+            ["[inbox]", "01-b.md", "02-a.md", "03-new.md"]
         );
         assert_eq!(
             app.status,
@@ -853,26 +847,26 @@ pub mod tests {
         app.update(Action::Undo);
         assert_eq!(
             listing(&app),
-            ["[inbox]", "010-a.md", "020-b.md", "030-new.md"]
+            ["[inbox]", "01-a.md", "02-b.md", "03-new.md"]
         );
     }
 
     #[test]
     fn move_task_within_and_across_sections() {
-        let (_dir, mut app) = app_with_files(&["010-a.md", "020-b.md", "010-work/010-c.md"]);
+        let (_dir, mut app) = app_with_files(&["01-a.md", "02-b.md", "01-work/01-c.md"]);
         app.cursor = 1;
 
         app.update(Action::MoveDown);
         assert_eq!(
             listing(&app),
-            ["[inbox]", "010-b.md", "020-a.md", "[work]", "010-c.md"]
+            ["[inbox]", "01-b.md", "02-a.md", "[work]", "01-c.md"]
         );
         assert_eq!(app.cursor, 2, "cursor follows the task");
 
         app.update(Action::MoveDown);
         assert_eq!(
             listing(&app),
-            ["[inbox]", "010-b.md", "[work]", "010-a.md", "020-c.md"]
+            ["[inbox]", "01-b.md", "[work]", "01-a.md", "02-c.md"]
         );
         assert_eq!(app.cursor, 3);
 
@@ -880,41 +874,41 @@ pub mod tests {
         app.update(Action::Undo);
         assert_eq!(
             listing(&app),
-            ["[inbox]", "010-b.md", "020-a.md", "[work]", "010-c.md"]
+            ["[inbox]", "01-b.md", "02-a.md", "[work]", "01-c.md"]
         );
         assert_eq!(app.cursor, 2);
         app.update(Action::Undo);
         assert_eq!(app.cursor, 1);
-        assert_eq!(listing(&app)[1], "010-a.md");
+        assert_eq!(listing(&app)[1], "01-a.md");
     }
 
     #[test]
     fn move_task_stops_at_the_ends() {
-        let (_dir, mut app) = app_with_files(&["010-a.md", "010-work/010-b.md"]);
+        let (_dir, mut app) = app_with_files(&["01-a.md", "01-work/01-b.md"]);
         app.cursor = 1;
         app.update(Action::MoveUp);
         app.cursor = 3;
         app.update(Action::MoveDown);
-        assert_eq!(listing(&app), ["[inbox]", "010-a.md", "[work]", "010-b.md"]);
+        assert_eq!(listing(&app), ["[inbox]", "01-a.md", "[work]", "01-b.md"]);
         assert_eq!(app.status, None);
     }
 
     #[test]
     fn move_section_with_its_tasks() {
-        let (_dir, mut app) = app_with_files(&["010-work/010-a.md", "020-home/010-b.md", "030-x/"]);
+        let (_dir, mut app) = app_with_files(&["01-work/01-a.md", "02-home/01-b.md", "03-x/"]);
         app.cursor = 1;
 
         app.update(Action::MoveDown);
         assert_eq!(
             listing(&app),
-            ["[inbox]", "[home]", "010-b.md", "[work]", "010-a.md", "[x]"]
+            ["[inbox]", "[home]", "01-b.md", "[work]", "01-a.md", "[x]"]
         );
         assert_eq!(app.cursor, 3, "cursor follows the section");
-        assert!(app.sections[1].dir.ends_with("010-home"));
-        assert!(app.sections[2].dir.ends_with("020-work"));
+        assert!(app.sections[1].dir.ends_with("01-home"));
+        assert!(app.sections[2].dir.ends_with("02-work"));
 
         app.update(Action::Undo);
-        assert!(app.sections[1].dir.ends_with("010-work"));
+        assert!(app.sections[1].dir.ends_with("01-work"));
         assert_eq!(app.cursor, 1, "cursor goes back with the section");
 
         // The inbox never moves.
@@ -925,7 +919,7 @@ pub mod tests {
 
     #[test]
     fn done_archives_and_undo_restores() {
-        let (dir, mut app) = app_with_files(&["010-a.md", "010-work/010-b.md"]);
+        let (dir, mut app) = app_with_files(&["01-a.md", "01-work/01-b.md"]);
         let today = jiff::Zoned::now().date().to_string();
         let archive_path = dir.path().join("archive").join(format!("{today}.md"));
 
@@ -941,20 +935,20 @@ pub mod tests {
         );
 
         app.update(Action::Undo);
-        assert_eq!(listing(&app), ["[inbox]", "[work]", "010-b.md"]);
+        assert_eq!(listing(&app), ["[inbox]", "[work]", "01-b.md"]);
         assert_eq!(
             fs::read_to_string(&archive_path).unwrap(),
             format!("# {today}\n\n## inbox\n\n### a\n")
         );
 
         app.update(Action::Undo);
-        assert_eq!(listing(&app), ["[inbox]", "010-a.md", "[work]", "010-b.md"]);
+        assert_eq!(listing(&app), ["[inbox]", "01-a.md", "[work]", "01-b.md"]);
         assert!(!archive_path.exists());
     }
 
     #[test]
     fn insert_renumbers_and_undo_reverts_it() {
-        let (_dir, mut app) = app_with_files(&["010-a.md", "011-b.md", "012-c.md"]);
+        let (_dir, mut app) = app_with_files(&["01-a.md", "011-b.md", "012-c.md"]);
         let before = listing(&app);
 
         // `o` on `a`: no gap before `b`, so the section is renumbered.
@@ -962,7 +956,7 @@ pub mod tests {
         app.after_create(0, 1, "# New").unwrap();
         assert_eq!(
             listing(&app),
-            ["[inbox]", "010-a.md", "020-new.md", "030-b.md", "040-c.md"]
+            ["[inbox]", "01-a.md", "02-new.md", "03-b.md", "04-c.md"]
         );
         assert_eq!(app.cursor, 2, "cursor is on the new task");
 

@@ -1,24 +1,25 @@
-//! Names of task files and section directories: `010-fix-login-bug`.
+//! Names of task files and section directories: `01-fix-login-bug`.
 //!
 //! The numbered prefix sets the order, the slug is derived from the task title.
 //! Everything here is pure string handling, no file system access.
 
 /// Width of the order prefix. `ls` only sorts correctly while all prefixes have the same width.
-const PREFIX_WIDTH: usize = 3;
+const PREFIX_WIDTH: usize = 2;
 
-/// Distance between neighbours: `010`, `020`, `030`, ... Smaller only for very full sections.
-pub const ORDER_GAP: u32 = 10;
+/// Prefixes of this width are still read, so names from before the switch to 2 digits
+/// (`01-fix`) keep their order until normalizing renames them.
+const OLD_PREFIX_WIDTH: usize = 3;
 
-/// Highest order that fits into [`PREFIX_WIDTH`] digits.
-pub const MAX_ORDER: u32 = 999;
+/// Highest order that fits into [`PREFIX_WIDTH`] digits: entries per section.
+pub const MAX_ORDER: u32 = 99;
 
 /// Max slug length, so filenames stay readable in `ls`.
 const MAX_SLUG_LEN: usize = 50;
 
-/// Slug for titles without any usable characters, so a file is never named `010-.md`.
+/// Slug for titles without any usable characters, so a file is never named `01-.md`.
 const FALLBACK_SLUG: &str = "untitled";
 
-/// A name split into its parts: `010-fix-login-bug` -> order `10`, slug `fix-login-bug`.
+/// A name split into its parts: `01-fix-login-bug` -> order `1`, slug `fix-login-bug`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Name {
     pub order: u32,
@@ -28,10 +29,12 @@ pub struct Name {
 impl Name {
     /// Parses a file stem (without `.md`) or directory name.
     ///
-    /// Returns `None` if there is no `NNN-` prefix. What to do with such files is up to the caller.
+    /// Returns `None` if there is no `NN-` (or old `NNN-`) prefix. What to do with such files
+    /// is up to the caller.
     pub fn parse(stem: &str) -> Option<Self> {
         let (prefix, slug) = stem.split_once('-')?;
-        if prefix.len() != PREFIX_WIDTH || !prefix.bytes().all(|b| b.is_ascii_digit()) {
+        let width_ok = prefix.len() == PREFIX_WIDTH || prefix.len() == OLD_PREFIX_WIDTH;
+        if !width_ok || !prefix.bytes().all(|b| b.is_ascii_digit()) {
             return None;
         }
         Some(Self {
@@ -40,7 +43,7 @@ impl Name {
         })
     }
 
-    /// Formats back into `010-slug`, without extension.
+    /// Formats back into `01-slug`, without extension.
     pub fn to_stem(&self) -> String {
         format!("{:0width$}-{}", self.order, self.slug, width = PREFIX_WIDTH)
     }
@@ -91,26 +94,28 @@ mod tests {
     #[test]
     fn parse_valid() {
         assert_eq!(
-            Name::parse("010-fix-login-bug"),
+            Name::parse("01-fix-login-bug"),
             Some(Name {
-                order: 10,
+                order: 1,
                 slug: "fix-login-bug".to_string()
             })
         );
+        // Old 3 digit names still parse, normalizing renames them.
+        assert_eq!(Name::parse("010-fix").map(|name| name.order), Some(10));
     }
 
     #[test]
     fn parse_invalid() {
         assert_eq!(Name::parse("fix-login-bug"), None);
-        assert_eq!(Name::parse("10-fix"), None);
-        assert_eq!(Name::parse("0100-fix"), None);
-        assert_eq!(Name::parse("010"), None);
+        assert_eq!(Name::parse("1-fix"), None);
+        assert_eq!(Name::parse("2026-plans"), None);
+        assert_eq!(Name::parse("01"), None);
     }
 
     #[test]
     fn roundtrip() {
-        let name = Name::parse("020-work").unwrap();
-        assert_eq!(name.to_stem(), "020-work");
+        let name = Name::parse("02-work").unwrap();
+        assert_eq!(name.to_stem(), "02-work");
     }
 
     #[test]

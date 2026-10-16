@@ -32,10 +32,10 @@ dir = "~/notes"
 
 ```
 todo/
-  010-fix-typo.md           <- inbox (no section)
-  010-work/                 <- section "work"
-    010-fix-login-bug.md
-    020-review-pr.md
+  01-fix-typo.md           <- inbox (no section)
+  01-work/                 <- section "work"
+    01-fix-login-bug.md
+    02-review-pr.md
 archive/
   2026-10-14.md             <- tasks done that day
 ```
@@ -43,7 +43,7 @@ archive/
 - A task file starts with `# Title`. The filename follows the title.
 - The number prefix is the order. markoff picks and renumbers prefixes itself.
 - Files created or edited by hand are renamed into this shape on start and with the next action. Renames on start are listed in a popup.
-- Sections are created and renamed in the shell (`mkdir todo/030-home`), and reordered with `J`/`K`.
+- Sections are created and renamed in the shell (`mkdir todo/03-home`), and reordered with `J`/`K`.
 - Done tasks are appended to `archive/YYYY-MM-DD.md` under their section, then deleted from `todo/`.
 
 ## Keys

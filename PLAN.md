@@ -27,12 +27,12 @@ v1 is implemented: everything in this document describes current behavior, excep
 
 ```
 todo/
-  010-fix-typo.md           <- inbox (no section)
-  010-work/
-    010-fix-login-bug.md
-    020-review-pr.md
-  020-private/
-    010-call-bob.md
+  01-fix-typo.md           <- inbox (no section)
+  01-work/
+    01-fix-login-bug.md
+    02-review-pr.md
+  02-private/
+    01-call-bob.md
 archive/
   2026-10-14.md
 ```
@@ -42,13 +42,14 @@ archive/
 - Sections are modelled as a path (`Vec<String>`) in code, so nesting can be added later without changing the data or archive format.
 - Sections are created, renamed and deleted in the shell (mkdir, mv). The TUI shows them, reorders them (`J/K`) and moves tasks between them.
 - A file is a task. Only `.md` files count, hidden files and directories (`.git`, swap files, markoff's own temp files and drafts) are ignored.
-- The numbered prefix sets the order, for both files and directories. The order is always clean: `010`, `020`, `030`, ...
+- The numbered prefix sets the order, for both files and directories. The order is always clean: `01`, `02`, `03`, ...
 - Every action that changes the order (new task, move, delete, done) renumbers the affected section, a move between sections both of them, a section move the section directories. A move near the top renames every file below it. All renames of one action are one undo step. File contents are never touched by a renumber.
-- This was a change from v1, where a new or moved task took the middle of the gap between its neighbours (`010`/`020` -> `015`) so most moves renamed only one file. After a few moves the numbers looked random (`005`, `017`, `035`), which was confusing.
-- Prefixes are 3 digits. Steps of 10 fit 99 tasks per section. Above that, renumbering uses smaller steps (5, 2, 1), so the hard limit is 999 tasks per section.
-- Renames during renumbering are ordered so a target name is always free first (`009-x -> 010-x` waits until the old `010-x` moved on).
+- `J/K` within a section swaps two neighbours, so it renames exactly two files. Inserting, deleting or finishing in the middle shifts the tasks below it. These are pure renames: git stores no new content and shows one `rename` line per file.
+- This was a change from v1, where a new or moved task took the middle of the gap between its neighbours (`010`/`020` -> `015`) so most moves renamed only one file. After a few moves the numbers looked random (`005`, `017`, `035`), which was confusing. Alternatives that were considered: an order file per section or an `order:` frontmatter key keep names clean without shifting, but `ls` would no longer show the order. Fractional keys (`a`, `an`, `b`) look as random as the gaps.
+- Prefixes are 2 digits, so a section holds at most 99 tasks (and there are at most 99 sections). Old 3 digit names (`010-x`, from before the switch) are still read and renamed by normalizing.
+- Renames during renumbering are ordered so a target name is always free first (`01-x -> 02-x` waits until the old `02-x` moved on).
 - Files without a valid prefix are shown at the end of their section, sorted by name, until normalizing gives them a prefix (see [Normalize](#normalize)).
-- The section display name is the directory name without the prefix (`010-work` -> `work`).
+- The section display name is the directory name without the prefix (`01-work` -> `work`).
 
 ## Task identity
 
@@ -57,14 +58,14 @@ archive/
 - The filename follows the heading through normalizing (see below), the prefix is kept.
 - Slug: German umlauts written out (`Ä` -> `ae`, `ß` -> `ss`), everything else transliterated to ASCII, lowercase, `a-z0-9` and `-` only, collapse repeats, max 50 chars. Nothing left -> `untitled`.
 - On a collision within a section, append `-2`, `-3`, ...
-- A file without a heading uses its filename as the title (`010-call-bob.md` -> `call bob`). Its name is kept, it only gets a prefix if it has none.
+- A file without a heading uses its filename as the title (`01-call-bob.md` -> `call bob`). Its name is kept, it only gets a prefix if it has none.
 
 ### Normalize
 
 Files created or edited by hand get the same shape as markoff's own (`edit::normalize`):
 
-- The section is renumbered to clean `010`, `020`, ... in the order it is shown, so a file without a valid prefix gets one at the end (unprefixed files are shown last, by name).
-- The slug follows the heading. Without heading the name stays (`My Notes.md` -> `020-My Notes.md`).
+- The section is renumbered to clean `01`, `02`, ... in the order it is shown, so a file without a valid prefix gets one at the end (unprefixed files are shown last, by name).
+- The slug follows the heading. Without heading the name stays (`My Notes.md` -> `02-My Notes.md`).
 - A task never takes a slug another task already has, it gets `-2`, `-3`, ... instead
 - Section directories too (`edit::normalize_sections`): clean prefixes, a hand-made `mkdir todo/home` gets one at the end. Task renames are applied first, they use the old directory paths.
 - Runs at startup, before every action that writes (`X`, `D`, `J/K`, inserting a new task) and after `<CR>`. Never on watcher reloads: renaming a file another editor has open would make its next save recreate the old name. Not before `u`, which reverts exactly what it recorded.
@@ -190,7 +191,7 @@ Picked from a few variants tried in the real terminal.
 | ------------ | ----------------------------------------------------------------------------- |
 | `main.rs`    | Resolve root, load, run the TUI                                               |
 | `config.rs`  | `--dir`, `MARKOFF_DIR`, config file                                           |
-| `name.rs`    | `010-slug` parsing, `slugify`                                                 |
+| `name.rs`    | `01-slug` parsing, `slugify`                                                 |
 | `task.rs`    | `Task` and `Section`, heading/body split                                      |
 | `load.rs`    | Read `todo/` into sections, sorted by prefix                                  |
 | `op.rs`      | File ops with inverses, `apply_all` with rollback, atomic writes              |

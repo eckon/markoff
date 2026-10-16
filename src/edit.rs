@@ -1,13 +1,13 @@
 //! Turns user actions into [`Op`]s. Decides what should happen, applying is up to the caller.
 //!
-//! Every action leaves the order clean: `010`, `020`, `030`, ... for the tasks of a section
+//! Every action leaves the order clean: `01`, `02`, `03`, ... for the tasks of a section
 //! and for the section directories. An action computes the new order and [`renumber`]s it.
 
 use std::path::{Path, PathBuf};
 
 use crate::{
     archive,
-    name::{MAX_ORDER, Name, ORDER_GAP, slugify},
+    name::{MAX_ORDER, Name, slugify},
     op::Op,
     task::{Section, Task},
 };
@@ -114,7 +114,7 @@ fn section_entries(sections: &[Section]) -> Vec<Entry> {
 }
 
 /// Slug from the heading. Without heading the name stays: the slug, or the whole file stem
-/// if there is no prefix (`My Notes.md` -> `010-My Notes.md`).
+/// if there is no prefix (`My Notes.md` -> `01-My Notes.md`).
 fn wanted_slug(task: &Task) -> String {
     match (&task.heading, &task.name) {
         (Some(heading), _) => slugify(heading),
@@ -220,15 +220,15 @@ pub fn move_section(sections: &[Section], s: usize, down: bool) -> Option<(Vec<O
     Some((ops, todo_dir.join(names[index].to_stem())))
 }
 
-/// Numbers `entries` in this order `010`, `020`, ... in `dir`, with their wanted slugs.
+/// Numbers `entries` in this order `01`, `02`, ... in `dir`, with their wanted slugs.
 ///
 /// Returns the renames for entries whose path changes, and the names of all entries.
-/// `None` if there are too many for 999.
+/// `None` if there are more than [`MAX_ORDER`].
 fn renumber(entries: &[Entry], dir: &Path) -> Option<(Vec<Op>, Vec<Name>)> {
-    let gap = gap_for(entries.len())?;
-    let orders: Vec<u32> = (1..=entries.len() as u32)
-        .map(|position| position * gap)
-        .collect();
+    let count = u32::try_from(entries.len())
+        .ok()
+        .filter(|&count| count <= MAX_ORDER)?;
+    let orders: Vec<u32> = (1..=count).collect();
     let names = target_names(entries, &orders);
 
     let renames = entries
@@ -241,13 +241,6 @@ fn renumber(entries: &[Entry], dir: &Path) -> Option<(Vec<Op>, Vec<Name>)> {
         })
         .collect();
     Some((order_renames(renames), names))
-}
-
-/// The largest of 10, 5, 2, 1 that fits `count` entries into 999.
-fn gap_for(count: usize) -> Option<u32> {
-    [ORDER_GAP, 5, 2, 1]
-        .into_iter()
-        .find(|gap| count as u32 * gap <= MAX_ORDER)
 }
 
 /// Names for all entries at `orders`, with their wanted slug.
@@ -294,7 +287,7 @@ fn target_names(entries: &[Entry], orders: &[u32]) -> Vec<Name> {
 
 /// Orders renames so each target is free when its turn comes.
 ///
-/// `009-x -> 010-x` has to wait until the old `010-x` has moved on. Should no order exist,
+/// `01-x -> 02-x` has to wait until the old `02-x` has moved on. Should no order exist,
 /// the rest is kept as is: [`Op::Rename`] refuses to overwrite, so that ends in an error
 /// and a rollback, never in a lost file.
 fn order_renames(mut pending: Vec<(PathBuf, PathBuf)>) -> Vec<Op> {
@@ -365,7 +358,7 @@ mod tests {
         Task::parse(PathBuf::from("todo/old.md"), &format!("# {title}\n\nbody"))
     }
 
-    /// Ops as short strings with file names only: `rename 011-b.md -> 030-b.md`.
+    /// Ops as short strings with file names only: `rename 01-b.md -> 03-b.md`.
     fn describe(ops: &[Op]) -> Vec<String> {
         let file = |path: &Path| path.file_name().unwrap().to_str().unwrap().to_string();
         ops.iter()
@@ -380,11 +373,11 @@ mod tests {
 
     #[test]
     fn delete_removes_with_content() {
-        let s = section_with(&[("010-fix-bug.md", "# Fix bug\n\nbody")]);
+        let s = section_with(&[("01-fix-bug.md", "# Fix bug\n\nbody")]);
         assert_eq!(
             delete(&s, 0),
             [Op::Remove {
-                path: "todo/work/010-fix-bug.md".into(),
+                path: "todo/work/01-fix-bug.md".into(),
                 content: "# Fix bug\n\nbody".to_string()
             }]
         );
@@ -392,20 +385,20 @@ mod tests {
 
     #[test]
     fn delete_closes_the_gap() {
-        let s = section(&["010-a.md", "020-b.md", "030-c.md"]);
+        let s = section(&["01-a.md", "02-b.md", "03-c.md"]);
         assert_eq!(
             describe(&delete(&s, 0)),
             [
-                "remove 010-a.md",
-                "rename 020-b.md -> 010-b.md",
-                "rename 030-c.md -> 020-c.md",
+                "remove 01-a.md",
+                "rename 02-b.md -> 01-b.md",
+                "rename 03-c.md -> 02-c.md",
             ]
         );
     }
 
     #[test]
     fn archive_creates_or_updates_then_removes() {
-        let s = section(&["010-fix-bug.md", "020-b.md"]);
+        let s = section(&["01-fix-bug.md", "02-b.md"]);
         let path = Path::new("archive/2026-10-14.md");
 
         let ops = archive(&s, 0, path, None, "2026-10-14");
@@ -413,8 +406,8 @@ mod tests {
             describe(&ops),
             [
                 "create 2026-10-14.md",
-                "remove 010-fix-bug.md",
-                "rename 020-b.md -> 010-b.md",
+                "remove 01-fix-bug.md",
+                "rename 02-b.md -> 01-b.md",
             ]
         );
 
@@ -424,16 +417,16 @@ mod tests {
 
     #[test]
     fn normalize_leaves_clean_section_alone() {
-        let s = section_with(&[("010-a.md", "# A"), ("020-notes.md", "no heading")]);
+        let s = section_with(&[("01-a.md", "# A"), ("02-notes.md", "no heading")]);
         assert_eq!(normalize(&s), []);
     }
 
     #[test]
     fn normalize_syncs_slug_to_heading() {
-        let s = section_with(&[("010-old.md", "# New title")]);
+        let s = section_with(&[("01-old.md", "# New title")]);
         assert_eq!(
             describe(&normalize(&s)),
-            ["rename 010-old.md -> 010-new-title.md"]
+            ["rename 01-old.md -> 01-new-title.md"]
         );
     }
 
@@ -449,35 +442,32 @@ mod tests {
         assert_eq!(
             describe(&normalize(&s)),
             [
-                "rename 005-a.md -> 010-a.md",
-                "rename 017-b.md -> 020-b.md",
-                "rename Call Bob.md -> 030-Call Bob.md",
-                "rename random.md -> 040-fix-login.md",
+                "rename 005-a.md -> 01-a.md",
+                "rename 017-b.md -> 02-b.md",
+                "rename Call Bob.md -> 03-Call Bob.md",
+                "rename random.md -> 04-fix-login.md",
             ]
         );
     }
 
     #[test]
     fn normalize_never_takes_a_used_slug() {
-        // `010-x-2` keeps its `-2` because `020-x` already has `x`.
+        // `01-x-2` keeps its `-2` because `02-x` already has `x`.
         let s = section_with(&[
-            ("010-x-2.md", "# X"),
-            ("020-x.md", "# X"),
-            ("030-old.md", "# X"),
+            ("01-x-2.md", "# X"),
+            ("02-x.md", "# X"),
+            ("03-old.md", "# X"),
         ]);
-        assert_eq!(
-            describe(&normalize(&s)),
-            ["rename 030-old.md -> 030-x-3.md"]
-        );
+        assert_eq!(describe(&normalize(&s)), ["rename 03-old.md -> 03-x-3.md"]);
     }
 
     #[test]
     fn renames_are_ordered_to_avoid_clashes() {
-        // `009-x` becomes `010-x`, which is free only after the old `010-x` moved away.
-        let s = section(&["009-x.md", "010-x.md"]);
+        // `009-x` becomes `01-x`, which is free only after the old `01-x` moved away.
+        let s = section(&["009-x.md", "01-x.md"]);
         assert_eq!(
             describe(&normalize(&s)),
-            ["rename 010-x.md -> 020-x.md", "rename 009-x.md -> 010-x.md"]
+            ["rename 01-x.md -> 02-x.md", "rename 009-x.md -> 01-x.md"]
         );
     }
 
@@ -492,9 +482,9 @@ mod tests {
         assert_eq!(
             describe(&normalize_sections(&s)),
             [
-                "rename 005-markoff -> 010-markoff",
-                "rename 017-private -> 020-private",
-                "rename home -> 030-home",
+                "rename 005-markoff -> 01-markoff",
+                "rename 017-private -> 02-private",
+                "rename home -> 03-home",
             ]
         );
     }
@@ -510,81 +500,70 @@ mod tests {
 
     #[test]
     fn insert_renumbers_the_section() {
-        let s = section(&["010-a.md", "020-b.md"]);
+        let s = section(&["01-a.md", "02-b.md"]);
         let insert_at = |index| describe(&insert(&s, index, &task("New")).unwrap());
 
         assert_eq!(
             insert_at(0),
             [
-                "rename 010-a.md -> 020-a.md",
-                "rename 020-b.md -> 030-b.md",
-                "create 010-new.md",
+                "rename 01-a.md -> 02-a.md",
+                "rename 02-b.md -> 03-b.md",
+                "create 01-new.md",
             ]
         );
         assert_eq!(
             insert_at(1),
-            ["rename 020-b.md -> 030-b.md", "create 020-new.md"]
+            ["rename 02-b.md -> 03-b.md", "create 02-new.md"]
         );
-        assert_eq!(insert_at(2), ["create 030-new.md"]);
+        assert_eq!(insert_at(2), ["create 03-new.md"]);
     }
 
     #[test]
     fn insert_gives_unprefixed_a_prefix() {
-        let s = section(&["010-a.md", "My Notes.md"]);
+        let s = section(&["01-a.md", "My Notes.md"]);
         assert_eq!(
             describe(&insert(&s, 2, &task("New")).unwrap()),
-            ["rename My Notes.md -> 020-My Notes.md", "create 030-new.md"]
+            ["rename My Notes.md -> 02-My Notes.md", "create 03-new.md"]
         );
     }
 
     #[test]
-    fn renumber_shrinks_gap_for_big_sections() {
-        let files: Vec<String> = (1..=100).map(|i| format!("{i:03}-t{i}.md")).collect();
-        let s = section(&files.iter().map(String::as_str).collect::<Vec<_>>());
-
-        // 101 tasks with the new one: gap 10 would need 1010, gap 5 fits (505).
-        let ops = describe(&insert(&s, 1, &task("New")).unwrap());
-        assert!(ops.contains(&"create 010-new.md".to_string()));
-        assert!(ops.contains(&"rename 100-t100.md -> 505-t100.md".to_string()));
-    }
-
-    #[test]
     fn full_section_cannot_insert() {
-        let files: Vec<String> = (1..=999).map(|i| format!("{i:03}-t{i}.md")).collect();
+        let files: Vec<String> = (1..=99).map(|i| format!("{i:02}-t{i}.md")).collect();
         let s = section(&files.iter().map(String::as_str).collect::<Vec<_>>());
         assert_eq!(insert(&s, 1, &task("New")), None);
     }
 
     #[test]
     fn insert_slug_collision() {
-        let s = section(&["010-new.md", "020-new-2.md"]);
+        let s = section(&["01-new.md", "02-new-2.md"]);
         let ops = insert(&s, 2, &task("New")).unwrap();
-        assert_eq!(describe(&ops), ["create 030-new-3.md"]);
+        assert_eq!(describe(&ops), ["create 03-new-3.md"]);
     }
 
     #[test]
     fn move_task_within_section() {
-        let s = tree(&[("", &["010-a.md", "020-b.md", "030-c.md"])]);
+        let s = tree(&[("", &["01-a.md", "02-b.md", "03-c.md"])]);
 
         // `a` down, after `b`.
         let (ops, path) = move_task(&s, 0, 0, 0, 1).unwrap();
         assert_eq!(
             describe(&ops),
-            ["rename 020-b.md -> 010-b.md", "rename 010-a.md -> 020-a.md"]
+            ["rename 02-b.md -> 01-b.md", "rename 01-a.md -> 02-a.md"]
         );
-        assert_eq!(path, Path::new("todo/020-a.md"));
+        assert_eq!(path, Path::new("todo/02-a.md"));
 
         // `c` up, before `b`.
         let (ops, _) = move_task(&s, 0, 2, 0, 1).unwrap();
         assert_eq!(
             describe(&ops),
-            ["rename 030-c.md -> 020-c.md", "rename 020-b.md -> 030-b.md"]
+            ["rename 03-c.md -> 02-c.md", "rename 02-b.md -> 03-b.md"]
         );
     }
 
     #[test]
     fn move_task_into_other_section_renumbers_both() {
-        let s = tree(&[("", &["010-a.md", "020-b.md"]), ("010-work", &["010-c.md"])]);
+        let s = tree(&[("", &["01-a.md", "02-b.md"]), ("01-work", &["01-c.md"])]);
         let (ops, path) = move_task(&s, 0, 0, 1, 0).unwrap();
         let rename = |from: &str, to: &str| Op::Rename {
             from: from.into(),
@@ -593,47 +572,42 @@ mod tests {
         assert_eq!(
             ops,
             [
-                rename("todo/020-b.md", "todo/010-b.md"),
-                rename("todo/010-a.md", "todo/010-work/010-a.md"),
-                rename("todo/010-work/010-c.md", "todo/010-work/020-c.md"),
+                rename("todo/02-b.md", "todo/01-b.md"),
+                rename("todo/01-a.md", "todo/01-work/01-a.md"),
+                rename("todo/01-work/01-c.md", "todo/01-work/02-c.md"),
             ]
         );
-        assert_eq!(path, Path::new("todo/010-work/010-a.md"));
+        assert_eq!(path, Path::new("todo/01-work/01-a.md"));
     }
 
     #[test]
     fn move_task_keeps_slug_unique_in_target() {
-        let s = tree(&[("", &["010-a.md"]), ("010-work", &["010-a.md"])]);
+        let s = tree(&[("", &["01-a.md"]), ("01-work", &["01-a.md"])]);
         let (ops, _) = move_task(&s, 0, 0, 1, 1).unwrap();
-        assert_eq!(describe(&ops), ["rename 010-a.md -> 020-a-2.md"]);
+        assert_eq!(describe(&ops), ["rename 01-a.md -> 02-a-2.md"]);
     }
 
     #[test]
     fn move_section_renumbers_dirs() {
-        let s = tree(&[
-            ("", &[]),
-            ("010-work", &[]),
-            ("020-home", &[]),
-            ("030-x", &[]),
-        ]);
+        let s = tree(&[("", &[]), ("01-work", &[]), ("02-home", &[]), ("03-x", &[])]);
 
         let (ops, path) = move_section(&s, 1, true).unwrap();
         assert_eq!(
             describe(&ops),
-            ["rename 020-home -> 010-home", "rename 010-work -> 020-work"]
+            ["rename 02-home -> 01-home", "rename 01-work -> 02-work"]
         );
-        assert_eq!(path, Path::new("todo/020-work"));
+        assert_eq!(path, Path::new("todo/02-work"));
 
         let (ops, _) = move_section(&s, 3, false).unwrap();
         assert_eq!(
             describe(&ops),
-            ["rename 030-x -> 020-x", "rename 020-home -> 030-home"]
+            ["rename 03-x -> 02-x", "rename 02-home -> 03-home"]
         );
     }
 
     #[test]
     fn move_section_stops_at_edges() {
-        let s = tree(&[("", &[]), ("010-work", &[]), ("020-home", &[])]);
+        let s = tree(&[("", &[]), ("01-work", &[]), ("02-home", &[])]);
         assert_eq!(move_section(&s, 0, true), None, "inbox never moves");
         assert_eq!(
             move_section(&s, 1, false),
@@ -645,11 +619,11 @@ mod tests {
 
     #[test]
     fn move_section_prefixes_hand_made_dirs() {
-        let s = tree(&[("", &[]), ("010-work", &[]), ("home", &[])]);
+        let s = tree(&[("", &[]), ("01-work", &[]), ("home", &[])]);
         let (ops, _) = move_section(&s, 2, false).unwrap();
         assert_eq!(
             describe(&ops),
-            ["rename home -> 010-home", "rename 010-work -> 020-work"]
+            ["rename home -> 01-home", "rename 01-work -> 02-work"]
         );
     }
 }

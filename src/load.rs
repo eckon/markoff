@@ -90,7 +90,7 @@ fn sort_by_prefix(paths: &mut [PathBuf]) {
     });
 }
 
-/// `010-work` -> `work`, a directory without prefix keeps its full name.
+/// `01-work` -> `work`, a directory without prefix keeps its full name.
 fn section_name(dir: &Path) -> String {
     let dir_name = file_name(dir);
     Name::parse(dir_name).map_or_else(|| dir_name.to_string(), |name| name.slug)
@@ -142,10 +142,10 @@ mod tests {
     #[test]
     fn sections_and_tasks_in_prefix_order() {
         let dir = fixture(&[
-            ("010-fix-typo.md", "# Fix typo"),
-            ("020-private/010-call-bob.md", "# Call Bob"),
-            ("010-work/020-review-pr.md", "# Review PR"),
-            ("010-work/010-fix-login-bug.md", "# Fix login bug"),
+            ("01-fix-typo.md", "# Fix typo"),
+            ("02-private/01-call-bob.md", "# Call Bob"),
+            ("01-work/02-review-pr.md", "# Review PR"),
+            ("01-work/01-fix-login-bug.md", "# Fix login bug"),
         ]);
         let sections = load(dir.path()).unwrap();
 
@@ -160,10 +160,10 @@ mod tests {
     fn unprefixed_go_last() {
         let dir = fixture(&[
             ("notes.md", ""),
-            ("020-b.md", ""),
-            ("010-a.md", ""),
+            ("02-b.md", ""),
+            ("01-a.md", ""),
             ("misc/", ""),
-            ("010-work/", ""),
+            ("01-work/", ""),
         ]);
         let sections = load(dir.path()).unwrap();
 
@@ -178,9 +178,9 @@ mod tests {
             (".git/config", ""),
             (".hidden.md", ""),
             ("readme.txt", ""),
-            ("010-work/.010-swap.md", ""),
-            ("010-work/010-nested/010-deep.md", ""),
-            ("010-work/010-task.md", "# Task"),
+            ("01-work/.01-swap.md", ""),
+            ("01-work/01-nested/01-deep.md", ""),
+            ("01-work/01-task.md", "# Task"),
         ]);
         let sections = load(dir.path()).unwrap();
 
