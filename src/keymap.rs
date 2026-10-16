@@ -14,12 +14,12 @@ pub enum Action {
     NewBelow,
     NewAbove,
     Done,
-    Cut,
-    PasteBelow,
-    PasteAbove,
+    Delete,
     Undo,
     Help,
     Quit,
+    /// A key that is not mapped on purpose, with a hint what to press instead.
+    Hint(&'static str),
 }
 
 /// What has to be pressed for a binding.
@@ -31,7 +31,7 @@ pub enum Trigger {
     Ctrl(char),
     /// Shift plus a non-letter key, like `Shift+Down`. Shifted letters are just `Key('J')`.
     Shift(KeyCode),
-    /// Two keys in a row, like `dd`.
+    /// Two keys in a row, like `gg`.
     Seq(char, char),
 }
 
@@ -58,13 +58,18 @@ pub const BINDINGS: &[Binding] = &[
     Binding { triggers: &[Key(Enter)], action: A::Open, help: "open task in $EDITOR" },
     Binding { triggers: &[Key(Char('o'))], action: A::NewBelow, help: "new task below" },
     Binding { triggers: &[Key(Char('O'))], action: A::NewAbove, help: "new task above" },
-    Binding { triggers: &[Key(Char('x'))], action: A::Done, help: "done, move to archive" },
-    Binding { triggers: &[Seq('d', 'd')], action: A::Cut, help: "cut task" },
-    Binding { triggers: &[Key(Char('p'))], action: A::PasteBelow, help: "paste below" },
-    Binding { triggers: &[Key(Char('P'))], action: A::PasteAbove, help: "paste above" },
+    Binding { triggers: &[Key(Char('X'))], action: A::Done, help: "done, move to archive" },
+    Binding { triggers: &[Key(Char('D'))], action: A::Delete, help: "delete task (no archive)" },
     Binding { triggers: &[Key(Char('u'))], action: A::Undo, help: "undo" },
     Binding { triggers: &[Key(Char('?'))], action: A::Help, help: "toggle this help" },
     Binding { triggers: &[Key(Char('q')), Ctrl('c')], action: A::Quit, help: "quit" },
+];
+
+/// Lowercase keys left unmapped on purpose: the destructive actions are uppercase so they are
+/// not hit by accident. Pressing one of these shows the hint instead. Not in the help overlay.
+pub const HINTS: &[(char, &str)] = &[
+    ('x', "x does nothing, use X to mark done"),
+    ('d', "d does nothing, use D to delete"),
 ];
 
 impl Binding {
@@ -139,7 +144,10 @@ impl Keymap {
                 _ => {}
             }
         }
-        None
+        HINTS
+            .iter()
+            .find(|(c, _)| key.code == Char(*c))
+            .map(|(_, hint)| Action::Hint(hint))
     }
 
     /// The unfinished sequence, to show in the status line.
@@ -171,16 +179,9 @@ mod tests {
         assert_eq!(press(&mut keymap, KeyCode::Down), Some(Action::Down));
         assert_eq!(press(&mut keymap, KeyCode::Char('k')), Some(Action::Up));
         assert_eq!(press(&mut keymap, KeyCode::Up), Some(Action::Up));
-        assert_eq!(
-            press(&mut keymap, KeyCode::Char('p')),
-            Some(Action::PasteBelow)
-        );
-        assert_eq!(
-            press(&mut keymap, KeyCode::Char('P')),
-            Some(Action::PasteAbove)
-        );
         assert_eq!(press(&mut keymap, KeyCode::Char('u')), Some(Action::Undo));
-        assert_eq!(press(&mut keymap, KeyCode::Char('x')), Some(Action::Done));
+        assert_eq!(press(&mut keymap, KeyCode::Char('X')), Some(Action::Done));
+        assert_eq!(press(&mut keymap, KeyCode::Char('D')), Some(Action::Delete));
         assert_eq!(press(&mut keymap, KeyCode::Enter), Some(Action::Open));
         assert_eq!(
             press(&mut keymap, KeyCode::Char('o')),
@@ -221,7 +222,7 @@ mod tests {
                 .label()
         };
         assert_eq!(label(Action::Down), "j / ↓");
-        assert_eq!(label(Action::Cut), "dd");
+        assert_eq!(label(Action::Delete), "D");
         assert_eq!(label(Action::Quit), "q / C-c");
     }
 
@@ -244,34 +245,16 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_c_quits_during_sequence() {
+    fn lowercase_destructive_keys_only_hint() {
         let mut keymap = Keymap::default();
-        press(&mut keymap, Char('d'));
-        let ctrl_c = KeyEvent::new(Char('c'), KeyModifiers::CONTROL);
-        assert_eq!(keymap.handle(ctrl_c), Some(Action::Quit));
-        assert_eq!(keymap.pending(), None);
-    }
-
-    #[test]
-    fn dd_is_a_sequence() {
-        let mut keymap = Keymap::default();
-        assert_eq!(press(&mut keymap, KeyCode::Char('d')), None);
-        assert_eq!(keymap.pending(), Some('d'));
-        assert_eq!(press(&mut keymap, KeyCode::Char('d')), Some(Action::Cut));
-        assert_eq!(keymap.pending(), None);
-    }
-
-    #[test]
-    fn other_key_cancels_sequence() {
-        let mut keymap = Keymap::default();
-        press(&mut keymap, KeyCode::Char('d'));
-        // The second key is swallowed, `dj` neither cuts nor moves.
-        assert_eq!(press(&mut keymap, KeyCode::Char('j')), None);
-        assert_eq!(keymap.pending(), None);
-
-        press(&mut keymap, KeyCode::Char('d'));
-        assert_eq!(press(&mut keymap, KeyCode::Esc), None);
-        assert_eq!(keymap.pending(), None);
+        assert_eq!(
+            press(&mut keymap, Char('x')),
+            Some(Action::Hint("x does nothing, use X to mark done"))
+        );
+        assert_eq!(
+            press(&mut keymap, Char('d')),
+            Some(Action::Hint("d does nothing, use D to delete"))
+        );
     }
 
     #[test]

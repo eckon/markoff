@@ -8,7 +8,7 @@ Every task is a markdown file, every section a directory. The order lives in the
 
 ## Status
 
-v1 works: list and preview, create and edit via `$EDITOR`, cut/paste between sections, archive, undo, file watcher. See [PLAN.md](PLAN.md) for the full design, known limitations and next steps.
+v1 works: list and preview, create and edit via `$EDITOR`, move tasks and sections, archive, delete, undo, file watcher. See [PLAN.md](PLAN.md) for the full design, known limitations and next steps.
 
 ## Setup
 
@@ -56,9 +56,8 @@ archive/
 | `K` / `S-↑`  | Move task or section up                   |
 | `<CR>`       | Open task in `$EDITOR`                    |
 | `o` / `O`    | New task below / above, via `$EDITOR`     |
-| `x`          | Done: move to archive                     |
-| `dd`         | Cut task                                  |
-| `p` / `P`    | Paste below / above, in any section       |
+| `X`          | Done: move to archive                     |
+| `D`          | Delete task, without archiving            |
 | `u`          | Undo                                      |
 | `?`          | Help                                      |
 | `q` / `C-c`  | Quit                                      |

@@ -28,7 +28,7 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// One line in the list. The cursor moves over these.
 ///
-/// Section headers are rows too, so the cursor can land on an empty section (to paste into it).
+/// Section headers are rows too, so the cursor can land on an empty section (to add a task or move a section).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Row {
     Section(usize),
@@ -72,8 +72,6 @@ pub struct App {
     /// Index into [`App::rows`].
     pub cursor: usize,
     pub keymap: Keymap,
-    /// Last cut task, in memory only. Pasting does not clear it (like vim).
-    register: Option<Task>,
     /// Applied actions, newest last. Undo applies the inverse of the last one.
     undo: Vec<UndoEntry>,
     pub status: Option<Status>,
@@ -92,7 +90,6 @@ impl App {
             sections,
             cursor: 0,
             keymap: Keymap::default(),
-            register: None,
             undo: Vec::new(),
             status: None,
             show_help: false,
@@ -253,17 +250,14 @@ impl App {
                 self.normalize_before_action();
                 self.done()?;
             }
-            Action::Cut => {
+            Action::Delete => {
                 self.normalize_before_action();
-                self.cut()?;
-            }
-            Action::PasteBelow | Action::PasteAbove => {
-                self.normalize_before_action();
-                self.paste(action == Action::PasteAbove)?;
+                self.delete()?;
             }
             Action::Undo => self.undo()?,
             Action::Help => self.show_help = !self.show_help,
             Action::Quit => self.running = false,
+            Action::Hint(hint) => self.status = Some(Status::Info(hint.to_string())),
         }
         Ok(())
     }
@@ -319,7 +313,7 @@ impl App {
         }
     }
 
-    /// Inserts what was written in the editor for `o` / `O`, like a paste.
+    /// Inserts what was written in the editor for `o` / `O`.
     fn after_create(&mut self, section: usize, index: usize, content: &str) -> Result<()> {
         let task = Task::parse(PathBuf::from("new.md"), content);
         if task.heading.is_none() {
@@ -398,29 +392,26 @@ impl App {
         }
     }
 
-    fn cut(&mut self) -> Result<()> {
-        let Some(Row::Task(s, t)) = self.selected() else {
-            return Ok(());
+    /// `D`: deletes the task without archiving. Undo brings it back.
+    fn delete(&mut self) -> Result<()> {
+        let task = match self.selected() {
+            Some(Row::Task(s, t)) => self.sections[s].tasks[t].clone(),
+            Some(Row::Section(_)) => {
+                return Err(eyre!("sections are deleted in the shell for now"));
+            }
+            None => return Ok(()),
         };
-        let task = self.sections[s].tasks[t].clone();
-        self.apply(edit::cut(&task))?;
-        self.register = Some(task);
+        self.apply(edit::delete(&task))?;
         // Cursor stays on the same row, which is now the next task (like vim).
         self.clamp_cursor();
+        self.status = Some(Status::Info(format!(
+            "deleted {} (u to undo)",
+            task.title()
+        )));
         Ok(())
     }
 
-    fn paste(&mut self, above: bool) -> Result<()> {
-        let Some(task) = self.register.clone() else {
-            return Err(eyre!("nothing to paste"));
-        };
-        let Some((s, index)) = self.insert_position(above) else {
-            return Ok(());
-        };
-        self.insert(s, index, &task)
-    }
-
-    /// Section and index where `p` / `o` (below) or `P` / `O` (above) put a task.
+    /// Section and index where `o` (below) or `O` (above) put a new task.
     /// On a section header both put it first in that section.
     fn insert_position(&self, above: bool) -> Option<(usize, usize)> {
         match self.selected()? {
@@ -432,7 +423,7 @@ impl App {
 
     /// Writes `task` into section `s` at `index` and puts the cursor on it.
     fn insert(&mut self, s: usize, index: usize, task: &Task) -> Result<()> {
-        let ops = edit::paste(&self.sections[s], index, task)
+        let ops = edit::insert(&self.sections[s], index, task)
             .ok_or_else(|| eyre!("section is full (999 tasks)"))?;
         let created = created_path(&ops);
         self.apply(ops)?;
@@ -663,51 +654,20 @@ pub mod tests {
     }
 
     #[test]
-    fn cut_and_paste_into_other_section() {
-        let (_dir, mut app) = app_with_files(&["010-a.md", "020-b.md", "010-work/"]);
-        assert_eq!(listing(&app), ["[inbox]", "010-a.md", "020-b.md", "[work]"]);
-
+    fn delete_and_undo() {
+        let (_dir, mut app) = app_with_files(&["010-a.md", "020-b.md"]);
         app.cursor = 1;
-        app.update(Action::Cut);
-        assert_eq!(listing(&app), ["[inbox]", "020-b.md", "[work]"]);
+
+        app.update(Action::Delete);
+        assert_eq!(listing(&app), ["[inbox]", "020-b.md"]);
         assert_eq!(app.cursor, 1, "cursor moves onto the next task");
-
-        app.cursor = 2;
-        app.update(Action::PasteBelow);
-        assert_eq!(app.status, None);
-        assert_eq!(listing(&app), ["[inbox]", "020-b.md", "[work]", "010-a.md"]);
-        assert_eq!(app.cursor, 3, "cursor is on the pasted task");
-    }
-
-    #[test]
-    fn paste_above_and_below() {
-        let (_dir, mut app) = app_with_files(&["010-a.md", "020-b.md", "030-c.md"]);
-        app.cursor = 3;
-        app.update(Action::Cut);
-
-        app.cursor = 1;
-        app.update(Action::PasteAbove);
-        assert_eq!(listing(&app)[1], "005-c.md");
-
-        app.cursor = 2;
-        app.update(Action::PasteBelow);
-        assert_eq!(listing(&app)[3], "015-c-2.md");
-    }
-
-    #[test]
-    fn undo_reverts_paste_then_cut() {
-        let (_dir, mut app) = app_with_files(&["010-a.md", "010-work/"]);
-        let before = listing(&app);
-
-        app.cursor = 1;
-        app.update(Action::Cut);
-        app.cursor = 1;
-        app.update(Action::PasteBelow);
+        assert_eq!(
+            app.status,
+            Some(Status::Info("deleted a (u to undo)".to_string()))
+        );
 
         app.update(Action::Undo);
-        assert_eq!(listing(&app), ["[inbox]", "[work]"]);
-        app.update(Action::Undo);
-        assert_eq!(listing(&app), before);
+        assert_eq!(listing(&app), ["[inbox]", "010-a.md", "020-b.md"]);
         assert_eq!(app.cursor, 1, "cursor is on the restored task");
 
         app.update(Action::Undo);
@@ -718,13 +678,23 @@ pub mod tests {
     }
 
     #[test]
-    fn errors_go_to_status() {
+    fn delete_on_section_is_an_error() {
         let (_dir, mut app) = app_with_files(&["010-a.md"]);
-        app.update(Action::PasteBelow);
+        app.update(Action::Delete);
         assert_eq!(
             app.status,
-            Some(Status::Error("nothing to paste".to_string()))
+            Some(Status::Error(
+                "sections are deleted in the shell for now".to_string()
+            ))
         );
+        assert_eq!(listing(&app), ["[inbox]", "010-a.md"]);
+    }
+
+    #[test]
+    fn hint_goes_to_status() {
+        let (_dir, mut app) = app_with_files(&[]);
+        app.update(Action::Hint("use X"));
+        assert_eq!(app.status, Some(Status::Info("use X".to_string())));
     }
 
     #[test]
@@ -847,8 +817,11 @@ pub mod tests {
         app.reload_keep_selection().unwrap();
         app.cursor = 1;
 
-        app.update(Action::Cut);
-        assert_eq!(listing(&app), ["[inbox]", "020-b.md", "030-new.md"]);
+        app.update(Action::MoveDown);
+        assert_eq!(
+            listing(&app),
+            ["[inbox]", "020-b.md", "025-a.md", "030-new.md"]
+        );
         assert_eq!(
             app.status,
             Some(Status::Info(
@@ -856,7 +829,7 @@ pub mod tests {
             ))
         );
 
-        // Undo only reverts the cut, the rename stays.
+        // Undo only reverts the move, the rename stays.
         app.update(Action::Undo);
         assert_eq!(
             listing(&app),
@@ -959,30 +932,25 @@ pub mod tests {
     }
 
     #[test]
-    fn paste_renumbers_and_undo_reverts_it() {
+    fn insert_renumbers_and_undo_reverts_it() {
         let (_dir, mut app) = app_with_files(&["010-a.md", "011-b.md", "012-c.md"]);
         let before = listing(&app);
 
-        app.cursor = 3;
-        app.update(Action::Cut);
+        // `o` on `a`: no gap before `b`, so the section is renumbered.
         app.cursor = 1;
-        app.update(Action::PasteBelow);
-        assert_eq!(app.status, None);
+        app.after_create(0, 1, "# New").unwrap();
         assert_eq!(
             listing(&app),
-            ["[inbox]", "010-a.md", "020-c.md", "030-b.md"]
+            ["[inbox]", "010-a.md", "020-new.md", "030-b.md", "040-c.md"]
         );
-        assert_eq!(app.cursor, 2, "cursor is on the pasted task");
+        assert_eq!(app.cursor, 2, "cursor is on the new task");
 
-        // One undo reverts the paste including the renumbering, the next one the cut.
-        app.update(Action::Undo);
-        assert_eq!(listing(&app), ["[inbox]", "010-a.md", "011-b.md"]);
-        assert_eq!(
-            app.cursor, 1,
-            "cursor is back on `a`, where `p` was pressed"
-        );
+        // One undo reverts the insert including the renumbering.
         app.update(Action::Undo);
         assert_eq!(listing(&app), before);
-        assert_eq!(app.cursor, 3, "cursor is on the restored `c`");
+        assert_eq!(
+            app.cursor, 1,
+            "cursor is back on `a`, where `o` was pressed"
+        );
     }
 }

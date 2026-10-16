@@ -38,12 +38,12 @@ archive/
 ```
 
 - A directory is a section. One level only, deeper directories are ignored.
-- Files directly in `todo/` are the inbox. It is always shown first, even when empty, so there is always somewhere to paste to.
+- Files directly in `todo/` are the inbox. It is always shown first, even when empty, so there is always somewhere to add a task.
 - Sections are modelled as a path (`Vec<String>`) in code, so nesting can be added later without changing the data or archive format.
 - Sections are created, renamed and deleted in the shell (mkdir, mv). The TUI shows them, reorders them (`J/K`) and moves tasks between them.
 - A file is a task. Only `.md` files count, hidden files and directories (`.git`, swap files, markoff's own temp files and drafts) are ignored.
 - The numbered prefix sets the order, for both files and directories. Gaps (`010`, `020`) mean most moves only create one file.
-- A new or pasted task gets an order between its neighbours: `+10` when appended, the middle otherwise (`010`/`020` -> `015`).
+- A new task gets an order between its neighbours: `+10` when appended, the middle otherwise (`010`/`020` -> `015`).
 - Moving with `J/K` uses the same rule, for tasks and section directories: the moved one is renamed into the gap between its new neighbours, so usually only one file or directory is renamed. Its content is not touched.
 - When there is no gap left, the whole section is renumbered with even gaps, leaving a free slot where the task goes. Renumber and insert are one undo step.
 - Prefixes are 3 digits. Gaps of 10 fit 99 tasks per section. Above that, renumbering uses smaller gaps (5, 2, 1), so the hard limit is 999 tasks per section.
@@ -68,7 +68,7 @@ Files created or edited by hand get the same shape as markoff's own (`edit::norm
 - The slug follows the heading. Without heading the name stays (`My Notes.md` -> `020-My Notes.md`).
 - A task never takes a slug another task already has, it gets `-2`, `-3`, ... instead
 - Only files. Section directories without prefix stay as they are for now.
-- Runs at startup, before every action that writes (`x`, `dd`, `p/P`, inserting a new task) and after `<CR>`. Never on watcher reloads: renaming a file another editor has open would make its next save recreate the old name. Not before `u`, which reverts exactly what it recorded.
+- Runs at startup, before every action that writes (`X`, `D`, `J/K`, inserting a new task) and after `<CR>`. Never on watcher reloads: renaming a file another editor has open would make its next save recreate the old name. Not before `u`, which reverts exactly what it recorded.
 - Not on the undo stack, undoing it would only be redone by the next action. The cursor follows a renamed task.
 - Renames at startup are listed in a popup (any key closes it), since names changing on start can be a surprise. After an action, the status line says `renamed N files to match their titles`.
 - If a rename fails, all are rolled back, the error goes to the status line and the action still runs on the unchanged files.
@@ -84,7 +84,7 @@ free markdown body
 - No frontmatter is used yet
 - Open means the file exists in `todo/`
 - Done means the task is moved into the archive
-- Delete is a cut that is never pasted (`dd`). No record is kept, git outside the tool covers history.
+- Delete (`D`) removes the file without archiving. No record is kept apart from the undo stack, git outside the tool covers history.
 - The archive file name gives the done date
 - No due dates or tags
 
@@ -111,7 +111,7 @@ body of the task
 - Lines in fenced code blocks (```` ``` ```` or `~~~`) are never treated as headings, neither when shifting nor when looking for a section
 - If the section heading already exists in today's file, the task goes to the end of that section. Otherwise the section is added at the end of the file.
 - The task file is deleted in the same step
-- Archiving happens right away when a task is marked done (`x`)
+- Archiving happens right away when a task is marked done (`X`)
 
 ## TUI
 
@@ -130,7 +130,7 @@ Picked from a few variants tried in the real terminal.
 - The preview title is a rule in the same style (without count), on the same row as the first list row
 - The list keeps two columns free on the right, so the rules end before the divider
 - Rules keep the width of the split list even when the preview is hidden, so they don't jump while moving
-- Status line at the bottom: errors in red, info (renames) in the normal color, or the pending key of an unfinished `dd`. Cleared on the next key.
+- Status line at the bottom: errors in red, info (renames) in the normal color, or the pending key of an unfinished key sequence. Cleared on the next key.
 - The TUI has no text input. Anything that edits text (create, rename, body) goes through `$EDITOR`, where the user has their own keybindings.
 - Only one mode (normal) plus the help overlay and the startup rename popup. While one of them is open, any key closes it and does nothing else.
 - A file watcher (`notify`) reloads on external changes, debounced (100ms of quiet). The cursor stays on the same task. Own writes also trigger a reload, which is harmless.
@@ -146,40 +146,35 @@ Picked from a few variants tried in the real terminal.
 | `K` / `S-Up`   | Move the task or section up                                 |
 | `<CR>`         | Open task in `$EDITOR`                                      |
 | `o` / `O`      | New task below / above the cursor, via `$EDITOR`            |
-| `x`            | Done: archive the task                                      |
-| `dd`           | Cut the task into the register                              |
-| `p` / `P`      | Paste the register below / above the cursor, in any section |
+| `X`            | Done: archive the task                                      |
+| `D`            | Delete the task, without archiving                          |
 | `u`            | Undo                                                        |
 | `?`            | Toggle help overlay                                         |
 | `q` / `C-c`    | Quit                                                        |
 
-- On a section header, `p`/`P` and `o`/`O` all put the task first in that section
+- On a section header, `o`/`O` both put the new task first in that section
 - `J/K` on a task move it one place. At the edge of a section it goes into the neighbouring section, first or last place. On a section header they move the whole section. The inbox stays first. At the very top or bottom nothing happens. The cursor follows, each move is one undo step.
 - `S-Down`/`S-Up` are Shift plus arrow keys. Shift only counts for non-letters, a shifted letter arrives as the uppercase key.
-- `Esc` (or any other key) cancels a pending `d`. `Esc` never quits.
-- `dd` is the only multi-key sequence. `C-c` quits even halfway through it.
+- The destructive actions are uppercase (`X`, `D`), so they are not hit by accident. Lowercase `x` and `d` only show a hint in the status line (`d does nothing, use D to delete`). The hints are a separate table (`HINTS`), not shown in the help.
+- `D` on a section header is an error (`sections are deleted in the shell for now`). After a delete the status line says `deleted <title> (u to undo)`.
+- `Esc` never quits.
+- The keymap supports two-key sequences (`Seq`), currently no binding uses one. `Esc` or any other key cancels a pending one, `C-c` quits even halfway through.
 - All keys live in one table (`BINDINGS` in `keymap.rs`). Key handling and the help overlay both read it, so they cannot disagree. A test presses every trigger in the table.
 
 ### Editor handoff
 
 - Editor: `$VISUAL`, then `$EDITOR`, then `vi`. Run through `sh -c`, so values with arguments (`code --wait`) work. The path is passed as an argument, so spaces and quotes in names are safe.
 - `<CR>`: the TUI suspends, the editor opens the task file, then the TUI resumes, reloads and syncs the filename to the heading. This is also how a task is renamed.
-- `o/O`, git-commit style: the editor opens a draft containing `# `. The draft is a hidden file (`.markoff-new-XXXXXX.md`) in the section the task goes into, so relative `[](…)` and `[[…]]` links resolve while writing and stay valid for the task, which is created next to it. The loader ignores hidden files, so the draft never shows up in the list. It is deleted after saving or aborting. If markoff is killed while the editor is open, the hidden draft stays behind. If the saved file has a non-empty heading, the task is inserted like a paste. An empty heading, no heading, or quitting without saving aborts with "aborted, empty title".
+- `o/O`, git-commit style: the editor opens a draft containing `# `. The draft is a hidden file (`.markoff-new-XXXXXX.md`) in the section the task goes into, so relative `[](…)` and `[[…]]` links resolve while writing and stay valid for the task, which is created next to it. The loader ignores hidden files, so the draft never shows up in the list. It is deleted after saving or aborting. If markoff is killed while the editor is open, the hidden draft stays behind. If the saved file has a non-empty heading, the task is inserted at the cursor. An empty heading, no heading, or quitting without saving aborts with "aborted, empty title".
 - For new tasks only, if the editor program is `vim` or `nvim` (also with a path or arguments), `+startinsert!` is added: insert mode at the end of `# `, like `A`. Plain `vi` is left out, it may be a vi without `startinsert`.
-
-### Register
-
-- `dd` deletes the file and keeps the task in an in-memory register. `p/P` write it into the target section, with a new prefix and a slug from its title.
-- Pasting does not clear the register (like vim), so pasting twice gives a copy (`fix-typo-2`).
-- Known tradeoff: a crash or quit while something is in the register loses that task.
 
 ## Undo
 
 - In-memory stack of applied op lists, cleared when the TUI exits. One user action is one entry, `u` applies its inverse.
 - Ops: `Create`, `Remove`, `Rename`, `Update` (replace content). Each has an exact inverse, e.g. `Create` <-> `Remove` with the same content.
-- Cut is `Remove`, paste and create are `Create` (plus `Rename`s if renumbered), archive is `Create`/`Update` of the archive file plus `Remove` of the task.
+- Delete is `Remove`, create is `Create`, a move is `Rename` (each plus `Rename`s if renumbered), archive is `Create`/`Update` of the archive file plus `Remove` of the task.
 - Archive writes the archive first, then removes the task. If the remove fails, the rollback takes the archive entry out again: a task is never in both places or in neither.
-- Undo puts the cursor back where it was before the action: on the restored task after a cut or archive, on the row where `p`/`o` was pressed, on the task or section at its old place after a move. Each undo entry stores that path next to its ops.
+- Undo puts the cursor back where it was before the action: on the restored task after a delete or archive, on the row where `o`/`O` was pressed, on the task or section at its old place after a move. Each undo entry stores that path next to its ops.
 - External changes do not clear the stack. An undo that would touch a file changed since fails with "changed on disk" and stays on the stack, so it can be retried.
 
 ## Writes
@@ -200,10 +195,10 @@ Picked from a few variants tried in the real terminal.
 | `task.rs`    | `Task` and `Section`, heading/body split                                      |
 | `load.rs`    | Read `todo/` into sections, sorted by prefix                                  |
 | `op.rs`      | File ops with inverses, `apply_all` with rollback, atomic writes              |
-| `edit.rs`    | Pure: turn cut, paste, move, archive and normalize into ops (incl. renumbering) |
+| `edit.rs`    | Pure: turn delete, insert, move, archive and normalize into ops (incl. renumbering) |
 | `archive.rs` | Pure: archive file text, heading shift, code fence handling                   |
-| `keymap.rs`  | `BINDINGS` table, key -> `Action`, pending `dd`                               |
-| `app.rs`     | State, run loop, `update(Action)`, undo stack, register                       |
+| `keymap.rs`  | `BINDINGS` and `HINTS` tables, key -> `Action`, pending sequences             |
+| `app.rs`     | State, run loop, `update(Action)`, undo stack                                 |
 | `editor.rs`  | Suspend the TUI and run `$EDITOR`                                             |
 | `watch.rs`   | File watcher with debounce                                                    |
 | `ui.rs`      | Rendering: list, preview, status line, help                                   |
@@ -238,8 +233,7 @@ From daily use (notes in `notes/todo/markoff`), refined in an interview. Work in
 
 #### D. Navigation and structure (050, 060)
 
-7. **Remove the register.** `dd`, `p`, `P` go away. `d` (single key) deletes the task without archiving. No confirmation: the status line says `deleted <title> (u to undo)`. This removes the only multi-key sequence and the "register lost on quit" tradeoff. `keymap.rs` keeps its sequence support for `gg`.
-8. **Jumps.** `gg`/`G` for first/last row, `{`/`}` for previous/next section header
+8. **Jumps.** `gg`/`G` for first/last row, `{`/`}` for previous/next section header. `gg` is the first binding using the sequence support again, so it brings back the sequence tests that were removed with `dd`.
 9. **Fold sections.** `za` (and `<Tab>`) toggles the section under the cursor (or the one the cursor is in). Folded headers show their count. Fold state is per session, in memory. `J/K` over a folded section moves the task past the whole section.
 10. **Focus one section.** A key (`f`, still free) shows only the section under the cursor. Same key again shows everything. Decide whether the inbox stays visible.
 11. **`/` filter.** Typing filters the list live, fuzzy over titles, section names and task bodies. A matching section name shows all its tasks. A body match shows the matching line (in the preview or dim under the title). `<CR>` keeps the filter and the cursor on the match, `Esc` clears it. This is the first text input in the TUI, so it gets its own small input mode.
@@ -254,7 +248,7 @@ From daily use (notes in `notes/todo/markoff`), refined in an interview. Work in
 Deferred, needs design first:
 
 - Nested sections (data model and archive format already allow it, archive heading would be `## private/garden`)
-- Section create, rename and delete in the TUI
+- Section create, rename and delete in the TUI. `D` on a section header deletes it only if it is empty, otherwise an error says so. The inbox can never be deleted. Creating a section in the TUI belongs to the same feature.
 - Normalize section directories too (prefix for a hand-made `mkdir todo/home`). Directory renames exist now (`J/K`), so this should be aligned with them.
 - Recurring tasks. One option is a `recur: weekly` key in frontmatter. On archive, the tool creates a fresh copy instead of only deleting the task. Needs frontmatter support in `task.rs` first.
 - More vim keys: counts, `C-d/C-u`, repeat `.`

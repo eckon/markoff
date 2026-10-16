@@ -296,10 +296,10 @@ mod tests {
     #[test]
     fn status_line_shows_errors() {
         let mut app = App::new(PathBuf::new(), sections(&[(&[], &[])]));
-        app.update(Action::PasteBelow);
+        app.update(Action::Undo);
         let screen = screen(&app);
         assert!(
-            screen.contains("nothing to paste"),
+            screen.contains("nothing to undo"),
             "missing status in\n{screen}"
         );
     }
@@ -317,7 +317,11 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect();
-        for text in ["j / ↓  cursor down", "dd  cut task", "q / C-c  quit"] {
+        for text in [
+            "j / ↓  cursor down",
+            "D  delete task (no archive)",
+            "q / C-c  quit",
+        ] {
             assert!(screen.contains(text), "missing {text:?}");
         }
     }

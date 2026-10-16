@@ -14,7 +14,7 @@ use crate::{
 
 /// Loads all sections, inbox first, then the section directories in prefix order.
 ///
-/// The inbox is always present, even if empty, so there is always somewhere to paste to.
+/// The inbox is always present, even if empty, so there is always somewhere to add a task.
 /// Only one level of sections is read, deeper directories are ignored for now.
 pub fn load(todo_dir: &Path) -> Result<Vec<Section>> {
     let entries = visible_entries(todo_dir)?;

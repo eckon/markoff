@@ -1,7 +1,7 @@
 //! File operations, the only way markoff changes the disk.
 //!
 //! Every [`Op`] has an exact [`Op::inverse`], which is what undo is built on.
-//! A user action (paste, renumber, ...) is a list of ops, applied with [`apply_all`].
+//! A user action (insert, move, renumber, ...) is a list of ops, applied with [`apply_all`].
 
 use std::{
     fs,
