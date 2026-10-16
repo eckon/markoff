@@ -126,7 +126,7 @@ fn ensure_free(path: &Path) -> Result<()> {
 ///
 /// A crash leaves either the old file or the new one, never a half written file.
 /// Same directory, because a rename across file systems is not atomic.
-pub fn write_atomic(path: &Path, content: &str) -> Result<()> {
+fn write_atomic(path: &Path, content: &str) -> Result<()> {
     let dir = path.parent().unwrap_or(Path::new("."));
     let mut tmp = tempfile::Builder::new()
         .prefix(".markoff-")

@@ -75,7 +75,7 @@ pub const BINDINGS: &[Binding] = &[
 
 /// Lowercase keys left unmapped on purpose: the destructive actions are uppercase so they are
 /// not hit by accident. Pressing one of these shows the hint instead. Not in the help overlay.
-pub const HINTS: &[(char, &str)] = &[
+const HINTS: &[(char, &str)] = &[
     ('x', "x does nothing, use X to mark done"),
     ('d', "d does nothing, use D to delete"),
 ];
