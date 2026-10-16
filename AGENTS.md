@@ -25,17 +25,17 @@ markoff is a Rust TUI for todos stored as markdown files. This file is the sourc
 ```sh
 cargo fmt
 cargo test
-cargo clippy --all-targets   # must be clean
+cargo clippy --all-targets -- -D warnings   # same as CI
 ```
 
-For TUI changes also run the real app in tmux against a scratch `todo/` dir (or a copy of real data, never the real notes).
+For TUI changes also run the real app in tmux against a scratch `todo/` dir (or a copy of real data, never the real notes): `tmux new-session -d -x 80 -y 20 'cargo run -- --dir <scratch>'`, then `send-keys` and `capture-pane -p`.
 
 ## Code
 
 - Pure logic (`edit.rs`, `archive.rs`, `name.rs`) never touches the disk. All writes go through ops in `op.rs`, each with an exact inverse for undo.
 - The disk is the source of truth: after a change, reload instead of patching state.
 - `App::update(Action)` never touches the terminal, so it is testable.
-- All keys live in `BINDINGS` (`keymap.rs`), the help overlay reads the same table.
+- All keys live in `BINDINGS` (`keymap.rs`), the help overlay reads the same table. A test checks that the README key table matches.
 - Errors go to the status line, they never end the app.
 - Colors: only the 16 terminal colors, so the look follows the terminal theme.
 - Comments say why, not what. Match the density and style of the surrounding code.
