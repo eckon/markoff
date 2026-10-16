@@ -126,7 +126,7 @@ impl App {
             if let Some(request) = self.editor_request.take() {
                 let result = match request {
                     EditorRequest::Open(path) => {
-                        editor::open(terminal, &path).and_then(|()| self.after_edit(&path))
+                        editor::open(terminal, &path, &[]).and_then(|()| self.after_edit(&path))
                     }
                     EditorRequest::Create { section, index } => editor::create(terminal)
                         .and_then(|content| self.after_create(section, index, &content)),

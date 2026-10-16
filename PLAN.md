@@ -148,6 +148,7 @@ Picked from a few variants tried in the real terminal.
 - Editor: `$VISUAL`, then `$EDITOR`, then `vi`. Run through `sh -c`, so values with arguments (`code --wait`) work. The path is passed as an argument, so spaces and quotes in names are safe.
 - `<CR>`: the TUI suspends, the editor opens the task file, then the TUI resumes, reloads and syncs the filename to the heading. This is also how a task is renamed.
 - `o/O`, git-commit style: the editor opens a temp file (system temp dir, `.md` suffix) containing `# `. If the saved file has a non-empty heading, the task is inserted like a paste. An empty heading, no heading, or quitting without saving aborts with "aborted, empty title".
+- For new tasks only, if the editor program is `vim` or `nvim` (also with a path or arguments), `+startinsert!` is added: insert mode at the end of `# `, like `A`. Plain `vi` is left out, it may be a vi without `startinsert`.
 
 ### Register
 
@@ -220,7 +221,6 @@ From daily use (notes in `notes/todo/markoff`), refined in an interview. Work in
 
 #### A. Creating tasks in the editor (010, 070)
 
-3. **Insert mode on new tasks.** If the editor command's program name is `vi`, `vim` or `nvim`, `o/O` add `+startinsert!` so the cursor is in insert mode after `# `. Only for new tasks, not for `<CR>`. Other editors are unchanged.
 4. **Draft file inside `todo/`.** `o/O` create the draft as a hidden file in the target section dir (`todo/010-work/.markoff-new-XXXX.md`, inbox: `todo/`), so relative links, links into the wider notes folder and the markdown LSP all work while writing. The loader already ignores hidden files. On save, the draft becomes the task (a `Create` op as today, then the draft is deleted). On abort (empty title), the draft is deleted. Check first whether the LSP indexes hidden files. If not, use a non-hidden name the loader skips instead.
 
 #### B. Keep filenames consistent (020)

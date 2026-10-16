@@ -15,9 +15,10 @@ use ratatui::{
 };
 
 /// Leaves the TUI, opens `path` in the editor, and comes back once the editor exits.
-pub fn open(terminal: &mut DefaultTerminal, path: &Path) -> Result<()> {
+/// `args` go to the editor before the path.
+pub fn open(terminal: &mut DefaultTerminal, path: &Path, args: &[&str]) -> Result<()> {
     ratatui::restore();
-    let status = command(&editor(), path).status();
+    let status = command(&editor(), args, path).status();
 
     // Back into the TUI even if the editor failed, otherwise the terminal stays broken.
     // Not `ratatui::init()`, that would install its panic hook a second time.
@@ -43,7 +44,7 @@ pub fn create(terminal: &mut DefaultTerminal) -> Result<String> {
         .tempfile()
         .wrap_err("failed to create temp file")?;
     fs::write(file.path(), "# \n")?;
-    open(terminal, file.path())?;
+    open(terminal, file.path(), new_task_args(&editor()))?;
     // Read by path: editors often replace the file instead of writing into it.
     Ok(fs::read_to_string(file.path())?)
 }
@@ -57,14 +58,36 @@ fn editor() -> String {
         .unwrap_or_else(|| "vi".to_string())
 }
 
+/// Editor specific arguments for a new task, so the title can be typed right away.
+/// The only place that knows about specific editors.
+fn new_task_args(editor: &str) -> &'static [&'static str] {
+    match program_name(editor) {
+        // Insert mode at the end of the first line, like `A`: right after `# `.
+        // Not plain `vi`, which may be a vi that does not know `startinsert`.
+        "vim" | "nvim" => &["+startinsert!"],
+        _ => &[],
+    }
+}
+
+/// Program name of an editor command: `/usr/bin/nvim -u foo` -> `nvim`.
+fn program_name(editor: &str) -> &str {
+    let program = editor.split_whitespace().next().unwrap_or_default();
+    Path::new(program)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+}
+
 /// Runs through `sh` so editors with arguments (`code --wait`) work.
-/// The path is passed as `$1`, never pasted into the script, so spaces or quotes are safe.
-fn command(editor: &str, path: &Path) -> Command {
+/// `args` and the path are passed as `"$@"`, never pasted into the script, so spaces or
+/// quotes are safe.
+fn command(editor: &str, args: &[&str], path: &Path) -> Command {
     let mut command = Command::new("sh");
     command
         .arg("-c")
-        .arg(format!("{editor} \"$1\""))
+        .arg(format!("{editor} \"$@\""))
         .arg("sh")
+        .args(args)
         .arg(path);
     command
 }
@@ -78,14 +101,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn command_passes_path_with_spaces_and_editor_args() {
+    fn command_passes_args_and_path_with_spaces() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("a 'quoted' file.md");
         fs::write(&path, "# Old\n").unwrap();
 
-        // An "editor" with arguments that changes the file.
-        let status = command("sed -i s/Old/New/", &path).status().unwrap();
+        // An "editor" with its own argument (`-i`), plus an extra argument (the script).
+        let status = command("sed -i", &["s/Old/New/"], &path).status().unwrap();
         assert!(status.success());
         assert_eq!(fs::read_to_string(&path).unwrap(), "# New\n");
+    }
+
+    #[test]
+    fn new_task_args_by_program_name() {
+        for editor in ["vim", "nvim", "/usr/bin/nvim", "nvim -u foo"] {
+            assert_eq!(new_task_args(editor), ["+startinsert!"], "{editor}");
+        }
+        for editor in ["vi", "nvim-qt", "code --wait", "hx", ""] {
+            assert!(new_task_args(editor).is_empty(), "{editor}");
+        }
     }
 }
