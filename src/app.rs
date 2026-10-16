@@ -445,13 +445,10 @@ impl App {
 
     /// Writes `task` into section `s` at `index` and puts the cursor on it.
     fn insert(&mut self, s: usize, index: usize, task: &Task) -> Result<()> {
-        let ops = edit::insert(&self.sections[s], index, task)
+        let (ops, created) = edit::insert(&self.sections[s], index, task)
             .ok_or_else(|| eyre!("section is full (99 tasks)"))?;
-        let created = created_path(&ops);
         self.apply(ops)?;
-        if let Some(path) = created {
-            self.select_path(&path);
-        }
+        self.select_path(&created);
         Ok(())
     }
 
@@ -533,13 +530,6 @@ fn renamed_message(count: usize) -> String {
     } else {
         format!("renamed {count} files to match their titles")
     }
-}
-
-fn created_path(ops: &[Op]) -> Option<PathBuf> {
-    ops.iter().find_map(|op| match op {
-        Op::Create { path, .. } => Some(path.clone()),
-        _ => None,
-    })
 }
 
 #[cfg(test)]

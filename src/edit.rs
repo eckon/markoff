@@ -138,8 +138,8 @@ pub fn normalize_sections(sections: &[Section]) -> Vec<Op> {
 /// `o` / `O`: writes `task` into `section` so it ends up at position `index`.
 ///
 /// The section is renumbered with the new task in it (same op list, so one undo reverts
-/// both). Returns `None` only if the section is full.
-pub fn insert(section: &Section, index: usize, task: &Task) -> Option<Vec<Op>> {
+/// both). Returns the ops and the new path, `None` only if the section is full.
+pub fn insert(section: &Section, index: usize, task: &Task) -> Option<(Vec<Op>, PathBuf)> {
     let mut entries = task_entries(section);
     entries.insert(
         index,
@@ -151,11 +151,12 @@ pub fn insert(section: &Section, index: usize, task: &Task) -> Option<Vec<Op>> {
         },
     );
     let (mut ops, names) = renumber(&entries, &section.dir)?;
+    let path = section.dir.join(format!("{}.md", names[index].to_stem()));
     ops.push(Op::Create {
-        path: section.dir.join(format!("{}.md", names[index].to_stem())),
+        path: path.clone(),
         content: task.content.clone(),
     });
-    Some(ops)
+    Some((ops, path))
 }
 
 /// `J` / `K` on a task: moves task `t` of section `from` to position `index` of section `to`.
@@ -472,7 +473,7 @@ mod tests {
 
     #[test]
     fn insert_keeps_content() {
-        let ops = insert(&section(&[]), 0, &task("Fix bug")).unwrap();
+        let (ops, _) = insert(&section(&[]), 0, &task("Fix bug")).unwrap();
         let [Op::Create { content, .. }] = ops.as_slice() else {
             panic!("expected a single create");
         };
@@ -482,7 +483,7 @@ mod tests {
     #[test]
     fn insert_renumbers_the_section() {
         let s = section(&["01-a.md", "02-b.md"]);
-        let insert_at = |index| describe(&insert(&s, index, &task("New")).unwrap());
+        let insert_at = |index| describe(&insert(&s, index, &task("New")).unwrap().0);
 
         assert_eq!(
             insert_at(0),
@@ -503,7 +504,7 @@ mod tests {
     fn insert_gives_unprefixed_a_prefix() {
         let s = section(&["01-a.md", "My Notes.md"]);
         assert_eq!(
-            describe(&insert(&s, 2, &task("New")).unwrap()),
+            describe(&insert(&s, 2, &task("New")).unwrap().0),
             ["rename My Notes.md -> 02-My Notes.md", "create 03-new.md"]
         );
     }
@@ -518,8 +519,9 @@ mod tests {
     #[test]
     fn insert_slug_collision() {
         let s = section(&["01-new.md", "02-new-2.md"]);
-        let ops = insert(&s, 2, &task("New")).unwrap();
+        let (ops, path) = insert(&s, 2, &task("New")).unwrap();
         assert_eq!(describe(&ops), ["create 03-new-3.md"]);
+        assert_eq!(path, Path::new("todo/work/03-new-3.md"));
     }
 
     #[test]
