@@ -128,8 +128,10 @@ impl App {
                     EditorRequest::Open(path) => {
                         editor::open(terminal, &path, &[]).and_then(|()| self.after_edit(&path))
                     }
-                    EditorRequest::Create { section, index } => editor::create(terminal)
-                        .and_then(|content| self.after_create(section, index, &content)),
+                    EditorRequest::Create { section, index } => {
+                        editor::create(terminal, &self.sections[section].dir)
+                            .and_then(|content| self.after_create(section, index, &content))
+                    }
                 };
                 self.report(result);
                 dirty = true;

@@ -2,6 +2,8 @@
 
 use std::{fs, io, path::Path, process::Command};
 
+use tempfile::NamedTempFile;
+
 use color_eyre::{
     Result,
     eyre::{WrapErr, bail},
@@ -33,20 +35,29 @@ pub fn open(terminal: &mut DefaultTerminal, path: &Path, args: &[&str]) -> Resul
     Ok(())
 }
 
-/// Opens the editor on a new temp file with an empty `# ` heading and returns what was saved.
+/// Opens the editor on a new draft in `dir` and returns what was saved.
 ///
-/// The file lives in the system temp dir, not in `todo/`, so a half written task never shows
-/// up in the list. The `.md` suffix gives editors markdown highlighting.
-pub fn create(terminal: &mut DefaultTerminal) -> Result<String> {
-    let file = tempfile::Builder::new()
-        .prefix("markoff-new-")
-        .suffix(".md")
-        .tempfile()
-        .wrap_err("failed to create temp file")?;
-    fs::write(file.path(), "# \n")?;
+/// `dir` is the section the task will end up in, so relative and wiki links already resolve
+/// while writing and stay valid when the task is created next to the draft.
+pub fn create(terminal: &mut DefaultTerminal, dir: &Path) -> Result<String> {
+    let file = draft(dir)?;
     open(terminal, file.path(), new_task_args(&editor()))?;
     // Read by path: editors often replace the file instead of writing into it.
     Ok(fs::read_to_string(file.path())?)
+}
+
+/// Hidden draft with an empty `# ` heading, deleted when dropped.
+///
+/// Hidden, so the loader ignores it and a half written task never shows up in the list.
+/// The `.md` suffix gives editors markdown highlighting.
+fn draft(dir: &Path) -> Result<NamedTempFile> {
+    let file = tempfile::Builder::new()
+        .prefix(".markoff-new-")
+        .suffix(".md")
+        .tempfile_in(dir)
+        .wrap_err_with(|| format!("failed to create draft in {}", dir.display()))?;
+    fs::write(file.path(), "# \n")?;
+    Ok(file)
 }
 
 /// `$VISUAL`, then `$EDITOR`, then `vi`, like git.
@@ -120,5 +131,23 @@ mod tests {
         for editor in ["vi", "nvim-qt", "code --wait", "hx", ""] {
             assert!(new_task_args(editor).is_empty(), "{editor}");
         }
+    }
+
+    #[test]
+    fn draft_is_hidden_in_dir_and_removed_on_drop() {
+        let dir = TempDir::new().unwrap();
+        let file = draft(dir.path()).unwrap();
+        let path = file.path().to_path_buf();
+
+        assert_eq!(path.parent(), Some(dir.path()));
+        let name = path.file_name().unwrap().to_str().unwrap();
+        assert!(
+            name.starts_with(".markoff-new-") && name.ends_with(".md"),
+            "{name}"
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "# \n");
+
+        drop(file);
+        assert!(!path.exists());
     }
 }
