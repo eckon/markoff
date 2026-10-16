@@ -104,6 +104,18 @@ body of the task
 
 - List of sections and tasks on the left, inbox first. The cursor can also sit on a section header, so `p` and `o` work on empty sections.
 - Preview pane on the right shows the task body as raw text, read only, heading lines in bold. On a section header it shows the task count.
+
+### Look
+
+Picked from a few variants tried in the real terminal.
+
+- No boxes. The list is separated from the preview by a gray `│` on the left of the preview.
+- Each section has a color, rotating blue, magenta, green, yellow (inbox first). Only the 16 terminal colors, so the look follows the terminal theme.
+- Section header: a gray rule with the name in the section color and the task count dim at the end (`── work ────── 2`). A blank line before each section except the first, which the cursor skips.
+- Task: `•` bullet in the section color
+- Cursor: a `▌` bar in the section color in a one-column gutter, the row bold, a selected task's title in the section color
+- The preview title is a rule in the same style (without count), on the same row as the first list row
+- The list keeps two columns free on the right, so the rules end before the divider
 - Status line at the bottom: errors in red, or the pending key of an unfinished `dd`. Cleared on the next key.
 - The TUI has no text input. Anything that edits text (create, rename, body) goes through `$EDITOR`, where the user has their own keybindings.
 - Only one mode (normal) plus the help overlay. While the help is open, any key closes it and does nothing else.
@@ -207,11 +219,7 @@ From daily use (notes in `notes/todo/markoff`), refined in an interview. Work in
 
 #### C. Look and feel (030, 040)
 
-1. **More visual flavour.** The layout is plain black and white. Before settling on one look, build 2-3 variants and show them to the user (screenshots or a temporary switch) for feedback. Things to vary:
-   - Section headers easy to tell apart: color, a blank line or separator above them, task count next to the name (`work (3)`)
-   - A softer selection than `REVERSED`: theme color for the cursor row, accent colors for borders and titles
-   - Keep it readable on both dark and light terminals (use the 16 ANSI colors, not hardcoded RGB)
-2. **Collapsing preview.** The preview pane only appears when the selected task has a body. On empty tasks and on section headers, the list takes the full width. The section task count moves into the list (see above), so headers don't need the preview.
+2. **Collapsing preview.** The preview pane only appears when the selected task has a body. On empty tasks and on section headers, the list takes the full width (no divider). The section task count is already in the list, so headers don't need the preview.
 
 #### A. Creating tasks in the editor (010, 070)
 

@@ -1,9 +1,11 @@
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
-    style::{Modifier, Style, Stylize},
-    text::{Line, Text},
-    widgets::{Block, BorderType, Clear, List, ListItem, ListState, Paragraph, Wrap},
+    style::{Color, Style, Stylize},
+    text::{Line, Span, Text},
+    widgets::{
+        Block, BorderType, Borders, Clear, List, ListItem, ListState, Padding, Paragraph, Wrap,
+    },
 };
 
 use crate::{
@@ -66,45 +68,124 @@ fn render_status(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_widget(line, area);
 }
 
+/// Colors of the sections in list order (inbox first), repeating. Only the 16 terminal
+/// colors, so they follow the terminal theme.
+const SECTION_COLORS: [Color; 4] = [Color::Blue, Color::Magenta, Color::Green, Color::Yellow];
+
+/// Rules and the preview divider.
+const LINE_COLOR: Color = Color::DarkGray;
+
+fn section_color(index: usize) -> Color {
+    SECTION_COLORS[index % SECTION_COLORS.len()]
+}
+
+/// No box around the list. Sections are rules, tasks get a bullet in the section color,
+/// the cursor is a bar in the gutter.
 fn render_list(app: &App, frame: &mut Frame, area: Rect) {
-    let items: Vec<ListItem> = app
-        .rows()
-        .into_iter()
-        .map(|row| match row {
-            Row::Section(s) => ListItem::new(app.sections[s].title().bold()),
-            Row::Task(s, t) => ListItem::new(format!("  {}", app.sections[s].tasks[t].title())),
-        })
-        .collect();
+    // Space on the right so rules stop before the preview divider.
+    let block = Block::new().padding(Padding::new(1, 2, 0, 0));
+    let width = block.inner(area).width as usize;
 
-    let list = List::new(items)
-        .block(block(" markoff ".to_string()))
-        .highlight_style(Style::new().add_modifier(Modifier::REVERSED));
+    let mut items: Vec<ListItem> = Vec::new();
+    let mut selected = 0;
+    for (i, row) in app.rows().into_iter().enumerate() {
+        let is_cursor = i == app.cursor;
+        let (Row::Section(s) | Row::Task(s, _)) = row;
+        let color = section_color(s);
 
+        // Blank line before each section except the first. Not a row, the cursor skips it.
+        if s > 0 && matches!(row, Row::Section(_)) {
+            items.push(ListItem::new(""));
+        }
+        if is_cursor {
+            selected = items.len();
+        }
+
+        // One column gutter for the cursor bar.
+        let mut spans = vec![if is_cursor {
+            "▌".fg(color)
+        } else {
+            " ".into()
+        }];
+        match row {
+            Row::Section(s) => {
+                let section = &app.sections[s];
+                let count = section.tasks.len();
+                spans.extend(rule(
+                    &section.title(),
+                    Some(count),
+                    color,
+                    width.saturating_sub(1),
+                ));
+            }
+            Row::Task(s, t) => {
+                let title = app.sections[s].tasks[t].title();
+                spans.push("  ".into());
+                spans.push("• ".fg(color));
+                spans.push(if is_cursor {
+                    title.fg(color)
+                } else {
+                    title.into()
+                });
+            }
+        }
+
+        let mut line = Line::from(spans);
+        if is_cursor {
+            line = line.bold();
+        }
+        items.push(ListItem::new(line));
+    }
+
+    let list = List::new(items).block(block);
     // Fresh state each frame: ratatui scrolls just enough to keep the cursor visible.
-    let mut state = ListState::default().with_selected(Some(app.cursor));
+    let mut state = ListState::default().with_selected(Some(selected));
     frame.render_stateful_widget(list, area, &mut state);
+}
+
+/// `── work ─────── 2`, filled to `width`. Section headers and the preview title.
+fn rule(title: &str, count: Option<usize>, color: Color, width: usize) -> Vec<Span<'static>> {
+    let count = count.map(|c| format!(" {c}")).unwrap_or_default();
+    let used = 3 + title.chars().count() + 1 + count.chars().count();
+    vec![
+        "── ".fg(LINE_COLOR),
+        title.to_string().fg(color).bold(),
+        " ".into(),
+        "─".repeat(width.saturating_sub(used)).fg(LINE_COLOR),
+        count.dim(),
+    ]
 }
 
 /// Task body as raw text, read only. On a section header: name and task count.
 fn render_preview(app: &App, frame: &mut Frame, area: Rect) {
-    let (title, text) = match app.selected() {
+    let (title, text, color) = match app.selected() {
         Some(Row::Task(s, t)) => {
             let task = &app.sections[s].tasks[t];
-            (task.title(), body_text(&task.body))
+            (task.title(), body_text(&task.body), section_color(s))
         }
         Some(Row::Section(s)) => {
             let section = &app.sections[s];
             let count = section.tasks.len();
             let noun = if count == 1 { "task" } else { "tasks" };
-            (section.title(), Text::from(format!("{count} {noun}")))
+            let text = Text::from(format!("{count} {noun}"));
+            (section.title(), text, section_color(s))
         }
-        None => (String::new(), Text::default()),
+        None => (String::new(), Text::default(), Color::Reset),
     };
 
-    let preview = Paragraph::new(text)
-        .block(block(format!(" {title} ")))
-        .wrap(Wrap { trim: false });
-    frame.render_widget(preview, area);
+    // No box: a divider on the left, the title as a rule on the first row.
+    let divider = Block::new()
+        .borders(Borders::LEFT)
+        .border_style(Style::new().fg(LINE_COLOR))
+        .padding(Padding::horizontal(1));
+    let inner = divider.inner(area);
+    frame.render_widget(divider, area);
+
+    let [title_area, body_area] =
+        Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
+    let title = rule(&title, None, color, title_area.width as usize);
+    frame.render_widget(Line::from(title), title_area);
+    frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }), body_area);
 }
 
 /// Markdown stays raw, only heading lines are bold so the structure is easier to scan.
@@ -156,7 +237,7 @@ mod tests {
             sections(&[(&[], &["Fix typo"]), (&["work"], &["Review PR"])]),
         );
         let screen = screen(&app);
-        for text in ["inbox", "  Fix typo", "work", "  Review PR"] {
+        for text in ["inbox", "• Fix typo", "work", "• Review PR"] {
             assert!(screen.contains(text), "missing {text:?} in\n{screen}");
         }
     }
