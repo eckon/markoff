@@ -223,11 +223,10 @@ pub fn move_section(sections: &[Section], s: usize, down: bool) -> Option<(Vec<O
 /// Returns the renames for entries whose path changes, and the names of all entries.
 /// `None` if there are more than [`MAX_ORDER`].
 fn renumber(entries: &[Entry], dir: &Path) -> Option<(Vec<Op>, Vec<Name>)> {
-    let count = u32::try_from(entries.len())
-        .ok()
-        .filter(|&count| count <= MAX_ORDER)?;
-    let orders: Vec<u32> = (1..=count).collect();
-    let names = target_names(entries, &orders);
+    if entries.len() > MAX_ORDER as usize {
+        return None;
+    }
+    let names = target_names(entries);
 
     let renames = entries
         .iter()
@@ -241,44 +240,29 @@ fn renumber(entries: &[Entry], dir: &Path) -> Option<(Vec<Op>, Vec<Name>)> {
     Some((order_renames(renames), names))
 }
 
-/// Names for all entries at `orders`, with their wanted slug.
+/// Names for all entries, numbered in this order, with their wanted slug.
 ///
 /// Entries whose slug stays the same keep it, the others get a unique one (`-2`, ...), so
 /// an entry never takes the slug another one already has.
-fn target_names(entries: &[Entry], orders: &[u32]) -> Vec<Name> {
-    let keeps_slug: Vec<bool> = entries
+fn target_names(entries: &[Entry]) -> Vec<Name> {
+    let keeps_slug = |entry: &Entry| entry.current_slug.as_ref() == Some(&entry.slug);
+    let mut taken: Vec<String> = entries
         .iter()
-        .map(|entry| entry.current_slug.as_ref() == Some(&entry.slug))
+        .filter(|entry| keeps_slug(entry))
+        .map(|entry| entry.slug.clone())
         .collect();
 
-    let mut taken: Vec<Name> = entries
-        .iter()
-        .zip(orders)
-        .zip(&keeps_slug)
-        .filter(|(_, keeps)| **keeps)
-        .map(|((entry, &order), _)| Name {
-            order,
-            slug: entry.slug.clone(),
-        })
-        .collect();
-
-    entries
-        .iter()
-        .zip(orders)
-        .zip(keeps_slug)
-        .map(|((entry, &order), keeps)| {
-            if keeps {
-                return Name {
-                    order,
-                    slug: entry.slug.clone(),
-                };
-            }
-            let name = Name {
-                order,
-                slug: unique_slug(&taken, entry.slug.clone()),
+    (1..)
+        .zip(entries)
+        .map(|(order, entry)| {
+            let slug = if keeps_slug(entry) {
+                entry.slug.clone()
+            } else {
+                let slug = unique_slug(&taken, entry.slug.clone());
+                taken.push(slug.clone());
+                slug
             };
-            taken.push(name.clone());
-            name
+            Name { order, slug }
         })
         .collect()
 }
@@ -300,14 +284,14 @@ fn order_renames(mut pending: Vec<(PathBuf, PathBuf)>) -> Vec<Op> {
 }
 
 /// Appends `-2`, `-3`, ... if another task in the section already uses the slug.
-fn unique_slug(names: &[Name], slug: String) -> String {
-    let taken = |candidate: &str| names.iter().any(|name| name.slug == candidate);
-    if !taken(&slug) {
+fn unique_slug(taken: &[String], slug: String) -> String {
+    let is_taken = |candidate: &str| taken.iter().any(|other| other == candidate);
+    if !is_taken(&slug) {
         return slug;
     }
     (2..)
         .map(|n| format!("{slug}-{n}"))
-        .find(|candidate| !taken(candidate))
+        .find(|candidate| !is_taken(candidate))
         .expect("infinite iterator always finds a free slug")
 }
 
