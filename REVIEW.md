@@ -33,8 +33,8 @@ Findings from a full code review, to work through before folding. Delete this fi
 
 ### CI (GitHub Actions)
 
-- [ ] `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` on push and PR
-- [ ] Linux and macOS, `Swatinem/rust-cache`
+- [x] `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` on push and PR
+- [x] Linux and macOS, `Swatinem/rust-cache`
 
 ### Rust config
 
