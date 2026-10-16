@@ -108,7 +108,7 @@ fn render_help(frame: &mut Frame) {
     );
 }
 
-/// Last error or message, otherwise the pending key of an unfinished sequence (`d`).
+/// Last error or message, otherwise the pending key of an unfinished sequence (`g`).
 fn render_status(app: &App, frame: &mut Frame, area: Rect) {
     let line = match (&app.status, app.keymap.pending()) {
         (Some(Status::Error(message)), _) => Line::from(message.as_str().red()),

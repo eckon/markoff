@@ -10,7 +10,7 @@ use crate::name::Name;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Task {
     pub path: PathBuf,
-    /// `None` if the filename has no `NNN-` prefix (created by hand).
+    /// `None` if the filename has no `NN-` prefix (created by hand).
     pub name: Option<Name>,
     /// Text of the `# Heading`, `None` if the file has none.
     pub heading: Option<String>,

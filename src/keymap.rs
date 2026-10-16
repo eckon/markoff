@@ -81,7 +81,7 @@ pub const HINTS: &[(char, &str)] = &[
 ];
 
 impl Binding {
-    /// Display form of all triggers: `j / ↓`, `dd`, `q / C-c`.
+    /// Display form of all triggers: `j / ↓`, `gg`, `q / C-c`.
     pub fn label(&self) -> String {
         let label = |trigger: &Trigger| match *trigger {
             Key(Char(c)) => c.to_string(),
@@ -103,10 +103,10 @@ impl Binding {
     }
 }
 
-/// Translates key presses into [`Action`]s, including multi-key sequences like `dd`.
+/// Translates key presses into [`Action`]s, including multi-key sequences like `gg`.
 #[derive(Debug, Default)]
 pub struct Keymap {
-    /// First key of an unfinished sequence, e.g. `d` after the first `d` of `dd`.
+    /// First key of an unfinished sequence, e.g. `g` after the first `g` of `gg`.
     pending: Option<char>,
 }
 
