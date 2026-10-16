@@ -1,3 +1,5 @@
+//! Keys to [`Action`]s. All bindings live in [`BINDINGS`], the help overlay reads it too.
+
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// Everything the user can ask the app to do.

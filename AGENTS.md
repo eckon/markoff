@@ -51,4 +51,3 @@ For TUI changes also run the real app in tmux against a scratch `todo/` dir (or 
 
 - Keep this file to the bare minimum. Details belong in the code and its doc comments.
 - When a rule here changes, update it in the same change as the code. Same for README.md (keys, data layout).
-- PLAN.md only tracks the open next steps until it is removed. Remove a step once it is done.

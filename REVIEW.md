@@ -1,6 +1,6 @@
 # Review 2026-10-16
 
-Findings from a full code review, to work through before folding (PLAN.md step 9). Delete this file when done.
+Findings from a full code review, to work through before folding. Delete this file when done.
 
 ## Code
 
@@ -22,7 +22,7 @@ Findings from a full code review, to work through before folding (PLAN.md step 9
 - [x] `op::write_atomic` and `keymap::HINTS` are `pub` but only used in their module
 - [x] Help popup has a fixed width of 44, measure the content like the rename popup
 - [x] `editor.rs`: `use tempfile` sits between the std and color_eyre imports
-- [ ] Trim PLAN.md to the open next steps. First move any "why" that is not in the code yet into doc comments.
+- [x] Trim PLAN.md to the open next steps. First move any "why" that is not in the code yet into doc comments.
 
 ### Left as is (on purpose)
 

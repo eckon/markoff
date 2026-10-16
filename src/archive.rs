@@ -24,6 +24,8 @@ const HEADING_SHIFT: usize = 2;
 ///
 /// `archive` is today's file, `None` if it does not exist yet. If the section heading exists,
 /// the task goes to the end of that section, otherwise the section is added at the end.
+/// An unclosed code fence in an earlier task hides the headings below it, so the section is
+/// added again at the end then. Nothing is lost.
 pub fn add(archive: Option<&str>, date: &str, section: &str, task: &Task) -> String {
     let entry = entry(task);
     let heading = format!("## {section}");

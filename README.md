@@ -8,7 +8,7 @@ Every task is a markdown file, every section a directory. The order lives in the
 
 ## Status
 
-v1 works: list and preview, create and edit via `$EDITOR`, move tasks and sections, archive, delete, undo, file watcher. See [PLAN.md](PLAN.md) for the full design, known limitations and next steps.
+v1 works: list and preview, create and edit via `$EDITOR`, move tasks and sections, archive, delete, undo, file watcher.
 
 ## Setup
 
@@ -75,4 +75,4 @@ cargo clippy --all-targets
 cargo run -- --dir <dir with todo/>
 ```
 
-The module overview and design decisions are in [PLAN.md](PLAN.md#code-structure).
+Design rules and conventions are in [AGENTS.md](AGENTS.md), details in the doc comments.

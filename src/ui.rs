@@ -1,3 +1,5 @@
+//! Rendering: list, preview, status line and popups. Reads the app, never changes it.
+
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},

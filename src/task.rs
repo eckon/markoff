@@ -74,6 +74,7 @@ fn stem(path: &Path) -> Option<&str> {
 ///
 /// Only the first non-blank line counts as the heading, and only if it is a level 1 heading.
 /// An empty heading (`# `) is treated as no heading, which is how `o` detects an aborted create.
+/// No frontmatter support yet: a file starting with `---` has no heading.
 fn split_heading(content: &str) -> (Option<String>, &str) {
     let trimmed = content.trim_start();
     let (first_line, rest) = trimmed.split_once('\n').unwrap_or((trimmed, ""));

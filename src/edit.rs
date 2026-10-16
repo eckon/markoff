@@ -213,6 +213,10 @@ pub fn move_section(sections: &[Section], s: usize, down: bool) -> Option<(Vec<O
 
 /// Numbers `entries` in this order `01`, `02`, ... in `dir`, with their wanted slugs.
 ///
+/// Always dense, even if that renames every entry below a change. Gaps (`010`/`020` -> `015`)
+/// looked random after a few moves, an order file or frontmatter key would hide the order
+/// from `ls`, and fractional keys (`a`, `an`, `b`) look as random as gaps.
+///
 /// Returns the renames for entries whose path changes, and the names of all entries.
 /// `None` if there are more than [`MAX_ORDER`].
 fn renumber(entries: &[Entry], dir: &Path) -> Option<(Vec<Op>, Vec<Name>)> {

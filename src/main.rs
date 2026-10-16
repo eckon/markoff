@@ -1,3 +1,5 @@
+//! markoff: a TUI for todos stored as markdown files.
+
 mod app;
 mod archive;
 mod config;

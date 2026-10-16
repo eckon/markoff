@@ -88,7 +88,7 @@ fn program_name(editor: &str) -> &str {
         .unwrap_or_default()
 }
 
-/// Runs through `sh` so editors with arguments (`code --wait`) work.
+/// Runs through `sh` so editors with arguments (`code --wait`) work. No Windows because of that.
 /// `args` and the path are passed as `"$@"`, never pasted into the script, so spaces or
 /// quotes are safe.
 fn command(editor: &str, args: &[&str], path: &Path) -> Command {

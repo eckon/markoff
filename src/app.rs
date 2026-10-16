@@ -1,3 +1,5 @@
+//! App state, the run loop, and what each [`Action`] does to it and to the disk.
+
 use std::{
     fs, io,
     path::{Path, PathBuf},
