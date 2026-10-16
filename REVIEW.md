@@ -55,9 +55,9 @@ Findings from a full code review, to work through before folding. Delete this fi
 ### Repo
 
 - [ ] `LICENSE`
-- [ ] `.gitignore`: `.rumdl_cache`
-- [ ] `.rumdl.toml` with MD013 (line length) off or relaxed
-- [ ] `.editorconfig`
+- [x] `.gitignore`: `.rumdl_cache`
+- [x] `.rumdl.toml` with MD013 (line length) off or relaxed
+- [x] `.editorconfig`
 - [ ] Pre-commit hook (lefthook or a git hook): fmt, clippy, test
 - [ ] Releases: `cargo-dist` or GitHub releases with binaries
 

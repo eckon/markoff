@@ -30,7 +30,7 @@ dir = "~/notes"
 
 ## Data layout
 
-```
+```text
 todo/
   01-fix-typo.md           <- inbox (no section)
   01-work/                 <- section "work"
