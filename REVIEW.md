@@ -46,7 +46,7 @@ Findings from a full code review, to work through before folding. Delete this fi
 ### Dependencies and quality
 
 - [ ] `cargo deny` or `cargo audit`
-- [ ] Dependabot or Renovate
+- [x] Dependabot or Renovate
 - [ ] `cargo machete` (all 7 deps are used today)
 - [ ] `typos` for spelling
 - [ ] Test that the README key table matches `BINDINGS`
