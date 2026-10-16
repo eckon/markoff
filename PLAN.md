@@ -113,7 +113,7 @@ Picked from a few variants tried in the real terminal.
 - Each section has a color, rotating blue, magenta, green, yellow (inbox first). Only the 16 terminal colors, so the look follows the terminal theme.
 - Section header: a gray rule with the name in the section color and the task count dim at the end (`── work ────── 2`). A blank line before each section except the first, which the cursor skips.
 - Task: `•` bullet in the section color
-- Cursor: a `▌` bar in the section color in a one-column gutter, the row bold, a selected task's title in the section color
+- Cursor: a `▌` bar in the section color in a one-column gutter, a selected task's title in the section color
 - The preview title is a rule in the same style (without count), on the same row as the first list row
 - The list keeps two columns free on the right, so the rules end before the divider
 - Rules keep the width of the split list even when the preview is hidden, so they don't jump while moving

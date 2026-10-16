@@ -137,11 +137,7 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) {
             }
         }
 
-        let mut line = Line::from(spans);
-        if is_cursor {
-            line = line.bold();
-        }
-        items.push(ListItem::new(line));
+        items.push(ListItem::new(Line::from(spans)));
     }
 
     let list = List::new(items).block(block);
