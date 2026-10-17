@@ -160,7 +160,7 @@ pub fn normalize(sections: &[Section], file: &OrderFile) -> Vec<Op> {
     ops
 }
 
-/// `n`: writes `task` into section `s` at position `index`. Returns the ops and the new path.
+/// `o` / `O`: writes `task` into section `s` at position `index`. Returns the ops and the new path.
 pub fn insert(
     sections: &[Section],
     s: usize,

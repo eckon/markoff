@@ -87,7 +87,7 @@ https://intranet/menu
 | `J` / `S-↓`   | Move task or section down             |
 | `K` / `S-↑`   | Move task or section up               |
 | `<CR>`        | Open task or rename section in `$EDITOR` |
-| `n`           | New task, via `$EDITOR`               |
+| `o` / `O`     | New task below / above, via `$EDITOR` |
 | `N`           | New section, via `$EDITOR`            |
 | `X`           | Done: move to archive                 |
 | `D`           | Delete task (without archiving) or empty section |

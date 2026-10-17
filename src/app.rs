@@ -51,7 +51,7 @@ pub enum Row {
 enum EditorRequest {
     /// `<CR>`: edit an existing task.
     Open(PathBuf),
-    /// `n`: write a new task, inserted at `index` in section `section`.
+    /// `o` / `O`: write a new task, inserted at `index` in section `section`.
     Create { section: usize, index: usize },
     /// `N`: write a new section, inserted at `index` among the sections.
     CreateSection(usize),
@@ -289,7 +289,11 @@ impl App {
         if !self.filter.is_empty()
             && matches!(
                 action,
-                Action::MoveDown | Action::MoveUp | Action::New | Action::NewSection
+                Action::MoveDown
+                    | Action::MoveUp
+                    | Action::NewBelow
+                    | Action::NewAbove
+                    | Action::NewSection
             )
         {
             self.status = Some(Status::Info("clear the filter first (Esc)".to_string()));
@@ -324,10 +328,16 @@ impl App {
                 // `daily.md` is edited by hand.
                 Some(Row::Daily | Row::DailyTask(_)) | None => {}
             },
-            Action::New => {
-                // At the end of the cursor's section, from its header or any of its tasks.
-                if let Some(Row::Section(section) | Row::Task(section, _)) = self.selected() {
-                    let index = self.sections[section].tasks.len();
+            Action::NewBelow | Action::NewAbove => {
+                // Next to the cursor's task. From a header both put it first in the section,
+                // so an empty section can get its first task.
+                let below = action == Action::NewBelow;
+                let target = match self.selected() {
+                    Some(Row::Task(section, task)) => Some((section, task + usize::from(below))),
+                    Some(Row::Section(section)) => Some((section, 0)),
+                    _ => None,
+                };
+                if let Some((section, index)) = target {
                     self.editor_request = Some(EditorRequest::Create { section, index });
                 }
             }
@@ -420,7 +430,7 @@ impl App {
         }
     }
 
-    /// Inserts what was written in the editor for `n`.
+    /// Inserts what was written in the editor for `o` / `O`.
     fn after_create(&mut self, section: usize, index: usize, content: &str) -> Result<()> {
         let task = Task::parse(PathBuf::from("new.md"), content);
         if task.heading.is_none() {
@@ -983,7 +993,8 @@ pub mod tests {
                 Action::MoveUp,
                 Action::Delete,
                 Action::Open,
-                Action::New,
+                Action::NewBelow,
+                Action::NewAbove,
             ] {
                 app.update(action);
                 assert_eq!(app.status, None, "{action:?}");
@@ -1119,7 +1130,8 @@ pub mod tests {
         for action in [
             Action::MoveDown,
             Action::MoveUp,
-            Action::New,
+            Action::NewBelow,
+            Action::NewAbove,
             Action::NewSection,
         ] {
             app.status = None;
@@ -1161,41 +1173,41 @@ pub mod tests {
     }
 
     #[test]
-    fn new_requests_create_at_section_end() {
-        let (_dir, mut app) = app_with_files(&["work/a.md", "work/b.md", "home/c.md"]);
-        let at_end = |section| Some(EditorRequest::Create { section, index: 2 });
-
-        // On a task and on the header of the same section.
-        for cursor in [1, 0] {
+    fn new_requests_create_next_to_the_cursor() {
+        let (_dir, mut app) = app_with_files(&["work/a.md", "work/b.md", "home/"]);
+        let create = |section, index| Some(EditorRequest::Create { section, index });
+        // Rows: work, a, b, home
+        for (cursor, action, expected) in [
+            (1, Action::NewBelow, create(0, 1)),
+            (1, Action::NewAbove, create(0, 0)),
+            (2, Action::NewBelow, create(0, 2)),
+            (2, Action::NewAbove, create(0, 1)),
+            (0, Action::NewBelow, create(0, 0)),
+            (0, Action::NewAbove, create(0, 0)),
+            (3, Action::NewBelow, create(1, 0)),
+            (3, Action::NewAbove, create(1, 0)),
+        ] {
             app.cursor = cursor;
-            app.update(Action::New);
-            assert_eq!(app.editor_request, at_end(0), "cursor {cursor}");
+            app.update(action);
+            assert_eq!(app.editor_request, expected, "cursor {cursor}, {action:?}");
         }
-
-        app.cursor = 3;
-        app.update(Action::New);
-        assert_eq!(
-            app.editor_request,
-            Some(EditorRequest::Create {
-                section: 1,
-                index: 1
-            })
-        );
     }
 
     #[test]
     fn new_does_nothing_without_a_section() {
         let (_dir, mut app) = app_with_files(&[]);
-        app.update(Action::New);
-        assert_eq!(app.editor_request, None);
-        assert_eq!(app.status, None);
+        for action in [Action::NewBelow, Action::NewAbove] {
+            app.update(action);
+            assert_eq!(app.editor_request, None, "{action:?}");
+            assert_eq!(app.status, None, "{action:?}");
+        }
     }
 
     #[test]
     fn after_create_inserts_and_undo_removes() {
         let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
-        // `n` was pressed on `a`.
-        app.cursor = 1;
+        // `o` was pressed on `b`.
+        app.cursor = 2;
         app.after_create(0, 2, "# New task\n\nnotes\n").unwrap();
         assert_eq!(listing(&app), ["[work]", "a.md", "b.md", "new-task.md"]);
         assert_eq!(order_file(&dir), "# work\na\nb\nnew-task\n");
@@ -1204,8 +1216,8 @@ pub mod tests {
         app.update(Action::Undo);
         assert_eq!(listing(&app), ["[work]", "a.md", "b.md"]);
         assert_eq!(
-            app.cursor, 1,
-            "cursor is back on `a`, where `n` was pressed"
+            app.cursor, 2,
+            "cursor is back on `b`, where `o` was pressed"
         );
     }
 

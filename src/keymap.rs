@@ -17,7 +17,8 @@ pub enum Action {
     MoveUp,
     MoveDown,
     Open,
-    New,
+    NewBelow,
+    NewAbove,
     NewSection,
     Done,
     Delete,
@@ -77,7 +78,8 @@ pub const BINDINGS: &[Binding] = &[
     Binding { triggers: &[Key(Char('J')), Shift(Down)], action: A::MoveDown, help: "move down", group: "change" },
     Binding { triggers: &[Key(Char('K')), Shift(Up)], action: A::MoveUp, help: "move up", group: "change" },
     Binding { triggers: &[Key(Enter)], action: A::Open, help: "open in $EDITOR", group: "change" },
-    Binding { triggers: &[Key(Char('n'))], action: A::New, help: "new task", group: "change" },
+    Binding { triggers: &[Key(Char('o'))], action: A::NewBelow, help: "new task below", group: "change" },
+    Binding { triggers: &[Key(Char('O'))], action: A::NewAbove, help: "new task above", group: "change" },
     Binding { triggers: &[Key(Char('N'))], action: A::NewSection, help: "new section", group: "change" },
     Binding { triggers: &[Key(Char('X'))], action: A::Done, help: "done (archive)", group: "change" },
     Binding { triggers: &[Key(Char('D'))], action: A::Delete, help: "delete", group: "change" },
@@ -227,7 +229,14 @@ mod tests {
         assert_eq!(press(&mut keymap, KeyCode::Char('X')), Some(Action::Done));
         assert_eq!(press(&mut keymap, KeyCode::Char('D')), Some(Action::Delete));
         assert_eq!(press(&mut keymap, KeyCode::Enter), Some(Action::Open));
-        assert_eq!(press(&mut keymap, KeyCode::Char('n')), Some(Action::New));
+        assert_eq!(
+            press(&mut keymap, KeyCode::Char('o')),
+            Some(Action::NewBelow)
+        );
+        assert_eq!(
+            press(&mut keymap, KeyCode::Char('O')),
+            Some(Action::NewAbove)
+        );
         assert_eq!(
             press(&mut keymap, KeyCode::Char('N')),
             Some(Action::NewSection)
