@@ -3,7 +3,7 @@
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
-    style::{Color, Style, Stylize},
+    style::{Color, Modifier, Style, Stylize},
     text::{Line, Span, Text},
     widgets::{
         Block, BorderType, Borders, Clear, List, ListItem, ListState, Padding, Paragraph, Wrap,
@@ -12,6 +12,7 @@ use ratatui::{
 
 use crate::{
     app::{App, Row, Status},
+    filter,
     keymap::{BINDINGS, Binding},
 };
 
@@ -111,12 +112,34 @@ fn render_help(frame: &mut Frame) {
     );
 }
 
-/// Last error or message, otherwise the pending key of an unfinished sequence (`g`).
+/// The open filter input with the terminal cursor at its end. Otherwise the last error or
+/// message, the pending key of an unfinished sequence (`g`), or the filter that is set with
+/// its number of matching tasks.
 fn render_status(app: &App, frame: &mut Frame, area: Rect) {
+    let filter = format!("/{}", app.filter);
+    if app.filter_input {
+        let end = area.x + Line::from(filter.as_str()).width() as u16;
+        frame.render_widget(Line::from(filter), area);
+        frame.set_cursor_position((end.min(area.right().saturating_sub(1)), area.y));
+        return;
+    }
     let line = match (&app.status, app.keymap.pending()) {
         (Some(Status::Error(message)), _) => Line::from(message.as_str().red()),
         (Some(Status::Info(message)), _) => Line::from(message.as_str()),
         (None, Some(key)) => Line::from(key.to_string()).right_aligned(),
+        (None, None) if !app.filter.is_empty() => {
+            let count = app
+                .rows()
+                .iter()
+                .filter(|row| matches!(row, Row::Task(..)))
+                .count();
+            let tasks = if count == 1 { "task" } else { "tasks" };
+            Line::from(vec![
+                "filter: ".dim(),
+                app.filter.as_str().bold(),
+                format!(" · {count} {tasks}   Esc clears").dim(),
+            ])
+        }
         (None, None) => Line::default(),
     };
     frame.render_widget(line, area);
@@ -140,13 +163,14 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) {
 
     let mut items: Vec<ListItem> = Vec::new();
     let mut selected = 0;
-    for (i, row) in app.rows().into_iter().enumerate() {
+    let rows = app.rows();
+    for (i, &row) in rows.iter().enumerate() {
         let is_cursor = i == app.cursor;
         let (Row::Section(s) | Row::Task(s, _)) = row;
         let color = section_color(s);
 
         // Blank line before each section except the first. Not a row, the cursor skips it.
-        if s > 0 && matches!(row, Row::Section(_)) {
+        if i > 0 && matches!(row, Row::Section(_)) {
             items.push(ListItem::new(""));
         }
         if is_cursor {
@@ -162,7 +186,11 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) {
         match row {
             Row::Section(s) => {
                 let section = &app.sections[s];
-                let count = section.tasks.len();
+                // Only the shown tasks, so with a filter it says how many match.
+                let count = rows
+                    .iter()
+                    .filter(|row| matches!(row, Row::Task(task_s, _) if *task_s == s))
+                    .count();
                 spans.extend(rule(
                     &section.title(),
                     Some(count),
@@ -174,15 +202,28 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) {
                 let title = app.sections[s].tasks[t].title();
                 spans.push("  ".into());
                 spans.push("• ".fg(color));
-                spans.push(if is_cursor {
-                    title.fg(color)
+                let mut style = if is_cursor {
+                    Style::new().fg(color)
                 } else {
-                    title.into()
-                });
+                    Style::new()
+                };
+                // Listed for a match in the body only: weaker, `…` hints at the preview.
+                let body_only = !filter::matches(&title, &app.filter);
+                if body_only {
+                    style = style.dim();
+                }
+                spans.extend(highlight(&title, &app.filter, style));
+                if body_only {
+                    spans.push(" …".dim());
+                }
             }
         }
 
         items.push(ListItem::new(Line::from(spans)));
+    }
+    if items.is_empty() && !app.filter.is_empty() {
+        // Gutter column like the rows, so it lines up with the section rules.
+        items.push(ListItem::new(" no matches".dim()));
     }
 
     let list = List::new(items).block(block);
@@ -213,7 +254,7 @@ fn rule(title: &str, count: Option<usize>, color: Color, width: usize) -> Vec<Sp
 fn render_preview(app: &App, frame: &mut Frame, area: Rect, s: usize, t: usize) {
     let task = &app.sections[s].tasks[t];
     let color = section_color(s);
-    let text = body_text(&task.body);
+    let text = body_text(&task.body, &app.filter);
 
     // No box: a divider on the left, the title as a rule on the first row.
     let divider = Block::new()
@@ -231,16 +272,37 @@ fn render_preview(app: &App, frame: &mut Frame, area: Rect, s: usize, t: usize) 
 }
 
 /// Markdown stays raw, only heading lines are bold so the structure is easier to scan.
-fn body_text(body: &str) -> Text<'_> {
+/// Filter matches are highlighted, so a task listed for its body shows why.
+fn body_text(body: &str, filter: &str) -> Text<'static> {
     body.lines()
         .map(|line| {
-            if line.starts_with('#') {
-                Line::from(line.bold())
+            let style = if line.starts_with('#') {
+                Style::new().bold()
             } else {
-                Line::from(line)
-            }
+                Style::new()
+            };
+            Line::from(highlight(line, filter, style))
         })
         .collect()
+}
+
+/// Filter matches: yellow alone would vanish in the yellow section, bold keeps them visible.
+const MATCH_STYLE: Style = Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD);
+
+/// `text` in `style`, with the matches of `filter` in [`MATCH_STYLE`] on top.
+fn highlight(text: &str, filter: &str, style: Style) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    let mut at = 0;
+    for range in filter::find(text, filter) {
+        spans.push(Span::styled(text[at..range.start].to_string(), style));
+        spans.push(Span::styled(
+            text[range.clone()].to_string(),
+            style.patch(MATCH_STYLE),
+        ));
+        at = range.end;
+    }
+    spans.push(Span::styled(text[at..].to_string(), style));
+    spans
 }
 
 fn block<'a>(title: String) -> Block<'a> {
@@ -256,7 +318,7 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::{app::tests::sections, keymap::Action};
-    use ratatui::{Terminal, backend::TestBackend};
+    use ratatui::{Terminal, backend::TestBackend, style::Modifier};
 
     /// Renders the app and returns the screen as text, styles (bold, highlight) are ignored.
     fn screen(app: &App) -> String {
@@ -345,6 +407,89 @@ mod tests {
         for text in [" renamed ", "b.md", "-> 02-b.md", "any key closes this"] {
             assert!(screen.contains(text), "missing {text:?}");
         }
+    }
+
+    #[test]
+    fn filter_input_and_filtered_list() {
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[(&[], &["Fix typo"]), (&["work"], &["Review"])]),
+        );
+        app.update(Action::Filter);
+        for c in "rev".chars() {
+            app.update(Action::FilterType(c));
+        }
+        let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
+        // The first visible section starts at the top, without a blank line.
+        assert!(lines[0].contains("work"), "{lines:#?}");
+        assert!(lines[1].contains("Review"), "{lines:#?}");
+        assert!(!lines.join("\n").contains("Fix typo"));
+        assert!(lines[8].starts_with("/rev "), "input at the bottom");
+
+        // Accepted, the filter stays visible in the status line, with its matches.
+        app.update(Action::FilterAccept);
+        assert!(
+            screen(&app)
+                .lines()
+                .last()
+                .unwrap()
+                .starts_with("filter: rev · 1 task   Esc clears")
+        );
+    }
+
+    #[test]
+    fn filter_without_matches_says_so() {
+        let mut app = App::new(PathBuf::new(), sections(&[(&[], &["Fix typo"])]));
+        assert!(!screen(&app).contains("no matches"), "not without a filter");
+
+        app.update(Action::Filter);
+        app.update(Action::FilterType('x'));
+        app.update(Action::FilterType('q'));
+        assert!(screen(&app).lines().next().unwrap().contains("no matches"));
+    }
+
+    #[test]
+    fn list_highlights_filter_matches() {
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[(&[], &["Fix typo", "Buy milk"]), (&["work"], &["Review"])]),
+        );
+        app.sections[1].tasks[0].body = "fix it".to_string();
+        app.update(Action::Filter);
+        for c in "fix".chars() {
+            app.update(Action::FilterType(c));
+        }
+        let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
+
+        assert!(
+            lines[0].trim_end().ends_with(" 1"),
+            "only shown tasks count"
+        );
+        // `• Fix typo` starts at column 4, the match in bold yellow, the rest plain.
+        assert!(lines[1].contains("• Fix typo"), "{lines:#?}");
+        assert_eq!(buffer[(6, 1)].style().fg, Some(Color::Yellow));
+        assert!(buffer[(6, 1)].modifier.contains(Modifier::BOLD));
+        assert_eq!(buffer[(10, 1)].style().fg, Some(Color::Reset));
+        // Matched in its body only: dim, with a hint.
+        assert!(lines[4].contains("• Review …"), "{lines:#?}");
+        assert!(buffer[(6, 4)].modifier.contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn preview_highlights_filter_matches() {
+        let text = body_text("# Notes\nfix the FIX\n", "fix");
+        let line = &text.lines[1];
+        let highlighted: Vec<&str> = line
+            .spans
+            .iter()
+            .filter(|span| span.style.fg == Some(Color::Yellow))
+            .map(|span| span.content.as_ref())
+            .collect();
+        assert_eq!(highlighted, ["fix", "FIX"]);
+        assert_eq!(line.to_string(), "fix the FIX");
     }
 
     #[test]

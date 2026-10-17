@@ -16,8 +16,8 @@ use ratatui::{
 };
 
 use crate::{
-    edit, editor,
-    keymap::{Action, Keymap},
+    edit, editor, filter,
+    keymap::{self, Action, Keymap},
     load,
     name::MAX_ORDER,
     op::{self, Op},
@@ -83,6 +83,11 @@ pub struct App {
     /// Renames done at startup, relative to `todo/`. Shown as a popup until the next key.
     pub renamed: Vec<(PathBuf, PathBuf)>,
     editor_request: Option<EditorRequest>,
+    /// `/` filter, empty for none. Applied in [`App::rows`], so everything that works on rows
+    /// sees only what matches.
+    pub filter: String,
+    /// The filter input at the bottom is open and takes the keys.
+    pub filter_input: bool,
 }
 
 impl App {
@@ -98,6 +103,8 @@ impl App {
             show_help: false,
             renamed: Vec::new(),
             editor_request: None,
+            filter: String::new(),
+            filter_input: false,
         }
     }
 
@@ -204,7 +211,12 @@ impl App {
                 self.renamed.clear();
                 return;
             }
-            if let Some(action) = self.keymap.handle(key) {
+            let action = if self.filter_input {
+                keymap::filter_input(key)
+            } else {
+                self.keymap.handle(key)
+            };
+            if let Some(action) = action {
                 self.update(action);
             }
         }
@@ -223,6 +235,16 @@ impl App {
     }
 
     fn try_update(&mut self, action: Action) -> Result<()> {
+        // Where a task goes is unclear while tasks in between are hidden.
+        if !self.filter.is_empty()
+            && matches!(
+                action,
+                Action::MoveDown | Action::MoveUp | Action::NewBelow | Action::NewAbove
+            )
+        {
+            self.status = Some(Status::Info("clear the filter first (Esc)".to_string()));
+            return Ok(());
+        }
         // Writing actions see clean names. Not undo: its inverse fits the files as they are.
         if matches!(
             action,
@@ -258,8 +280,29 @@ impl App {
             Action::Help => self.show_help = !self.show_help,
             Action::Quit => self.running = false,
             Action::Hint(hint) => self.status = Some(Status::Info(hint.to_string())),
+            Action::Filter => self.filter_input = true,
+            Action::FilterType(c) => self.set_filter(|filter| filter.push(c)),
+            Action::FilterBackspace => self.set_filter(|filter| {
+                filter.pop();
+            }),
+            Action::FilterAccept => self.filter_input = false,
+            Action::FilterClear => {
+                self.filter_input = false;
+                self.set_filter(String::clear);
+            }
         }
         Ok(())
+    }
+
+    /// Changes the filter. The cursor stays on its task or section if that still matches,
+    /// otherwise it goes to the first row.
+    fn set_filter(&mut self, change: impl FnOnce(&mut String)) {
+        let selected = self.selected().map(|row| self.row_path(row));
+        change(&mut self.filter);
+        self.cursor = 0;
+        if let Some(path) = selected {
+            self.select_path(&path);
+        }
     }
 
     /// Reloads after the editor closed. Normalizing renames the file if its heading changed.
@@ -485,12 +528,26 @@ impl App {
 
     /// All rows in display order: each section header followed by its tasks.
     ///
+    /// With a filter only the tasks whose title or body matches, under their section header.
+    /// Section names don't match: a section is shown for its tasks only, empty ones without a
+    /// filter.
+    ///
     /// Computed on demand instead of stored, so it can never be out of sync with `sections`.
     pub fn rows(&self) -> Vec<Row> {
         let mut rows = Vec::new();
         for (s, section) in self.sections.iter().enumerate() {
-            rows.push(Row::Section(s));
-            rows.extend((0..section.tasks.len()).map(|t| Row::Task(s, t)));
+            let tasks: Vec<Row> = (0..section.tasks.len())
+                .filter(|&t| {
+                    let task = &section.tasks[t];
+                    filter::matches(&task.title(), &self.filter)
+                        || filter::matches(&task.body, &self.filter)
+                })
+                .map(|t| Row::Task(s, t))
+                .collect();
+            if self.filter.is_empty() || !tasks.is_empty() {
+                rows.push(Row::Section(s));
+                rows.extend(tasks);
+            }
         }
         rows
     }
@@ -526,7 +583,7 @@ fn renamed_message(count: usize) -> String {
 pub mod tests {
     use std::fs;
 
-    use ratatui::crossterm::event::KeyCode;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent};
     use tempfile::TempDir;
 
     use super::*;
@@ -687,6 +744,115 @@ pub mod tests {
             ))
         );
         assert_eq!(listing(&app), ["[inbox]", "01-a.md"]);
+    }
+
+    /// Types `text` into the filter input, like `/` followed by the keys.
+    fn type_filter(app: &mut App, text: &str) {
+        app.update(Action::Filter);
+        for c in text.chars() {
+            app.update(Action::FilterType(c));
+        }
+    }
+
+    #[test]
+    fn filter_shows_matching_tasks_under_their_section() {
+        let (dir, mut app) = app_with_files(&[
+            "01-fix-login.md",
+            "02-buy-milk.md",
+            "01-work/01-review.md",
+            "02-home/01-garden.md",
+        ]);
+        fs::write(
+            dir.path().join("todo/02-home/01-garden.md"),
+            "# garden\n\nFIX the fence",
+        )
+        .unwrap();
+        app.reload(None).unwrap();
+
+        // Title and body, ignoring case. Sections without a match are hidden.
+        type_filter(&mut app, "fix");
+        assert_eq!(
+            listing(&app),
+            ["[inbox]", "01-fix-login.md", "[home]", "01-garden.md"]
+        );
+
+        // A section name alone matches nothing.
+        app.update(Action::FilterClear);
+        type_filter(&mut app, "WORK");
+        assert_eq!(listing(&app), Vec::<String>::new());
+
+        app.update(Action::FilterClear);
+        assert_eq!(listing(&app).len(), 7, "everything is back");
+    }
+
+    #[test]
+    fn filter_keeps_cursor_on_a_matching_task() {
+        let (_dir, mut app) = app_with_files(&["01-a-fix.md", "02-b.md", "03-c-fix.md"]);
+        app.cursor = 3;
+        type_filter(&mut app, "fix");
+        assert_eq!(app.selected(), Some(Row::Task(0, 2)), "still on `c-fix`");
+
+        // The task under the cursor no longer matches: first row.
+        app.cursor = 1;
+        app.update(Action::FilterBackspace);
+        type_filter(&mut app, "xa");
+        assert_eq!(app.cursor, 0);
+        assert_eq!(listing(&app), Vec::<String>::new(), "no match, no rows");
+
+        // Clearing keeps the cursor on its task, now at its full position.
+        app.update(Action::FilterClear);
+        type_filter(&mut app, "c-");
+        app.cursor = 1;
+        app.update(Action::FilterClear);
+        assert_eq!(app.selected(), Some(Row::Task(0, 2)));
+    }
+
+    #[test]
+    fn filter_input_takes_keys_until_accepted() {
+        let (_dir, mut app) = app_with_files(&["01-a.md", "02-b.md"]);
+        let key = |code| Event::Key(KeyEvent::from(code));
+        app.handle_event(key(KeyCode::Char('/')));
+        assert!(app.filter_input);
+
+        // `j` is text here, not cursor down.
+        app.handle_event(key(KeyCode::Char('j')));
+        assert_eq!(app.filter, "j");
+        app.handle_event(key(KeyCode::Backspace));
+        app.handle_event(key(KeyCode::Char('b')));
+        app.handle_event(key(KeyCode::Enter));
+        assert!(!app.filter_input);
+        assert_eq!(app.filter, "b", "accepting keeps the filter");
+
+        // Back to normal keys, `Esc` clears.
+        app.handle_event(key(KeyCode::Char('j')));
+        assert_eq!(app.filter, "b");
+        app.handle_event(key(KeyCode::Esc));
+        assert_eq!(app.filter, "");
+    }
+
+    #[test]
+    fn filter_blocks_move_and_new() {
+        let (_dir, mut app) = app_with_files(&["01-a.md", "02-b.md"]);
+        type_filter(&mut app, "a");
+        app.update(Action::FilterAccept);
+        app.cursor = 1;
+        for action in [
+            Action::MoveDown,
+            Action::MoveUp,
+            Action::NewBelow,
+            Action::NewAbove,
+        ] {
+            app.status = None;
+            app.update(action);
+            assert_eq!(
+                app.status,
+                Some(Status::Info("clear the filter first (Esc)".to_string())),
+                "{action:?}"
+            );
+        }
+        assert_eq!(app.editor_request, None);
+        app.update(Action::FilterClear);
+        assert_eq!(listing(&app), ["[inbox]", "01-a.md", "02-b.md"]);
     }
 
     #[test]

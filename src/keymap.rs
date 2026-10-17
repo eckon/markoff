@@ -26,6 +26,15 @@ pub enum Action {
     Quit,
     /// A key that is not mapped on purpose, with a hint what to press instead.
     Hint(&'static str),
+    /// `/`: opens the filter input.
+    Filter,
+    /// A character typed into the filter input.
+    FilterType(char),
+    FilterBackspace,
+    /// `<CR>` in the filter input: closes it, the filter stays.
+    FilterAccept,
+    /// `Esc`: closes the filter input and clears the filter.
+    FilterClear,
 }
 
 /// What has to be pressed for a binding.
@@ -50,7 +59,7 @@ pub struct Binding {
 }
 
 use Action as A;
-use KeyCode::{Char, Down, End, Enter, Home, Up};
+use KeyCode::{Backspace, Char, Down, End, Enter, Esc, Home, Up};
 use Trigger::{Ctrl, Key, Seq, Shift};
 
 /// The single source of truth for keys: [`Keymap::handle`] reads it and so does the help
@@ -63,6 +72,8 @@ pub const BINDINGS: &[Binding] = &[
     Binding { triggers: &[Key(Char('G')), Key(End)], action: A::Bottom, help: "go to bottom" },
     Binding { triggers: &[Key(Char('{'))], action: A::PrevSection, help: "previous section" },
     Binding { triggers: &[Key(Char('}'))], action: A::NextSection, help: "next section" },
+    Binding { triggers: &[Key(Char('/'))], action: A::Filter, help: "filter" },
+    Binding { triggers: &[Key(Esc)], action: A::FilterClear, help: "clear filter" },
     Binding { triggers: &[Key(Char('J')), Shift(Down)], action: A::MoveDown, help: "move task or section down" },
     Binding { triggers: &[Key(Char('K')), Shift(Up)], action: A::MoveUp, help: "move task or section up" },
     Binding { triggers: &[Key(Enter)], action: A::Open, help: "open task in $EDITOR" },
@@ -113,7 +124,8 @@ pub struct Keymap {
 }
 
 impl Keymap {
-    /// Returns `None` while a sequence is incomplete, for `Esc` and for unmapped keys.
+    /// Returns `None` while a sequence is incomplete and for unmapped keys. `Esc` during a
+    /// sequence only cancels it.
     pub fn handle(&mut self, key: KeyEvent) -> Option<Action> {
         let triggers = BINDINGS
             .iter()
@@ -163,6 +175,21 @@ impl Keymap {
     /// The unfinished sequence, to show in the status line.
     pub fn pending(&self) -> Option<char> {
         self.pending
+    }
+}
+
+/// Keys while the filter input is open: text goes into the filter, not to [`BINDINGS`].
+/// Not in the help, the README lists them. `C-c` still quits.
+pub fn filter_input(key: KeyEvent) -> Option<Action> {
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        return (key.code == Char('c')).then_some(Action::Quit);
+    }
+    match key.code {
+        Char(c) => Some(Action::FilterType(c)),
+        Backspace => Some(Action::FilterBackspace),
+        Enter => Some(Action::FilterAccept),
+        Esc => Some(Action::FilterClear),
+        _ => None,
     }
 }
 
@@ -336,7 +363,26 @@ mod tests {
     fn unmapped_key() {
         let mut keymap = Keymap::default();
         assert_eq!(press(&mut keymap, KeyCode::Char('z')), None);
-        // Esc only cancels, it never quits.
-        assert_eq!(press(&mut keymap, KeyCode::Esc), None);
+    }
+
+    #[test]
+    fn esc_clears_filter_and_never_quits() {
+        let mut keymap = Keymap::default();
+        assert_eq!(press(&mut keymap, KeyCode::Esc), Some(Action::FilterClear));
+    }
+
+    #[test]
+    fn filter_input_takes_text() {
+        let key = |code| filter_input(KeyEvent::from(code));
+        // Keys that are bindings elsewhere are text here.
+        assert_eq!(key(Char('j')), Some(Action::FilterType('j')));
+        assert_eq!(key(Char('?')), Some(Action::FilterType('?')));
+        assert_eq!(key(Backspace), Some(Action::FilterBackspace));
+        assert_eq!(key(Enter), Some(Action::FilterAccept));
+        assert_eq!(key(Esc), Some(Action::FilterClear));
+        assert_eq!(key(Down), None);
+        let ctrl = |c| filter_input(KeyEvent::new(Char(c), KeyModifiers::CONTROL));
+        assert_eq!(ctrl('c'), Some(Action::Quit));
+        assert_eq!(ctrl('j'), None);
     }
 }

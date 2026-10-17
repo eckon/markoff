@@ -8,7 +8,7 @@ Every task is a markdown file, every section a directory. The order lives in the
 
 ## Status
 
-v1 works: list and preview, create and edit via `$EDITOR`, move tasks and sections, archive, delete, undo, file watcher.
+v1 works: list and preview, create and edit via `$EDITOR`, move tasks and sections, archive, delete, undo, filter, file watcher.
 
 ## Setup
 
@@ -55,6 +55,8 @@ archive/
 | `gg` / `Home` | Go to top                             |
 | `G` / `End`   | Go to bottom                          |
 | `{` / `}`     | Previous / next section               |
+| `/`           | Filter                                |
+| `Esc`         | Clear the filter                      |
 | `J` / `S-↓`   | Move task or section down             |
 | `K` / `S-↑`   | Move task or section up               |
 | `<CR>`        | Open task in `$EDITOR`                |
@@ -64,6 +66,8 @@ archive/
 | `u`           | Undo                                  |
 | `?`           | Help                                  |
 | `q` / `C-c`   | Quit                                  |
+
+The filter matches task titles and bodies, ignoring case, and updates while typing. Tasks listed only for a match in their body are dimmed and end in `…`. In its input `<CR>` keeps the filter, `Esc` clears it. A kept filter shows in the status line with the number of matching tasks. While a filter is set, moving and adding tasks are off.
 
 The editor is `$VISUAL`, then `$EDITOR`, then `vi`.
 
