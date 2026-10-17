@@ -19,8 +19,15 @@ use crate::{
 /// Draws the whole screen from the current state. Rendering never mutates the app, it
 /// returns the list's scroll offset for the caller to keep in [`App::list_offset`].
 pub fn render(app: &App, frame: &mut Frame) -> usize {
-    let [main_area, status_area] =
-        Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
+    // The header gets a blank line below, like the one above every section.
+    let [header_area, gap_area, main_area, status_area] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(0),
+        Constraint::Length(1),
+    ])
+    .areas(frame.area());
+    render_header(app, frame, header_area);
     let [list_area, preview_area] =
         Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
             .areas(main_area);
@@ -43,6 +50,7 @@ pub fn render(app: &App, frame: &mut Frame) -> usize {
     let offset = match preview {
         Some((title, body, color)) if !body.trim().is_empty() => {
             render_preview(app, frame, preview_area, &title, body, color);
+            connect_divider(frame, preview_area.x, header_area.y, gap_area.y);
             render_list(app, frame, list_area, rule_width)
         }
         _ => render_list(app, frame, main_area, rule_width),
@@ -136,6 +144,37 @@ fn render_help(frame: &mut Frame) {
     );
 }
 
+/// Joins the preview divider at column `x` to the header: `┬` in the header rule, `│` in the
+/// blank line below. Only where the rule is a line, never over the date or the counts.
+fn connect_divider(frame: &mut Frame, x: u16, header_y: u16, gap_y: u16) {
+    let buffer = frame.buffer_mut();
+    if buffer[(x, header_y)].symbol() == "─" {
+        buffer[(x, header_y)].set_symbol("┬");
+    }
+    buffer[(x, gap_y)].set_symbol("│").set_fg(LINE_COLOR);
+}
+
+/// `── Sat 17 Oct ──────── 4 open · ✓ 2 done` over the whole width: today, the tasks in all
+/// sections and those archived today, so done tasks don't just vanish.
+fn render_header(app: &App, frame: &mut Frame, area: Rect) {
+    let date = jiff::Zoned::now().strftime("%a %d %b").to_string();
+    let open: usize = app.sections.iter().map(|section| section.tasks.len()).sum();
+    let done = app.done_today;
+
+    let mut spans = rule(
+        &date,
+        Some(format!("{open} open · ✓ {done} done")),
+        HEADER_COLOR,
+        area.width as usize,
+    );
+    // Same text as the count `rule` made, only the check in green.
+    spans.pop();
+    spans.push(format!(" {open} open · ").dim());
+    spans.push("✓".fg(DONE_COLOR));
+    spans.push(format!(" {done} done").dim());
+    frame.render_widget(Line::from(spans), area);
+}
+
 /// Left the open filter input with the terminal cursor at its end, otherwise the last error
 /// or message, the pending key of an unfinished sequence (`g`), or the filter that is set
 /// with its number of matching tasks. Right the key hints for the current mode.
@@ -149,33 +188,21 @@ fn render_status(app: &App, frame: &mut Frame, area: Rect) {
         status_text(app)
     };
 
-    // Done today, so archived tasks don't just vanish. Shown in every mode.
-    let mut done = (app.done_today > 0).then(|| format!("{} done today", app.done_today));
-
-    // Hints give way from the end, then the count. The left side is what just happened.
+    // Hints give way from the end, the left side is what just happened.
     let mut hints = hints(app);
-    let width = |done: &Option<String>, hints: &[(String, &str)]| {
-        let items = done.iter().map(|done| done.chars().count()).chain(
-            hints
-                .iter()
-                .map(|(key, text)| key.chars().count() + 1 + text.chars().count()),
-        );
-        let count = done.iter().count() + hints.len();
-        items.sum::<usize>() + 2 * count.saturating_sub(1)
+    let width = |hints: &[(String, &str)]| {
+        let keys_and_texts: usize = hints
+            .iter()
+            .map(|(key, text)| key.chars().count() + 1 + text.chars().count())
+            .sum();
+        keys_and_texts + 2 * hints.len().saturating_sub(1)
     };
-    while (done.is_some() || !hints.is_empty())
-        && left.width() + 2 + width(&done, &hints) > area.width as usize
-    {
-        if hints.pop().is_none() {
-            done = None;
-        }
+    while !hints.is_empty() && left.width() + 2 + width(&hints) > area.width as usize {
+        hints.pop();
     }
     let mut spans = Vec::new();
-    if let Some(done) = done {
-        spans.push(done.dim());
-    }
-    for (key, text) in hints {
-        if !spans.is_empty() {
+    for (i, (key, text)) in hints.into_iter().enumerate() {
+        if i > 0 {
             spans.push("  ".into());
         }
         spans.push(key.bold());
@@ -236,6 +263,12 @@ const SECTION_COLORS: [Color; 4] = [Color::Blue, Color::Magenta, Color::Green, C
 
 /// The daily checklist, outside the section colors so those stay as they are.
 const DAILY_COLOR: Color = Color::Cyan;
+
+/// The date in the header.
+const HEADER_COLOR: Color = Color::Blue;
+
+/// The check for tasks done today.
+const DONE_COLOR: Color = Color::Green;
 
 /// Rules and the preview divider.
 const LINE_COLOR: Color = Color::DarkGray;
@@ -511,6 +544,28 @@ mod tests {
     }
 
     #[test]
+    fn preview_divider_joins_the_header() {
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[(&["home"], &["Fix typo", "Empty"])]),
+        );
+        app.sections[0].tasks[0].body = "line one".to_string();
+        let column = |line: &str, c: char| line.chars().position(|x| x == c);
+
+        app.update(Action::Down);
+        let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
+        let divider = column(&lines[2], '│').expect("preview divider");
+        assert_eq!(column(&lines[0], '┬'), Some(divider), "{lines:#?}");
+        assert_eq!(column(&lines[1], '│'), Some(divider), "{lines:#?}");
+
+        // Without a preview the header is a plain line.
+        app.update(Action::Down);
+        let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
+        assert!(!lines[0].contains('┬'), "{lines:#?}");
+        assert_eq!(lines[1].trim(), "");
+    }
+
+    #[test]
     fn status_line_shows_errors() {
         let mut app = App::new(PathBuf::new(), sections(&[(&["home"], &[])]));
         app.update(Action::Undo);
@@ -587,9 +642,9 @@ mod tests {
             app.update(Action::FilterType(c));
         }
         let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
-        // The first visible section starts at the top, without a blank line.
-        assert!(lines[0].contains("work"), "{lines:#?}");
-        assert!(lines[1].contains("Review"), "{lines:#?}");
+        // The first visible section starts right below the header, without another blank line.
+        assert!(lines[2].contains("work"), "{lines:#?}");
+        assert!(lines[3].contains("Review"), "{lines:#?}");
         assert!(!lines.join("\n").contains("Fix typo"));
         assert!(lines[8].starts_with("/rev "), "input at the bottom");
         assert!(lines[8].ends_with("<CR> keep filter  Esc clear filter"));
@@ -614,22 +669,32 @@ mod tests {
     }
 
     #[test]
-    fn status_shows_done_today_before_the_hints() {
-        let mut app = App::new(PathBuf::new(), sections(&[(&["home"], &[])]));
-        assert!(!screen(&app).contains("done today"), "not for 0");
+    fn header_shows_date_open_and_done() {
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[
+                (&["home"], &["Fix typo"]),
+                (&["work"], &["Review", "Deploy"]),
+            ]),
+        );
+        app.done_today = 2;
+        let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
+        terminal
+            .draw(|frame| {
+                render(&app, frame);
+            })
+            .unwrap();
+        let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
 
-        app.done_today = 3;
-        app.status = Some(Status::Info("done Fix typo (u to undo)".to_string()));
-        let status = screen(&app).lines().last().unwrap().to_string();
-        assert!(status.starts_with("done Fix typo"), "{status:?}");
-        assert!(status.ends_with("3 done today  ? help"), "{status:?}");
+        let date = jiff::Zoned::now().strftime("%a %d %b").to_string();
+        assert!(lines[0].starts_with(&format!("── {date} ─")), "{lines:#?}");
+        assert!(lines[0].ends_with("─ 3 open · ✓ 2 done"), "{lines:#?}");
+        let check = lines[0].chars().position(|c| c == '✓').unwrap() as u16;
+        assert_eq!(terminal.backend().buffer()[(check, 0)].fg, DONE_COLOR);
 
-        // The hint gives way first, then the count.
-        app.status = Some(Status::Info("x".repeat(30)));
-        let status = screen(&app).lines().last().unwrap().to_string();
-        assert!(status.trim_end().ends_with("3 done today"), "{status:?}");
-        app.status = Some(Status::Info("x".repeat(44)));
-        assert!(!screen(&app).contains("done today"));
+        // A blank line, then the sections.
+        assert_eq!(lines[1].trim(), "");
+        assert!(lines[2].contains("home"), "{lines:#?}");
     }
 
     #[test]
@@ -640,7 +705,7 @@ mod tests {
         app.update(Action::Filter);
         app.update(Action::FilterType('x'));
         app.update(Action::FilterType('q'));
-        assert!(screen(&app).lines().next().unwrap().contains("no matches"));
+        assert!(screen(&app).lines().nth(2).unwrap().contains("no matches"));
     }
 
     #[test]
@@ -659,21 +724,21 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
 
-        // On top, above the sections.
+        // Right below the header, above the sections.
         assert!(
-            lines[0].contains("daily") && lines[0].trim_end().ends_with(" 1/2"),
+            lines[2].contains("daily") && lines[2].trim_end().ends_with(" 1/2"),
             "{lines:#?}"
         );
-        assert!(lines[1].contains("• Jira"), "{lines:#?}");
+        assert!(lines[3].contains("• Jira"), "{lines:#?}");
         assert!(
-            buffer[(6, 1)]
+            buffer[(6, 3)]
                 .modifier
                 .contains(Modifier::CROSSED_OUT | Modifier::DIM)
         );
         // An old date is open again.
-        assert!(lines[2].contains("• Menu"), "{lines:#?}");
-        assert!(!buffer[(6, 2)].modifier.contains(Modifier::CROSSED_OUT));
-        assert!(lines[4].contains("home"), "{lines:#?}");
+        assert!(lines[4].contains("• Menu"), "{lines:#?}");
+        assert!(!buffer[(6, 4)].modifier.contains(Modifier::CROSSED_OUT));
+        assert!(lines[6].contains("home"), "{lines:#?}");
 
         // The body shows in the preview, like for tasks.
         app.cursor = 2;
@@ -688,8 +753,8 @@ mod tests {
         // Below the daily checklist, if there is one.
         app.daily = Some(crate::daily::parse("## Jira\n"));
         let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
-        assert!(lines[1].contains("• Jira"), "{lines:#?}");
-        assert!(lines[3].contains("no sections yet"), "{lines:#?}");
+        assert!(lines[3].contains("• Jira"), "{lines:#?}");
+        assert!(lines[5].contains("no sections yet"), "{lines:#?}");
 
         app.sections = sections(&[(&["work"], &[])]);
         assert!(!screen(&app).contains("no sections yet"));
@@ -719,17 +784,17 @@ mod tests {
         let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
 
         assert!(
-            lines[0].trim_end().ends_with(" 1"),
+            lines[2].trim_end().ends_with(" 1"),
             "only shown tasks count"
         );
         // `• Fix typo` starts at column 4, the match in bold yellow, the rest plain.
-        assert!(lines[1].contains("• Fix typo"), "{lines:#?}");
-        assert_eq!(buffer[(6, 1)].style().fg, Some(Color::Yellow));
-        assert!(buffer[(6, 1)].modifier.contains(Modifier::BOLD));
-        assert_eq!(buffer[(10, 1)].style().fg, Some(Color::Reset));
+        assert!(lines[3].contains("• Fix typo"), "{lines:#?}");
+        assert_eq!(buffer[(6, 3)].style().fg, Some(Color::Yellow));
+        assert!(buffer[(6, 3)].modifier.contains(Modifier::BOLD));
+        assert_eq!(buffer[(10, 3)].style().fg, Some(Color::Reset));
         // Matched in its body only: dim, with a hint.
-        assert!(lines[4].contains("• Review …"), "{lines:#?}");
-        assert!(buffer[(6, 4)].modifier.contains(Modifier::DIM));
+        assert!(lines[6].contains("• Review …"), "{lines:#?}");
+        assert!(buffer[(6, 6)].modifier.contains(Modifier::DIM));
     }
 
     #[test]
