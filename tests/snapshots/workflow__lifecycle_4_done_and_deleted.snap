@@ -4,9 +4,9 @@ expression: app.state()
 ---
 ── [date] ─ 2 open · ✓ 1 done
 
-  ── house ───────────────── 2
- ▌  • Call mom
-    • Write report
+  ──[1]─ house ───────────── 2
+ ▌   • Call mom
+     • Write report
 
 
 

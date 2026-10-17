@@ -306,6 +306,14 @@ impl App {
             Action::Bottom => self.cursor = self.rows().len().saturating_sub(1),
             Action::PrevSection => self.cursor = self.prev_section_row(),
             Action::NextSection => self.cursor = self.next_section_row(),
+            Action::JumpSection(s) => {
+                // Nothing if the section does not exist or the filter hides it.
+                let rows = self.rows();
+                if let Some(header) = rows.iter().position(|&row| row == Row::Section(s)) {
+                    let has_task = matches!(rows.get(header + 1), Some(Row::Task(..)));
+                    self.cursor = header + usize::from(has_task);
+                }
+            }
             Action::MoveDown | Action::MoveUp => self.move_selected(action == Action::MoveDown)?,
             Action::Open => match self.selected() {
                 Some(Row::Task(s, t)) => {
@@ -1516,6 +1524,33 @@ pub mod tests {
         assert_eq!(app.cursor, 0);
         app.update(Action::PrevSection);
         assert_eq!(app.cursor, 0, "nothing above the top");
+    }
+
+    #[test]
+    fn jump_to_section() {
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("work", &["a"]), ("home", &[]), ("x", &["b", "c"])]),
+        );
+        // Rows: work, a, home, x, b, c
+        app.update(Action::JumpSection(2));
+        assert_eq!(app.cursor, 4, "on the first task");
+        app.update(Action::JumpSection(1));
+        assert_eq!(app.cursor, 2, "empty section: on its header");
+        app.update(Action::JumpSection(3));
+        assert_eq!(app.cursor, 2, "no such section: stays");
+
+        // The filter hides work and home, x keeps its number and only `c` shows.
+        app.filter = "c".to_string();
+        app.cursor = 0;
+        app.update(Action::JumpSection(0));
+        assert_eq!(
+            app.selected(),
+            Some(Row::Section(2)),
+            "hidden section: stays"
+        );
+        app.update(Action::JumpSection(2));
+        assert_eq!(app.selected(), Some(Row::Task(2, 1)));
     }
 
     #[test]

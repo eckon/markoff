@@ -4,13 +4,13 @@ expression: app.state()
 ---
 ── [date] ─ 4 open · ✓ 0 done
 
-  ── house ───────────────── 4
-    • Pay rent
-    • Buy oat milk
-    • Call mom
-    • Write report
+  ──[1]─ house ───────────── 4
+     • Pay rent
+     • Buy oat milk
+     • Call mom
+     • Write report
 
- ▌── work ────────────────── 0
+ ▌──[2]─ work ────────────── 0
 
 
 

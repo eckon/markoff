@@ -303,13 +303,26 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                     .iter()
                     .filter(|row| matches!(row, Row::Task(task_s, _) if *task_s == s))
                     .count();
+                // `1`-`9` jump here. The key replaces the leading `── ` of the rule, 4 columns
+                // wider, the digit right above the bullets. Dim like the count, so the name
+                // stays what stands out. Without a key the rule is as long, the names align.
+                let lead = if s < 9 {
+                    vec![
+                        "──[".fg(LINE_COLOR),
+                        (s + 1).to_string().dim(),
+                        "]─ ".fg(LINE_COLOR),
+                    ]
+                } else {
+                    vec!["────── ".fg(LINE_COLOR)]
+                };
                 let mut spans = vec![gutter()];
                 spans.extend(rule(
                     &section.name,
                     Some(count.to_string()),
                     color,
-                    width.saturating_sub(1),
+                    width.saturating_sub(5),
                 ));
+                spans.splice(1..2, lead);
                 items.push(ListItem::new(Line::from(spans)));
                 continue;
             }
@@ -346,8 +359,8 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
             }
         };
 
-        // Gutter and `  • ` before the title.
-        let title_width = text_width.saturating_sub(5);
+        // Gutter and `   • ` before the title, the bullet below the digit of the section key.
+        let title_width = text_width.saturating_sub(6);
         let title_lines = if is_cursor {
             wrap(title, title_width)
         } else {
@@ -362,7 +375,7 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                 } else {
                     "  ".into()
                 };
-                let mut spans = vec![gutter(), "  ".into(), bullet];
+                let mut spans = vec![gutter(), "   ".into(), bullet];
                 spans.extend(title);
                 Line::from(spans)
             })
@@ -536,7 +549,7 @@ mod tests {
 
         app.update(Action::Bottom);
         let lines = draw(&mut app);
-        assert!(lines[7].contains("▌  • Task 20"), "{lines:#?}");
+        assert!(lines[7].contains("▌   • Task 20"), "{lines:#?}");
 
         // Moving up inside the screen moves the cursor, not the view.
         app.update(Action::Up);
@@ -544,7 +557,7 @@ mod tests {
         app.update(Action::Up);
         let lines = draw(&mut app);
         assert!(lines[7].contains("• Task 20"), "{lines:#?}");
-        assert!(lines[5].contains("▌  • Task 18"), "{lines:#?}");
+        assert!(lines[5].contains("▌   • Task 18"), "{lines:#?}");
     }
 
     #[test]
@@ -554,15 +567,15 @@ mod tests {
 
         app.update(Action::Down);
         let lines = draw(&mut app);
-        // 50 wide: padding, gutter and `  • ` leave 42 for the title.
+        // 50 wide: padding, gutter and `   • ` leave 41 for the title.
         assert_eq!(
             lines[3],
-            " ▌  • Write the long report about every open      "
+            " ▌   • Write the long report about every open     "
         );
-        assert_eq!(lines[4].trim_end(), " ▌    question");
+        assert_eq!(lines[4].trim_end(), " ▌     question");
         assert_eq!(
             lines[5].trim_end(),
-            "    • Write the long report about every open qu…"
+            "     • Write the long report about every open q…"
         );
     }
 
@@ -573,9 +586,21 @@ mod tests {
             sections(&[("home", &["Fix typo"]), ("work", &["Review PR"])]),
         );
         let screen = screen(&app);
-        for text in ["home", "• Fix typo", "work", "• Review PR"] {
+        for text in ["──[1]─ home", "• Fix typo", "──[2]─ work", "• Review PR"] {
             assert!(screen.contains(text), "missing {text:?} in\n{screen}");
         }
+    }
+
+    #[test]
+    fn sections_past_nine_have_no_key() {
+        let names: Vec<String> = (1..=10).map(|i| format!("s{i}")).collect();
+        let spec: Vec<(&str, &[&str])> = names.iter().map(|n| (n.as_str(), &[][..])).collect();
+        let mut app = App::new(PathBuf::new(), sections(&spec));
+        app.update(Action::Bottom);
+        let screen = screen(&app);
+        // Same length as `──[9]─ `, so the names stay aligned.
+        assert!(screen.contains("──[9]─ s9 "), "{screen}");
+        assert!(screen.contains("────── s10 "), "{screen}");
     }
 
     #[test]
@@ -772,13 +797,13 @@ mod tests {
         );
         assert!(lines[3].contains("• Jira"), "{lines:#?}");
         assert!(
-            buffer[(6, 3)]
+            buffer[(7, 3)]
                 .modifier
                 .contains(Modifier::CROSSED_OUT | Modifier::DIM)
         );
         // An old date is open again.
         assert!(lines[4].contains("• Menu"), "{lines:#?}");
-        assert!(!buffer[(6, 4)].modifier.contains(Modifier::CROSSED_OUT));
+        assert!(!buffer[(7, 4)].modifier.contains(Modifier::CROSSED_OUT));
         assert!(lines[6].contains("home"), "{lines:#?}");
 
         // The body shows in the preview, like for tasks.
@@ -825,14 +850,14 @@ mod tests {
             lines[2].trim_end().ends_with(" 1"),
             "only shown tasks count"
         );
-        // `• Fix typo` starts at column 4, the match in bold yellow, the rest plain.
+        // `• Fix typo` starts at column 5, the match in bold yellow, the rest plain.
         assert!(lines[3].contains("• Fix typo"), "{lines:#?}");
-        assert_eq!(buffer[(6, 3)].style().fg, Some(Color::Yellow));
-        assert!(buffer[(6, 3)].modifier.contains(Modifier::BOLD));
-        assert_eq!(buffer[(10, 3)].style().fg, Some(Color::Reset));
+        assert_eq!(buffer[(7, 3)].style().fg, Some(Color::Yellow));
+        assert!(buffer[(7, 3)].modifier.contains(Modifier::BOLD));
+        assert_eq!(buffer[(11, 3)].style().fg, Some(Color::Reset));
         // Matched in its body only: dim, with a hint.
         assert!(lines[6].contains("• Review …"), "{lines:#?}");
-        assert!(buffer[(6, 6)].modifier.contains(Modifier::DIM));
+        assert!(buffer[(7, 6)].modifier.contains(Modifier::DIM));
     }
 
     #[test]

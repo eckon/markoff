@@ -4,12 +4,13 @@ expression: app.state()
 ---
 ── [date] ─║
                                         ║  help
- ▌── home ────────────────── 2          ║
-    • Buy milk                          ║  ── move ────────────────────────────
-    • Call mom                          ║  j / k ···· down / up
+ ▌──[1]─ home ────────────── 2          ║
+     • Buy milk                         ║  ── move ────────────────────────────
+     • Call mom                         ║  j / k ···· down / up
                                         ║  gg / G ··· top / bottom
-  ── work ────────────────── 1          ║  { / } ···· previous / next section
-    • Review PR                         ║
+  ──[2]─ work ────────────── 1          ║  { / } ···· previous / next section
+     • Review PR                        ║  1-9 ······ jump to section
+                                        ║
                                         ║  ── change ──────────────────────────
                                         ║  J / K ···· move down / up
                                         ║  <CR> ····· open in $EDITOR
@@ -20,7 +21,6 @@ expression: app.state()
                                         ║  u ········ undo
                                         ║
                                         ║  ── other ───────────────────────────
-                                        ║  / ········ filter
                                                                    ? toggle help
 
 --- .order

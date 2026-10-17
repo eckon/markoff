@@ -267,7 +267,7 @@ fn lifecycle() {
 
     app.edit("# Home\n");
     app.press("N");
-    app.wait_for("── home");
+    app.wait_for("──[1]─ home");
     app.edit("# Buy milk\n");
     app.press("o");
     app.wait_for("• Buy milk");
@@ -276,12 +276,12 @@ fn lifecycle() {
     app.wait_for("• Call mom");
     app.edit("# Pay rent\n");
     app.press("O");
-    app.wait_for("• Pay rent\n    • Call mom");
+    app.wait_for("• Pay rent\n     • Call mom");
     snapshot!("lifecycle_2_created", app.state());
 
     // Pay rent to the top, then edit Buy milk below it: the file follows the new title.
     app.press("KK");
-    app.wait_for("• Pay rent\n    • Buy milk");
+    app.wait_for("• Pay rent\n     • Buy milk");
     app.press("j");
     app.edit("# Buy oat milk\n\nThe 1l one.\n");
     app.press("<CR>");
@@ -289,31 +289,32 @@ fn lifecycle() {
 
     // A second section after the first, with a task that then moves up into the first.
     app.press("G");
-    app.wait_for("▌  • Call mom");
+    app.wait_for("▌   • Call mom");
     app.edit("# Work\n");
     app.press("N");
-    app.wait_for("── work");
+    app.wait_for("──[2]─ work");
     app.edit("# Write report\n");
     app.press("o");
     app.wait_for("• Write report");
     app.press("K");
-    app.wait_for("• Write report\n\n  ── work");
+    app.wait_for("• Write report\n\n  ──[2]─ work");
 
     // Rename the first section from its header.
     app.press("gg");
-    app.wait_for("▌── home");
+    app.wait_for("▌──[1]─ home");
     app.edit("# House\n");
     app.press("<CR>");
-    app.wait_for("── house");
+    app.wait_for("──[1]─ house");
     snapshot!("lifecycle_3_organized", app.state());
 
     // The now empty second section is deleted, then a task is done and another deleted.
     app.press("}");
-    app.wait_for("▌── work");
+    app.wait_for("▌──[2]─ work");
     app.press("D");
     app.wait_for("section deleted");
-    app.press("ggj");
-    app.wait_for("▌  • Pay rent");
+    // `1` lands on the first task of the first section.
+    app.press("1");
+    app.wait_for("▌   • Pay rent");
     app.press("X");
     app.wait_for("✓ 1 done");
     app.press("D");
@@ -326,7 +327,7 @@ fn lifecycle() {
     app.press("u");
     app.wait_for("✓ 0 done");
     app.press("u");
-    app.wait_for("── work");
+    app.wait_for("──[2]─ work");
     snapshot!("lifecycle_5_undone", app.state());
 
     app.quit();
@@ -363,9 +364,9 @@ fn hand_made_data() {
 
     // The next write action cleans up: names follow titles, the order lists every file.
     app.press("G");
-    app.wait_for("▌  • Fix login bug");
+    app.wait_for("▌   • Fix login bug");
     app.press("K");
-    app.wait_for("• Fix login bug\n    • Review PR 42");
+    app.wait_for("• Fix login bug\n     • Review PR 42");
     snapshot!("hand_made_data_3_cleaned_up", app.state());
 
     app.quit();

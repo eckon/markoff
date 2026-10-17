@@ -70,6 +70,7 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 | `j` / `k`   | Down / up, also `↓` / `↑`                 |
 | `gg` / `G`  | Top / bottom, also `Home` / `End`         |
 | `{` / `}`   | Previous / next section                   |
+| `1`-`9`     | Jump to section, the number in `[1]`      |
 
 ### Change
 

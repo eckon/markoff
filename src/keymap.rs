@@ -14,6 +14,8 @@ pub enum Action {
     Bottom,
     PrevSection,
     NextSection,
+    /// `1`-`9`: the first task of the section with this index, its header if it is empty.
+    JumpSection(usize),
     MoveUp,
     MoveDown,
     Open,
@@ -72,6 +74,7 @@ pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "move" },
     Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "move" },
     Binding { keys: &[(&[Key(Char('{'))], A::PrevSection), (&[Key(Char('}'))], A::NextSection)], help: "previous / next section", group: "move" },
+    Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section", group: "move" },
     Binding { keys: &[(&[Key(Char('J')), Shift(Down)], A::MoveDown), (&[Key(Char('K')), Shift(Up)], A::MoveUp)], help: "move down / up", group: "change" },
     Binding { keys: &[(&[Key(Enter)], A::Open)], help: "open in $EDITOR", group: "change" },
     Binding { keys: &[(&[Key(Char('o'))], A::NewBelow), (&[Key(Char('O'))], A::NewAbove)], help: "new task below / above", group: "change" },
@@ -94,16 +97,18 @@ const HINTS: &[(char, &str)] = &[
 
 impl Binding {
     /// Display form of the triggers: `j` and `k`, `gg`, `q` and `C-c`. Arrows, `Home` / `End`
-    /// and shifted arrows only clutter the help, the README lists them.
+    /// and shifted arrows only clutter the help, the README lists them. The section digits
+    /// are one `1-9`, nine labels would not fit.
     pub fn labels(&self) -> Vec<String> {
         self.triggers()
-            .filter_map(|(trigger, _)| match trigger {
-                Key(Up | Down | Home | End) | Shift(_) => None,
-                Key(Char(c)) => Some(c.to_string()),
-                Key(Enter) => Some("<CR>".to_string()),
-                Key(other) => Some(format!("{other:?}")),
-                Ctrl(c) => Some(format!("C-{c}")),
-                Seq(a, b) => Some(format!("{a}{b}")),
+            .filter_map(|(trigger, action)| match (trigger, action) {
+                (_, Action::JumpSection(0)) => Some("1-9".to_string()),
+                (_, Action::JumpSection(_)) | (Key(Up | Down | Home | End) | Shift(_), _) => None,
+                (Key(Char(c)), _) => Some(c.to_string()),
+                (Key(Enter), _) => Some("<CR>".to_string()),
+                (Key(other), _) => Some(format!("{other:?}")),
+                (Ctrl(c), _) => Some(format!("C-{c}")),
+                (Seq(a, b), _) => Some(format!("{a}{b}")),
             })
             .collect()
     }
@@ -259,6 +264,7 @@ mod tests {
         assert_eq!(labels("top / bottom"), ["gg", "G"]);
         assert_eq!(labels("move down / up"), ["J", "K"]);
         assert_eq!(labels("quit"), ["q", "C-c"]);
+        assert_eq!(labels("jump to section"), ["1-9"]);
     }
 
     #[test]

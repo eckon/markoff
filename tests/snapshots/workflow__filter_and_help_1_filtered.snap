@@ -4,9 +4,9 @@ expression: app.state()
 ---
 ── [date] ─ 3 open · ✓ 0 done
 
- ▌── home ────────────────── 2
-    • Buy milk
-    • Call mom …
+ ▌──[1]─ home ────────────── 2
+     • Buy milk
+     • Call mom …
 
 
 

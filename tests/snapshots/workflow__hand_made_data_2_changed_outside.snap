@@ -4,12 +4,12 @@ expression: app.state()
 ---
 ── [date] ─ 3 open · ✓ 0 done
 
- ▌── home ────────────────── 1
-    • Buy bread
+ ▌──[1]─ home ────────────── 1
+     • Buy bread
 
-  ── work ────────────────── 2
-    • Review PR 42
-    • Fix login bug
+  ──[2]─ work ────────────── 2
+     • Review PR 42
+     • Fix login bug
 
 
 
