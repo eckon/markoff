@@ -559,12 +559,12 @@ impl App {
             .unwrap_or(0)
     }
 
-    /// `}`: the next section header below the cursor, the last row if there is none (like vim).
+    /// `}`: the next section header below the cursor, the cursor stays if there is none.
     fn next_section_row(&self) -> usize {
         let rows = self.rows();
         (self.cursor + 1..rows.len())
             .find(|&i| matches!(rows[i], Row::Section(_) | Row::Daily))
-            .unwrap_or(rows.len().saturating_sub(1))
+            .unwrap_or(self.cursor)
     }
 
     /// Where `J` / `K` put task `t` of section `s`, as section and index among the other
@@ -1498,7 +1498,7 @@ pub mod tests {
         app.update(Action::NextSection);
         assert_eq!(app.cursor, 5);
         app.update(Action::NextSection);
-        assert_eq!(app.cursor, 6, "no next section: last row");
+        assert_eq!(app.cursor, 5, "no next section: stays");
         app.update(Action::Top);
         assert_eq!(app.cursor, 0);
         app.update(Action::PrevSection);
