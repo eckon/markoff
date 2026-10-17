@@ -4,7 +4,6 @@ Next steps for markoff. Remove a task once it is done, delete the file when noth
 
 ## Later
 
-- [ ] Fix the list scroll state: `ui.rs` creates the `ListState` per frame, so moving up in a long list scrolls a bit differently than expected. Keep its offset in `App`.
 - [ ] `markoff add` CLI command for quick capture from the shell
 - [ ] Redo `C-r`: the undo stack already stores inverses, redo is a second stack
 - [ ] Footer with key hints

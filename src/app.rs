@@ -88,6 +88,9 @@ pub struct App {
     pub filter: String,
     /// The filter input at the bottom is open and takes the keys.
     pub filter_input: bool,
+    /// First list line on screen. Kept between frames so the view only scrolls when the
+    /// cursor would leave it, see [`ui::render`].
+    pub list_offset: usize,
 }
 
 impl App {
@@ -105,6 +108,7 @@ impl App {
             editor_request: None,
             filter: String::new(),
             filter_input: false,
+            list_offset: 0,
         }
     }
 
@@ -142,7 +146,9 @@ impl App {
 
         while self.running {
             if dirty {
-                terminal.draw(|frame| ui::render(&self, frame))?;
+                let mut offset = self.list_offset;
+                terminal.draw(|frame| offset = ui::render(&self, frame))?;
+                self.list_offset = offset;
                 dirty = false;
             }
 

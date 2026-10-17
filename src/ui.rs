@@ -16,8 +16,9 @@ use crate::{
     keymap::{BINDINGS, Binding},
 };
 
-/// Draws the whole screen from the current state. Rendering never mutates the app.
-pub fn render(app: &App, frame: &mut Frame) {
+/// Draws the whole screen from the current state. Rendering never mutates the app, it
+/// returns the list's scroll offset for the caller to keep in [`App::list_offset`].
+pub fn render(app: &App, frame: &mut Frame) -> usize {
     let [main_area, status_area] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
     let [list_area, preview_area] =
@@ -28,13 +29,13 @@ pub fn render(app: &App, frame: &mut Frame) {
     let rule_width = list_block().inner(list_area).width as usize;
 
     // The preview only shows up for a task with a body, otherwise the list takes all the width.
-    match app.selected() {
+    let offset = match app.selected() {
         Some(Row::Task(s, t)) if !app.sections[s].tasks[t].body.trim().is_empty() => {
-            render_list(app, frame, list_area, rule_width);
             render_preview(app, frame, preview_area, s, t);
+            render_list(app, frame, list_area, rule_width)
         }
         _ => render_list(app, frame, main_area, rule_width),
-    }
+    };
     render_status(app, frame, status_area);
     if app.show_help {
         render_help(frame);
@@ -42,6 +43,7 @@ pub fn render(app: &App, frame: &mut Frame) {
     if !app.renamed.is_empty() {
         render_renamed(app, frame);
     }
+    offset
 }
 
 /// Centered popup listing the renames done at startup, old name above the new one.
@@ -157,8 +159,8 @@ fn section_color(index: usize) -> Color {
 }
 
 /// No box around the list. Sections are rules, tasks get a bullet in the section color,
-/// the cursor is a bar in the gutter.
-fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) {
+/// the cursor is a bar in the gutter. Returns the scroll offset.
+fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize {
     let block = list_block();
 
     let mut items: Vec<ListItem> = Vec::new();
@@ -227,9 +229,13 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) {
     }
 
     let list = List::new(items).block(block);
-    // Fresh state each frame: ratatui scrolls just enough to keep the cursor visible.
-    let mut state = ListState::default().with_selected(Some(selected));
+    // Starts from the last offset, ratatui only scrolls when the cursor would leave the
+    // screen. A fresh offset would pin the cursor to the bottom edge while moving up.
+    let mut state = ListState::default()
+        .with_offset(app.list_offset)
+        .with_selected(Some(selected));
     frame.render_stateful_widget(list, area, &mut state);
+    state.offset()
 }
 
 /// Space on the right so rules stop before the preview divider.
@@ -323,7 +329,11 @@ mod tests {
     /// Renders the app and returns the screen as text, styles (bold, highlight) are ignored.
     fn screen(app: &App) -> String {
         let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
-        terminal.draw(|frame| render(app, frame)).unwrap();
+        terminal
+            .draw(|frame| {
+                render(app, frame);
+            })
+            .unwrap();
 
         let buffer = terminal.backend().buffer();
         buffer
@@ -332,6 +342,34 @@ mod tests {
             .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    /// Draws like the main loop: the scroll offset of one frame is where the next starts.
+    fn draw(app: &mut App) -> Vec<String> {
+        let mut offset = app.list_offset;
+        let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
+        terminal.draw(|frame| offset = render(app, frame)).unwrap();
+        app.list_offset = offset;
+        screen(app).lines().map(str::to_string).collect()
+    }
+
+    #[test]
+    fn list_scrolls_only_when_the_cursor_leaves_the_screen() {
+        let titles: Vec<String> = (1..=20).map(|i| format!("Task {i}")).collect();
+        let titles: Vec<&str> = titles.iter().map(String::as_str).collect();
+        let mut app = App::new(PathBuf::new(), sections(&[(&[], &titles)]));
+
+        app.update(Action::Bottom);
+        let lines = draw(&mut app);
+        assert!(lines[7].contains("▌  • Task 20"), "{lines:#?}");
+
+        // Moving up inside the screen moves the cursor, not the view.
+        app.update(Action::Up);
+        draw(&mut app);
+        app.update(Action::Up);
+        let lines = draw(&mut app);
+        assert!(lines[7].contains("• Task 20"), "{lines:#?}");
+        assert!(lines[5].contains("▌  • Task 18"), "{lines:#?}");
     }
 
     #[test]
@@ -374,7 +412,11 @@ mod tests {
         let mut app = App::new(PathBuf::new(), sections(&[(&[], &[])]));
         app.update(Action::Help);
         let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
-        terminal.draw(|frame| render(&app, frame)).unwrap();
+        terminal
+            .draw(|frame| {
+                render(&app, frame);
+            })
+            .unwrap();
         let screen: String = terminal
             .backend()
             .buffer()
@@ -396,7 +438,11 @@ mod tests {
         let mut app = App::new(PathBuf::new(), sections(&[(&[], &[])]));
         app.renamed = vec![("b.md".into(), "02-b.md".into())];
         let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
-        terminal.draw(|frame| render(&app, frame)).unwrap();
+        terminal
+            .draw(|frame| {
+                render(&app, frame);
+            })
+            .unwrap();
         let screen: String = terminal
             .backend()
             .buffer()
@@ -460,7 +506,11 @@ mod tests {
             app.update(Action::FilterType(c));
         }
         let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
-        terminal.draw(|frame| render(&app, frame)).unwrap();
+        terminal
+            .draw(|frame| {
+                render(&app, frame);
+            })
+            .unwrap();
         let buffer = terminal.backend().buffer();
         let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
 
