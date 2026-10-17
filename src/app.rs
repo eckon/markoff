@@ -508,9 +508,8 @@ impl App {
             &date,
             &self.order_file,
         );
-        let title = self.sections[s].tasks[t].title();
         self.apply(ops)?;
-        self.status = Some(Status::Info(format!("done {title} (u to undo)")));
+        self.status = Some(Status::Info("1 task archived (u to undo)".to_string()));
         Ok(())
     }
 
@@ -1548,7 +1547,7 @@ pub mod tests {
         app.update(Action::Done);
         assert_eq!(
             app.status,
-            Some(Status::Info("done b (u to undo)".to_string()))
+            Some(Status::Info("1 task archived (u to undo)".to_string()))
         );
         assert_eq!(app.done_today, 2);
         assert_eq!(listing(&app), ["[work]", "[home]"]);
