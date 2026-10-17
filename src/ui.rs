@@ -117,11 +117,10 @@ fn render_help(frame: &mut Frame) {
     for (i, (binding, label)) in BINDINGS.iter().zip(&labels).enumerate() {
         if i == 0 || BINDINGS[i - 1].group != binding.group {
             lines.push(Line::default());
-            let color = SECTION_COLORS[groups % SECTION_COLORS.len()];
             lines.push(Line::from(rule(
                 binding.group,
                 None,
-                color,
+                section_color(groups),
                 HELP_RULE_WIDTH,
             )));
             groups += 1;
