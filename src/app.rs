@@ -253,10 +253,13 @@ impl App {
             && key.kind == KeyEventKind::Press
         {
             self.status = None;
-            // Only `?` and the quit keys close the help. Other keys do nothing, so a stray key
-            // cannot change tasks that are dimmed behind it.
+            // Only `?`, `Esc` and the quit keys close the help. Other keys do nothing, so a stray
+            // key cannot change tasks that are dimmed behind it.
             if self.show_help {
-                if matches!(self.keymap.handle(key), Some(Action::Help | Action::Quit)) {
+                if matches!(
+                    self.keymap.handle(key),
+                    Some(Action::Help | Action::FilterClear | Action::Quit)
+                ) {
                     self.show_help = false;
                 }
                 return;
@@ -845,6 +848,7 @@ pub mod tests {
 
         for key in [
             KeyEvent::from(KeyCode::Char('?')),
+            KeyEvent::from(KeyCode::Esc),
             KeyEvent::from(KeyCode::Char('q')),
             KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
         ] {

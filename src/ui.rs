@@ -235,8 +235,8 @@ fn render_status(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_widget(Line::from(spans).right_aligned(), area);
 }
 
-/// Key hints per mode: how to get out of the filter, and where to find the rest. Keys and
-/// texts from [`BINDINGS`], so they always match.
+/// Key hints per mode: how to get out of the filter, and where to find the rest. Keys from
+/// [`BINDINGS`], so they always match. Own texts, the help's would not fit every mode.
 fn hints(app: &App) -> Vec<(String, &'static str)> {
     if app.filter_input {
         return FILTER_INPUT_HINTS
@@ -244,21 +244,19 @@ fn hints(app: &App) -> Vec<(String, &'static str)> {
             .map(|(key, text)| (key.to_string(), *text))
             .collect();
     }
-    let actions: &[Action] = if app.filter.is_empty() || app.show_help {
-        &[Action::Help]
+    let help = (Action::Help, "toggle help");
+    let hints = if app.filter.is_empty() || app.show_help {
+        vec![help]
     } else {
-        &[Action::FilterClear, Action::Help]
+        vec![(Action::FilterClear, "clear filter"), help]
     };
-    actions
-        .iter()
-        .filter_map(|action| {
+    hints
+        .into_iter()
+        .filter_map(|(action, text)| {
             BINDINGS
                 .iter()
-                .find(|b| b.keys.iter().any(|(_, a)| a == action))
-        })
-        .map(|b| {
-            let text = if app.show_help { "close help" } else { b.help };
-            (b.labels().join(" / "), text)
+                .find(|b| b.keys.iter().any(|(_, a)| *a == action))
+                .map(|b| (b.labels().join(" / "), text))
         })
         .collect()
 }
@@ -714,7 +712,7 @@ mod tests {
 
         // The list behind the panel is dimmed, the status line is not.
         assert!(modifier("home", 0).contains(Modifier::DIM));
-        assert_eq!(modifier("? close help", 0), Modifier::BOLD);
+        assert_eq!(modifier("? toggle help", 0), Modifier::BOLD);
     }
 
     #[test]
@@ -767,13 +765,20 @@ mod tests {
         let screen = screen(&app);
         let status = screen.lines().last().unwrap();
         assert!(status.starts_with("filter: rev · 1 task "), "{status:?}");
-        assert!(status.ends_with("Esc clear filter  ? help"), "{status:?}");
+        // `? toggle help` gives way, 50 columns are too narrow for both hints.
+        assert!(status.ends_with("Esc clear filter"), "{status:?}");
     }
 
     #[test]
     fn status_hints_give_way_to_messages() {
         let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
-        assert!(screen(&app).lines().last().unwrap().ends_with("? help"));
+        assert!(
+            screen(&app)
+                .lines()
+                .last()
+                .unwrap()
+                .ends_with("? toggle help")
+        );
 
         // 50 columns: no room for the hint next to this message.
         let message = "x".repeat(44);
