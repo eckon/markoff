@@ -38,6 +38,7 @@ todo/
     02-review-pr.md
 archive/
   2026-10-14.md             <- tasks done that day
+daily.md                    <- optional daily checklist
 ```
 
 - A task file starts with `# Title`. The filename follows the title.
@@ -45,6 +46,24 @@ archive/
 - Files created or edited by hand are renamed into this shape on start and with the next action. Renames on start are listed in a popup.
 - Sections are created with `N` (or `mkdir todo/03-home`), renamed with `<CR>`, reordered with `J`/`K` and deleted with `D` when empty. A section's name is its directory slug, so `# Work Stuff` becomes `work-stuff`.
 - Done tasks are appended to `archive/YYYY-MM-DD.md` under their section, then deleted from `todo/`.
+
+### Daily checklist
+
+If `daily.md` exists, its tasks show as section `daily` right below the inbox. It starts fresh every day:
+
+```markdown
+# Daily
+
+## Book time in Jira [done 2026-10-17]
+
+## Check the canteen menu
+
+https://intranet/menu
+```
+
+- Each `## ` heading is a task, the text below it is shown in the preview.
+- `X` marks a task done for today (struck through) or open again. It adds or removes the `[done <date>]` marker, nothing goes to the archive. An older date counts as open.
+- The rule shows open/all tasks. Other keys do nothing here, edit `daily.md` by hand. A filter hides the section.
 
 ## Keys
 

@@ -11,7 +11,7 @@ use ratatui::{
 };
 
 use crate::{
-    app::{App, Row, Status},
+    app::{self, App, Row, Status},
     filter,
     keymap::{Action, BINDINGS, Binding, FILTER_INPUT_HINTS},
 };
@@ -29,9 +29,20 @@ pub fn render(app: &App, frame: &mut Frame) -> usize {
     let rule_width = list_block().inner(list_area).width as usize;
 
     // The preview only shows up for a task with a body, otherwise the list takes all the width.
-    let offset = match app.selected() {
-        Some(Row::Task(s, t)) if !app.sections[s].tasks[t].body.trim().is_empty() => {
-            render_preview(app, frame, preview_area, s, t);
+    let preview = match app.selected() {
+        Some(Row::Task(s, t)) => {
+            let task = &app.sections[s].tasks[t];
+            Some((task.title(), task.body.as_str(), section_color(s)))
+        }
+        Some(Row::DailyTask(i)) => app.daily.as_ref().map(|daily| {
+            let task = &daily[i];
+            (task.title.clone(), task.body.as_str(), DAILY_COLOR)
+        }),
+        _ => None,
+    };
+    let offset = match preview {
+        Some((title, body, color)) if !body.trim().is_empty() => {
+            render_preview(app, frame, preview_area, &title, body, color);
             render_list(app, frame, list_area, rule_width)
         }
         _ => render_list(app, frame, main_area, rule_width),
@@ -211,6 +222,9 @@ fn status_text(app: &App) -> Line<'_> {
 /// colors, so they follow the terminal theme.
 const SECTION_COLORS: [Color; 4] = [Color::Blue, Color::Magenta, Color::Green, Color::Yellow];
 
+/// The daily checklist, outside the section colors so those stay as they are.
+const DAILY_COLOR: Color = Color::Cyan;
+
 /// Rules and the preview divider.
 const LINE_COLOR: Color = Color::DarkGray;
 
@@ -226,13 +240,16 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
     let mut items: Vec<ListItem> = Vec::new();
     let mut selected = 0;
     let rows = app.rows();
+    let today = app::today();
     for (i, &row) in rows.iter().enumerate() {
         let is_cursor = i == app.cursor;
-        let (Row::Section(s) | Row::Task(s, _)) = row;
-        let color = section_color(s);
+        let color = match row {
+            Row::Section(s) | Row::Task(s, _) => section_color(s),
+            Row::Daily | Row::DailyTask(_) => DAILY_COLOR,
+        };
 
         // Blank line before each section except the first. Not a row, the cursor skips it.
-        if i > 0 && matches!(row, Row::Section(_)) {
+        if i > 0 && matches!(row, Row::Section(_) | Row::Daily) {
             items.push(ListItem::new(""));
         }
         if is_cursor {
@@ -255,10 +272,30 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                     .count();
                 spans.extend(rule(
                     &section.title(),
-                    Some(count),
+                    Some(count.to_string()),
                     color,
                     width.saturating_sub(1),
                 ));
+            }
+            Row::Daily => {
+                let daily = app.daily.as_deref().unwrap_or_default();
+                let open = daily.iter().filter(|t| !t.done_on(&today)).count();
+                let count = format!("{open}/{}", daily.len());
+                spans.extend(rule("daily", Some(count), color, width.saturating_sub(1)));
+            }
+            Row::DailyTask(i) => {
+                let task = &app.daily.as_deref().unwrap_or_default()[i];
+                spans.push("  ".into());
+                spans.push("• ".fg(color));
+                let mut style = if is_cursor {
+                    Style::new().fg(color)
+                } else {
+                    Style::new()
+                };
+                if task.done_on(&today) {
+                    style = style.dim().crossed_out();
+                }
+                spans.push(Span::styled(task.title.clone(), style));
             }
             Row::Task(s, t) => {
                 let title = app.sections[s].tasks[t].title();
@@ -304,7 +341,7 @@ fn list_block<'a>() -> Block<'a> {
 }
 
 /// `── work ─────── 2`, filled to `width`. Section headers and the preview title.
-fn rule(title: &str, count: Option<usize>, color: Color, width: usize) -> Vec<Span<'static>> {
+fn rule(title: &str, count: Option<String>, color: Color, width: usize) -> Vec<Span<'static>> {
     let count = count.map(|c| format!(" {c}")).unwrap_or_default();
     let used = 3 + title.chars().count() + 1 + count.chars().count();
     vec![
@@ -317,10 +354,8 @@ fn rule(title: &str, count: Option<usize>, color: Color, width: usize) -> Vec<Sp
 }
 
 /// Task body as raw text, read only.
-fn render_preview(app: &App, frame: &mut Frame, area: Rect, s: usize, t: usize) {
-    let task = &app.sections[s].tasks[t];
-    let color = section_color(s);
-    let text = body_text(&task.body, &app.filter);
+fn render_preview(app: &App, frame: &mut Frame, area: Rect, title: &str, body: &str, color: Color) {
+    let text = body_text(body, &app.filter);
 
     // No box: a divider on the left, the title as a rule on the first row.
     let divider = Block::new()
@@ -332,7 +367,7 @@ fn render_preview(app: &App, frame: &mut Frame, area: Rect, s: usize, t: usize) 
 
     let [title_area, body_area] =
         Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
-    let title = rule(&task.title(), None, color, title_area.width as usize);
+    let title = rule(title, None, color, title_area.width as usize);
     frame.render_widget(Line::from(title), title_area);
     frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }), body_area);
 }
@@ -563,6 +598,41 @@ mod tests {
         app.update(Action::FilterType('x'));
         app.update(Action::FilterType('q'));
         assert!(screen(&app).lines().next().unwrap().contains("no matches"));
+    }
+
+    #[test]
+    fn daily_shows_open_count_and_strikes_done() {
+        let mut app = App::new(PathBuf::new(), sections(&[(&[], &[])]));
+        let today = app::today();
+        app.daily = Some(crate::daily::parse(&format!(
+            "## Jira [done {today}]\n## Menu [done 2000-01-01]\n\nhttps://menu\n"
+        )));
+        let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
+        terminal
+            .draw(|frame| {
+                render(&app, frame);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
+
+        assert!(
+            lines[2].contains("daily") && lines[2].trim_end().ends_with(" 1/2"),
+            "{lines:#?}"
+        );
+        assert!(lines[3].contains("• Jira"), "{lines:#?}");
+        assert!(
+            buffer[(6, 3)]
+                .modifier
+                .contains(Modifier::CROSSED_OUT | Modifier::DIM)
+        );
+        // An old date is open again.
+        assert!(lines[4].contains("• Menu"), "{lines:#?}");
+        assert!(!buffer[(6, 4)].modifier.contains(Modifier::CROSSED_OUT));
+
+        // The body shows in the preview, like for tasks.
+        app.cursor = 3;
+        assert!(screen(&app).contains("https://menu"));
     }
 
     #[test]

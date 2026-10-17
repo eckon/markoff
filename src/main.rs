@@ -3,6 +3,7 @@
 mod app;
 mod archive;
 mod config;
+mod daily;
 mod edit;
 mod editor;
 mod filter;
