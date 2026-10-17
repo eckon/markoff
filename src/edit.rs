@@ -38,6 +38,41 @@ pub fn delete_section(sections: &[Section], s: usize) -> Vec<Op> {
     ops
 }
 
+/// In the section draft: a section is a directory, there is no file for text to go into.
+const SECTION_NOTE: &str = "<!-- Only the heading is used: it becomes the section name. -->";
+
+/// `<CR>` on a section header: what the editor shows to rename it.
+pub fn section_draft(section: &Section) -> String {
+    format!("# {}\n\n{SECTION_NOTE}\n", section.title())
+}
+
+/// The section name from a saved [`section_draft`]: the heading as slug, and whether
+/// there was more text than the heading and the note. `None` for an empty heading.
+pub fn section_name(content: &str) -> Option<(String, bool)> {
+    let draft = Task::parse(PathBuf::from("section.md"), content);
+    let slug = slugify(&draft.heading?);
+    let more = !draft.body.replace(SECTION_NOTE, "").trim().is_empty();
+    (!slug.is_empty()).then_some((slug, more))
+}
+
+/// Renames section `s` to `slug`, keeping its order. Returns the op and the new directory,
+/// `None` if the directory has no order prefix (normalize gives it one first).
+pub fn rename_section(section: &Section, slug: &str) -> Option<(Op, PathBuf)> {
+    let name = Name::parse(section.dir.file_name()?.to_str()?)?;
+    let to = section.dir.with_file_name(
+        Name {
+            order: name.order,
+            slug: slug.to_string(),
+        }
+        .to_stem(),
+    );
+    let op = Op::Rename {
+        from: section.dir.clone(),
+        to: to.clone(),
+    };
+    Some((op, to))
+}
+
 /// `X`: adds task `t` to today's archive file, then removes it like [`delete`].
 ///
 /// `existing` is the current content of `archive_path`, `None` if the file does not exist.
@@ -404,6 +439,34 @@ mod tests {
             describe(&delete_section(&sections, 2)),
             ["rmdir 02-b", "rename 03-c -> 02-c"]
         );
+    }
+
+    #[test]
+    fn section_draft_round_trip() {
+        let sections = tree(&[("", &[]), ("01-work", &[])]);
+        let mut s = sections[1].clone();
+        s.path = vec!["work".to_string()];
+        let draft = section_draft(&s);
+        assert_eq!(section_name(&draft), Some(("work".to_string(), false)));
+
+        let renamed = draft.replace("# work", "# Work Stuff");
+        assert_eq!(
+            section_name(&renamed),
+            Some(("work-stuff".to_string(), false))
+        );
+        let more = format!("{renamed}\nnotes");
+        assert_eq!(section_name(&more), Some(("work-stuff".to_string(), true)));
+
+        assert_eq!(section_name(&draft.replace("# work", "# ")), None);
+        assert_eq!(section_name("no heading"), None);
+    }
+
+    #[test]
+    fn rename_section_keeps_the_order() {
+        let sections = tree(&[("", &[]), ("01-a", &[]), ("02-work", &[])]);
+        let (op, to) = rename_section(&sections[2], "home").unwrap();
+        assert_eq!(describe(&[op]), ["rename 02-work -> 02-home"]);
+        assert_eq!(to, Path::new("todo/02-home"));
     }
 
     #[test]

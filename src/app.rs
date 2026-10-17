@@ -47,6 +47,8 @@ enum EditorRequest {
     Open(PathBuf),
     /// `n`: write a new task, inserted at `index` in section `section`.
     Create { section: usize, index: usize },
+    /// `<CR>` on a section header: rename section `section`.
+    RenameSection(usize),
 }
 
 /// Message for the status line, cleared on the next key press.
@@ -178,8 +180,13 @@ impl App {
                         editor::open(terminal, &path, &[]).and_then(|()| self.after_edit())
                     }
                     EditorRequest::Create { section, index } => {
-                        editor::create(terminal, &self.sections[section].dir)
+                        editor::create(terminal, &self.sections[section].dir, "# \n")
                             .and_then(|content| self.after_create(section, index, &content))
+                    }
+                    EditorRequest::RenameSection(section) => {
+                        let draft = edit::section_draft(&self.sections[section]);
+                        editor::rename(terminal, &self.sections[0].dir, &draft)
+                            .and_then(|content| self.after_rename_section(section, &content))
                     }
                 };
                 self.report(result);
@@ -266,12 +273,17 @@ impl App {
             Action::PrevSection => self.cursor = self.prev_section_row(),
             Action::NextSection => self.cursor = self.next_section_row(),
             Action::MoveDown | Action::MoveUp => self.move_selected(action == Action::MoveDown)?,
-            Action::Open => {
-                if let Some(Row::Task(s, t)) = self.selected() {
+            Action::Open => match self.selected() {
+                Some(Row::Task(s, t)) => {
                     let path = self.sections[s].tasks[t].path.clone();
                     self.editor_request = Some(EditorRequest::Open(path));
                 }
-            }
+                Some(Row::Section(0)) => return Err(eyre!("the inbox can't be renamed")),
+                Some(Row::Section(s)) => {
+                    self.editor_request = Some(EditorRequest::RenameSection(s))
+                }
+                None => {}
+            },
             Action::New => {
                 // At the end of the cursor's section, from its header or any of its tasks.
                 if let Some(Row::Section(section) | Row::Task(section, _)) = self.selected() {
@@ -375,6 +387,30 @@ impl App {
         // and the text is lost, so say that clearly.
         self.insert(section, index, &task)
             .map_err(|err| eyre!("task not added: {err}"))
+    }
+
+    /// Renames section `s` to the heading written in the editor.
+    fn after_rename_section(&mut self, s: usize, content: &str) -> Result<()> {
+        let (slug, more) =
+            edit::section_name(content).ok_or_else(|| eyre!("aborted, empty title"))?;
+        if slug == self.sections[s].title() {
+            return Ok(());
+        }
+        if self.sections.iter().any(|section| section.title() == slug) {
+            return Err(eyre!("a section named {slug} already exists"));
+        }
+        // Renames keep the order of sections, so `s` stays valid.
+        self.normalize_before_action();
+        let (op, to) = edit::rename_section(&self.sections[s], &slug)
+            .ok_or_else(|| eyre!("{} has no order prefix", self.sections[s].dir.display()))?;
+        self.apply(vec![op])?;
+        self.select_path(&to);
+        if more {
+            self.status = Some(Status::Info(
+                "renamed, only the heading is used for a section".to_string(),
+            ));
+        }
+        Ok(())
     }
 
     fn done(&mut self) -> Result<()> {
@@ -888,10 +924,18 @@ pub mod tests {
     }
 
     #[test]
-    fn open_requests_editor_for_task_only() {
-        let (_dir, mut app) = app_with_files(&["01-a.md"]);
+    fn open_requests_editor_for_task_and_section() {
+        let (_dir, mut app) = app_with_files(&["01-a.md", "01-work/"]);
         app.update(Action::Open);
-        assert_eq!(app.editor_request, None, "section header opens nothing");
+        assert_eq!(app.editor_request, None);
+        assert_eq!(
+            app.status,
+            Some(Status::Error("the inbox can't be renamed".to_string()))
+        );
+
+        app.cursor = 2;
+        app.update(Action::Open);
+        assert_eq!(app.editor_request, Some(EditorRequest::RenameSection(1)));
 
         app.cursor = 1;
         app.update(Action::Open);
@@ -969,6 +1013,49 @@ pub mod tests {
             2,
             "nothing written, `01-a.md` and `02-c.md` only"
         );
+    }
+
+    #[test]
+    fn after_rename_section_renames_and_undo_reverts() {
+        let (dir, mut app) = app_with_files(&["01-work/01-a.md", "02-home/"]);
+        let before = listing(&app);
+        let template = edit::section_draft(&app.sections[1]);
+        let draft = |title: &str| template.replace("# work", title);
+
+        // Empty title, unchanged name and a clash change nothing.
+        let (empty, same, clash) = (draft("# "), draft("# work"), draft("# Home"));
+        assert_eq!(
+            app.after_rename_section(1, &empty).unwrap_err().to_string(),
+            "aborted, empty title"
+        );
+        app.after_rename_section(1, &same).unwrap();
+        assert_eq!(
+            app.after_rename_section(1, &clash).unwrap_err().to_string(),
+            "a section named home already exists"
+        );
+        assert_eq!(listing(&app), before);
+        assert!(app.undo.is_empty());
+
+        // Text below the heading is dropped, the status says so.
+        app.cursor = 2;
+        let renamed = format!("{}\nnotes", draft("# Work Stuff"));
+        app.after_rename_section(1, &renamed).unwrap();
+        assert!(dir.path().join("todo/01-work-stuff/01-a.md").exists());
+        assert_eq!(
+            app.selected(),
+            Some(Row::Section(1)),
+            "cursor on the section"
+        );
+        assert_eq!(
+            app.status,
+            Some(Status::Info(
+                "renamed, only the heading is used for a section".to_string()
+            ))
+        );
+
+        app.update(Action::Undo);
+        assert_eq!(listing(&app), before);
+        assert_eq!(app.cursor, 2, "back on the task");
     }
 
     #[test]

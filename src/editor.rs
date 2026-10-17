@@ -34,28 +34,45 @@ pub fn open(terminal: &mut DefaultTerminal, path: &Path, args: &[&str]) -> Resul
     Ok(())
 }
 
-/// Opens the editor on a new draft in `dir` and returns what was saved.
+/// Opens the editor on a new, empty draft in `dir` with `content` and returns what was
+/// saved. Starts in insert mode, there is nothing to change yet.
 ///
-/// `dir` is the section the task will end up in, so relative and wiki links already resolve
-/// while writing and stay valid when the task is created next to the draft.
-pub fn create(terminal: &mut DefaultTerminal, dir: &Path) -> Result<String> {
-    let file = draft(dir)?;
-    open(terminal, file.path(), new_task_args(&editor()))?;
+/// For a task `dir` is the section it will end up in, so relative and wiki links already
+/// resolve while writing and stay valid when the task is created next to the draft.
+pub fn create(terminal: &mut DefaultTerminal, dir: &Path, content: &str) -> Result<String> {
+    edit_draft(terminal, dir, "new", content, new_task_args(&editor()))
+}
+
+/// Like [`create`] for a draft of something that exists, in the editor's normal mode.
+pub fn rename(terminal: &mut DefaultTerminal, dir: &Path, content: &str) -> Result<String> {
+    edit_draft(terminal, dir, "rename", content, &[])
+}
+
+/// `kind` goes into the draft's name, so the editor's tab or title says what it is for.
+fn edit_draft(
+    terminal: &mut DefaultTerminal,
+    dir: &Path,
+    kind: &str,
+    content: &str,
+    args: &[&str],
+) -> Result<String> {
+    let file = draft(dir, kind, content)?;
+    open(terminal, file.path(), args)?;
     // Read by path: editors often replace the file instead of writing into it.
     Ok(fs::read_to_string(file.path())?)
 }
 
-/// Hidden draft with an empty `# ` heading, deleted when dropped.
+/// Hidden draft `.markoff-<kind>-*.md` with `content`, deleted when dropped.
 ///
 /// Hidden, so the loader ignores it and a half written task never shows up in the list.
 /// The `.md` suffix gives editors markdown highlighting.
-fn draft(dir: &Path) -> Result<NamedTempFile> {
+fn draft(dir: &Path, kind: &str, content: &str) -> Result<NamedTempFile> {
     let file = tempfile::Builder::new()
-        .prefix(".markoff-new-")
+        .prefix(&format!(".markoff-{kind}-"))
         .suffix(".md")
         .tempfile_in(dir)
         .wrap_err_with(|| format!("failed to create draft in {}", dir.display()))?;
-    fs::write(file.path(), "# \n")?;
+    fs::write(file.path(), content)?;
     Ok(file)
 }
 
@@ -68,7 +85,7 @@ fn editor() -> String {
         .unwrap_or_else(|| "vi".to_string())
 }
 
-/// Editor specific arguments for a new task, so the title can be typed right away.
+/// Editor specific arguments for a draft, so the title can be typed right away.
 /// The only place that knows about specific editors.
 fn new_task_args(editor: &str) -> &'static [&'static str] {
     match program_name(editor) {
@@ -138,7 +155,7 @@ mod tests {
     #[test]
     fn draft_is_hidden_in_dir_and_removed_on_drop() {
         let dir = TempDir::new().unwrap();
-        let file = draft(dir.path()).unwrap();
+        let file = draft(dir.path(), "new", "# \n").unwrap();
         let path = file.path().to_path_buf();
 
         assert_eq!(path.parent(), Some(dir.path()));
