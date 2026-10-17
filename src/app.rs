@@ -451,7 +451,7 @@ impl App {
         self.select_path(&created);
         if more {
             self.status = Some(Status::Info(
-                "created, only the heading is used for a section".to_string(),
+                "section created, only the heading is used".to_string(),
             ));
         }
         Ok(())
@@ -480,7 +480,7 @@ impl App {
         self.select_path(&to);
         if more {
             self.status = Some(Status::Info(
-                "renamed, only the heading is used for a section".to_string(),
+                "section renamed, only the heading is used".to_string(),
             ));
         }
         Ok(())
@@ -510,7 +510,7 @@ impl App {
             &self.order_file,
         );
         self.apply(ops)?;
-        self.status = Some(Status::Info("1 task archived (u to undo)".to_string()));
+        self.status = Some(Status::Info("task archived (u to undo)".to_string()));
         Ok(())
     }
 
@@ -593,11 +593,10 @@ impl App {
             Some(Row::Section(s)) => return self.delete_section(s),
             Some(Row::Daily | Row::DailyTask(_)) | None => return Ok(()),
         };
-        let title = self.sections[s].tasks[t].title();
         // Cursor stays on the same row, which is now the next task (like vim).
         let ops = edit::delete(&self.sections, s, t, &self.order_file);
         self.apply(ops)?;
-        self.status = Some(Status::Info(format!("deleted {title} (u to undo)")));
+        self.status = Some(Status::Info("task deleted (u to undo)".to_string()));
         Ok(())
     }
 
@@ -611,7 +610,7 @@ impl App {
         // Cursor stays on the same row, which is now the next section.
         let ops = edit::delete_section(&self.sections, s, &self.order_file);
         self.apply(ops)?;
-        self.status = Some(Status::Info(format!("deleted {title} (u to undo)")));
+        self.status = Some(Status::Info("section deleted (u to undo)".to_string()));
         Ok(())
     }
 
@@ -704,9 +703,9 @@ pub fn today() -> String {
 
 fn renamed_message(count: usize) -> String {
     if count == 1 {
-        "renamed 1 file to match its title".to_string()
+        "1 file renamed to match its title".to_string()
     } else {
-        format!("renamed {count} files to match their titles")
+        format!("{count} files renamed to match their titles")
     }
 }
 
@@ -903,7 +902,7 @@ pub mod tests {
         assert_eq!(app.cursor, 1, "cursor moves onto the next task");
         assert_eq!(
             app.status,
-            Some(Status::Info("deleted a (u to undo)".to_string()))
+            Some(Status::Info("task deleted (u to undo)".to_string()))
         );
 
         app.update(Action::Undo);
@@ -1038,7 +1037,7 @@ pub mod tests {
         assert_eq!(app.selected(), Some(Row::Section(1)));
         assert_eq!(
             app.status,
-            Some(Status::Info("deleted home (u to undo)".to_string()))
+            Some(Status::Info("section deleted (u to undo)".to_string()))
         );
 
         app.update(Action::Undo);
@@ -1299,7 +1298,7 @@ pub mod tests {
         assert_eq!(
             app.status,
             Some(Status::Info(
-                "created, only the heading is used for a section".to_string()
+                "section created, only the heading is used".to_string()
             ))
         );
 
@@ -1372,7 +1371,7 @@ pub mod tests {
         assert_eq!(
             app.status,
             Some(Status::Info(
-                "renamed, only the heading is used for a section".to_string()
+                "section renamed, only the heading is used".to_string()
             ))
         );
 
@@ -1421,7 +1420,7 @@ pub mod tests {
         assert_eq!(
             app.status,
             Some(Status::Info(
-                "renamed 3 files to match their titles".to_string()
+                "3 files renamed to match their titles".to_string()
             ))
         );
     }
@@ -1463,7 +1462,7 @@ pub mod tests {
         assert_eq!(
             app.status,
             Some(Status::Info(
-                "renamed 1 file to match its title".to_string()
+                "1 file renamed to match its title".to_string()
             ))
         );
 
@@ -1561,7 +1560,7 @@ pub mod tests {
         app.update(Action::Done);
         assert_eq!(
             app.status,
-            Some(Status::Info("1 task archived (u to undo)".to_string()))
+            Some(Status::Info("task archived (u to undo)".to_string()))
         );
         assert_eq!(app.done_today, 2);
         assert_eq!(listing(&app), ["[work]", "[home]"]);
