@@ -1,5 +1,5 @@
-//! The archive over time, for the heatmap below the list. Pure, the days come from
-//! [`crate::load::archive`].
+//! The archive over time, for the archive view: the heatmap's columns and shades and the
+//! stats below it. Pure, the days come from [`crate::load::archive`].
 
 use std::collections::BTreeMap;
 
@@ -29,7 +29,7 @@ pub fn split(archive: &BTreeMap<Date, Vec<(String, usize)>>) -> (Days, Sections)
     (days, sections)
 }
 
-pub fn monday(day: Date) -> Date {
+fn monday(day: Date) -> Date {
     day - i64::from(day.weekday().to_monday_zero_offset()).days()
 }
 
@@ -102,29 +102,26 @@ pub fn rate(days: &Days, (start, length): (Date, i64)) -> f64 {
     done as f64 / length as f64
 }
 
-/// Where each of `steps` equal groups of `values` ends, zeros left out, see [`level`]. Ranks
+/// Where each of `steps` equal groups of `rates` ends, zeros left out, see [`level`]. Ranks
 /// instead of a share of the maximum, so a single huge day does not wash out all others.
-pub fn bounds<T: Copy + PartialOrd + Default>(
-    values: impl Iterator<Item = T>,
-    steps: usize,
-) -> Vec<T> {
-    let mut values: Vec<T> = values.filter(|&value| value > T::default()).collect();
-    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+pub fn bounds(rates: impl Iterator<Item = f64>, steps: usize) -> Vec<f64> {
+    let mut rates: Vec<f64> = rates.filter(|&rate| rate > 0.0).collect();
+    rates.sort_by(f64::total_cmp);
     // Ties go to the lower group, so a scale of mostly ones stays light.
     (1..steps)
         .map(|group| {
-            let index = (values.len() * group / steps).saturating_sub(1);
-            values.get(index).copied().unwrap_or_default()
+            let index = (rates.len() * group / steps).saturating_sub(1);
+            rates.get(index).copied().unwrap_or_default()
         })
         .collect()
 }
 
-/// `0` for nothing, then `1` to `steps` for the group of the [`bounds`] a value is in.
-pub fn level<T: Copy + PartialOrd + Default>(value: T, bounds: &[T]) -> usize {
-    if value <= T::default() {
+/// `0` for nothing, then `1` to `steps` for the group of the [`bounds`] a rate is in.
+pub fn level(rate: f64, bounds: &[f64]) -> usize {
+    if rate <= 0.0 {
         return 0;
     }
-    1 + bounds.iter().filter(|&&end| value > end).count()
+    1 + bounds.iter().filter(|&&end| rate > end).count()
 }
 
 /// Tasks done from `start` to `end`, both included.
@@ -240,17 +237,30 @@ mod tests {
 
     #[test]
     fn levels_by_equal_groups_of_the_busy_days() {
-        let ends = bounds((1..=100).chain([0, 0]), 4);
-        let levels: Vec<usize> = [0, 1, 25, 26, 50, 51, 75, 76, 100]
+        let rates = |values: &[u32]| {
+            values
+                .iter()
+                .map(|&value| f64::from(value))
+                .collect::<Vec<_>>()
+        };
+        let hundred: Vec<u32> = (1..=100).chain([0, 0]).collect();
+        let ends = bounds(rates(&hundred).into_iter(), 4);
+        let levels: Vec<usize> = [0.0, 1.0, 25.0, 26.0, 50.0, 51.0, 75.0, 76.0, 100.0]
             .into_iter()
-            .map(|count| level(count, &ends))
+            .map(|rate| level(rate, &ends))
             .collect();
         assert_eq!(levels, [0, 1, 1, 2, 2, 3, 3, 4, 4]);
-        assert_eq!(level(13, &bounds(1..=100, 8)), 2);
+        assert_eq!(level(13.0, &bounds(rates(&hundred).into_iter(), 8)), 2);
         // One huge day does not wash out the rest.
-        assert_eq!(level(4, &bounds([1, 2, 3, 4, 50].into_iter(), 4)), 4);
+        assert_eq!(
+            level(4.0, &bounds(rates(&[1, 2, 3, 4, 50]).into_iter(), 4)),
+            4
+        );
         // Mostly ones stay light.
-        assert_eq!(level(1, &bounds([1, 1, 1, 1, 1, 5].into_iter(), 4)), 1);
+        assert_eq!(
+            level(1.0, &bounds(rates(&[1, 1, 1, 1, 1, 5]).into_iter(), 4)),
+            1
+        );
     }
 
     #[test]

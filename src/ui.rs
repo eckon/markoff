@@ -189,10 +189,10 @@ struct Stats {
     end: usize,
 }
 
-/// The sections in list order, each with its color, then `other` for the ones gone from the
-/// list. Their days, see [`history::Sections`].
-fn sections(app: &App) -> Vec<(String, Style, history::Days)> {
-    let mut sections: Vec<(String, Style, history::Days)> = app
+/// The sections in list order, each with its color and days, and the days of the ones gone
+/// from the list together, see [`history::Sections`].
+fn sections(app: &App) -> (Vec<(String, Style, history::Days)>, history::Days) {
+    let sections: Vec<(String, Style, history::Days)> = app
         .sections
         .iter()
         .enumerate()
@@ -209,18 +209,15 @@ fn sections(app: &App) -> Vec<(String, Style, history::Days)> {
             )
         })
         .collect();
-    let mut other = history::Days::new();
+    let mut gone = history::Days::new();
     for (name, days) in &app.section_days {
         if !app.sections.iter().any(|section| &section.name == name) {
             for (&day, &done) in days {
-                *other.entry(day).or_default() += done;
+                *gone.entry(day).or_default() += done;
             }
         }
     }
-    if !other.is_empty() {
-        sections.push(("other".to_string(), Style::new().dim(), other));
-    }
-    sections
+    (sections, gone)
 }
 
 /// The period table on the left and the years on the right, if there is room for them, with
@@ -300,17 +297,19 @@ fn stats(app: &App, width: usize) -> Stats {
     // The table and the years end in a line, then the share of each section per period.
     let end = lines.len();
     lines.push(Line::from("─".repeat(width).fg(LINE_COLOR)));
-    let sections: Vec<(String, Style, Vec<history::Period>)> = sections(app)
+    let (sections, gone) = sections(app);
+    let sections: Vec<(String, Style, Vec<history::Period>)> = sections
         .into_iter()
         .map(|(name, style, section_days)| (name, style, history::periods(&section_days, today)))
         .collect();
+    let gone = history::periods(&gone, today);
     for (i, period) in periods.iter().enumerate() {
         let shares: Vec<Share> = sections
             .iter()
             .map(|(name, style, periods)| (name.clone(), *style, periods[i].done))
             .collect();
         let mut spans = vec![format!("{:<LABEL_WIDTH$}", period.name).dim()];
-        let Some((parts, total)) = merge_small(&shares) else {
+        let Some((parts, total)) = merge_small(&shares, gone[i].done) else {
             spans.push("nothing done".dim());
             lines.push(Line::from(spans));
             continue;
@@ -357,16 +356,17 @@ type Share = (String, Style, usize);
 /// Sections below this share of a period are merged into `other` in the share bars.
 const SMALL_SHARE: f64 = 0.05;
 
-/// The sections' shares, the biggest first, with the small ones merged into a dim `other` at
-/// the end, and the total. The bar, the text and the counts all go in this order, so a row reads
-/// the same from left to right. `None` if nothing was done.
-fn merge_small(shares: &[Share]) -> Option<(Vec<Share>, usize)> {
-    let total: usize = shares.iter().map(|(_, _, done)| done).sum();
+/// The sections' shares, the biggest first, with the small ones and the tasks of sections gone
+/// from the list merged into a dim `other` at the end, and the total. The bar, the text and the
+/// counts all go in this order, so a row reads the same from left to right. `None` if nothing
+/// was done.
+fn merge_small(shares: &[Share], gone: usize) -> Option<(Vec<Share>, usize)> {
+    let total = shares.iter().map(|(_, _, done)| done).sum::<usize>() + gone;
     if total == 0 {
         return None;
     }
     let mut parts: Vec<Share> = Vec::new();
-    let mut small = 0;
+    let mut small = gone;
     for (name, style, done) in shares {
         if (*done as f64) < total as f64 * SMALL_SHARE {
             small += done;
@@ -592,8 +592,8 @@ fn steps() -> [Span<'static>; 4] {
 }
 
 /// The tasks done over time, back to the first archived day, see [`history::columns`]: labels,
-/// 7 rows of cells with today in brackets and the weekdays on the right where cells are days,
-/// and a divider through the gap where the cell size changes.
+/// 7 rows of cells with today in blue and the weekdays on the right where cells are days, and
+/// a divider through the gap where the cell size changes.
 fn heatmap_lines(days: &history::Days, width: usize) -> Vec<Line<'static>> {
     let today = jiff::Zoned::now().date();
     let room = width.saturating_sub(WEEKDAYS);
@@ -732,7 +732,7 @@ fn connect_divider(frame: &mut Frame, x: u16, header_y: u16, gap_y: u16, bottom_
 fn render_header(app: &App, frame: &mut Frame, area: Rect) {
     let date = jiff::Zoned::now().strftime("%a %d %b").to_string();
     let open: usize = app.sections.iter().map(|section| section.tasks.len()).sum();
-    let done = app.done_today;
+    let done = app.done_today();
 
     let mut spans = rule(
         &date,
@@ -1344,7 +1344,7 @@ mod tests {
             PathBuf::new(),
             sections(&[("home", &["Fix typo"]), ("work", &["Review", "Deploy"])]),
         );
-        app.done_today = 2;
+        app.days = [(jiff::Zoned::now().date(), 2)].into();
         let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
         terminal
             .draw(|frame| {
@@ -1510,7 +1510,6 @@ mod tests {
         };
         // Today the busiest, older days so it is not in the first column.
         app.days = [(today, 3), (today - 10.days(), 1), (today - 20.days(), 2)].into();
-        app.done_today = 3;
 
         // Closed by default: the list, a rule above the status line, today's done in the header.
         let screen = lines(&draw(&app));
@@ -1623,7 +1622,7 @@ mod tests {
         };
 
         // The biggest first, the small ones merged into `other` at the end.
-        let (parts, total) = merge_small(&shares).unwrap();
+        let (parts, total) = merge_small(&shares, 0).unwrap();
         let names: Vec<&str> = parts.iter().map(|(name, _, _)| name.as_str()).collect();
         assert_eq!((names, total), (vec!["work", "home", "other"], 200));
 
@@ -1631,6 +1630,16 @@ mod tests {
         let (legend, named) = share_legend(&parts, total, 40);
         assert_eq!(text(&legend), "work 74%  home 25%  other <1%");
         assert_eq!(text(&share_counts(&parts, &named)), "149+50+1");
+
+        // Sections gone from the list are in the same `other`, there is only one.
+        let (parts, _) = merge_small(&shares, 10).unwrap();
+        let other: Vec<usize> = parts
+            .iter()
+            .filter(|(name, _, _)| name == "other")
+            .map(|(_, _, done)| *done)
+            .collect();
+        assert_eq!(other, [11]);
+        let (parts, total) = merge_small(&shares, 0).unwrap();
 
         // Too narrow for all: `…` for the rest, and only the named ones get their tasks.
         let (legend, named) = share_legend(&parts, total, 20);

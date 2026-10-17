@@ -107,9 +107,7 @@ pub struct App {
     daily_path: Option<PathBuf>,
     /// The tasks of the daily checklist, `None` if it is not set or the file does not exist.
     pub daily: Option<Vec<DailyTask>>,
-    /// Tasks in today's archive file, shown in the header.
-    pub done_today: usize,
-    /// Tasks done per day, for the heatmap below the list.
+    /// Tasks done per day, from the archive.
     pub days: history::Days,
     /// The same per section.
     pub section_days: history::Sections,
@@ -139,7 +137,6 @@ impl App {
             list_offset: 0,
             daily_path: None,
             daily: None,
-            done_today: 0,
             days: history::Days::new(),
             section_days: history::Sections::new(),
         }
@@ -667,8 +664,6 @@ impl App {
             None => None,
         };
         (self.days, self.section_days) = history::split(&load::archive(&self.root)?);
-        let today = jiff::Zoned::now().date();
-        self.done_today = self.days.get(&today).copied().unwrap_or(0);
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
         if let Some(path) = select {
             self.select_path(path);
@@ -718,6 +713,12 @@ impl App {
     /// The row under the cursor, `None` only if there are no rows at all.
     pub fn selected(&self) -> Option<Row> {
         self.rows().get(self.cursor).copied()
+    }
+
+    /// Tasks archived today, shown in the header.
+    pub fn done_today(&self) -> usize {
+        let today = jiff::Zoned::now().date();
+        self.days.get(&today).copied().unwrap_or(0)
     }
 }
 
@@ -1633,8 +1634,7 @@ pub mod tests {
             app.status,
             Some(Status::Info("task archived (u to undo)".to_string()))
         );
-        assert_eq!(app.done_today, 2);
-        assert_eq!(app.days.len(), 1, "the heatmap has it too");
+        assert_eq!(app.done_today(), 2);
         assert_eq!(listing(&app), ["[work]", "[home]"]);
         assert_eq!(order_file(&dir), "# work\n\n# home\n");
         assert_eq!(
@@ -1644,7 +1644,7 @@ pub mod tests {
 
         app.update(Action::Undo);
         assert_eq!(listing(&app), ["[work]", "[home]", "b.md"]);
-        assert_eq!(app.done_today, 1);
+        assert_eq!(app.done_today(), 1);
         assert_eq!(
             fs::read_to_string(&archive_path).unwrap(),
             format!("# {today}\n\n## work\n\n### a\n")
