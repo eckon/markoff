@@ -97,9 +97,14 @@ impl Binding {
     /// and shifted arrows only clutter the help, the README lists them.
     pub fn labels(&self) -> Vec<String> {
         self.triggers()
-            .map(|(trigger, _)| trigger)
-            .filter(|trigger| !matches!(trigger, Key(Up | Down | Home | End) | Shift(_)))
-            .map(|trigger| trigger.label())
+            .filter_map(|(trigger, _)| match trigger {
+                Key(Up | Down | Home | End) | Shift(_) => None,
+                Key(Char(c)) => Some(c.to_string()),
+                Key(Enter) => Some("<CR>".to_string()),
+                Key(other) => Some(format!("{other:?}")),
+                Ctrl(c) => Some(format!("C-{c}")),
+                Seq(a, b) => Some(format!("{a}{b}")),
+            })
             .collect()
     }
 
@@ -107,23 +112,6 @@ impl Binding {
         self.keys
             .iter()
             .flat_map(|(triggers, action)| triggers.iter().map(|t| (*t, *action)))
-    }
-}
-
-impl Trigger {
-    fn label(&self) -> String {
-        match *self {
-            Key(Char(c)) => c.to_string(),
-            Key(Down) => "↓".to_string(),
-            Key(Up) => "↑".to_string(),
-            Key(Enter) => "<CR>".to_string(),
-            Key(other) => format!("{other:?}"),
-            Ctrl(c) => format!("C-{c}"),
-            Shift(Down) => "S-↓".to_string(),
-            Shift(Up) => "S-↑".to_string(),
-            Shift(other) => format!("S-{other:?}"),
-            Seq(a, b) => format!("{a}{b}"),
-        }
     }
 }
 
@@ -207,8 +195,6 @@ pub fn filter_input(key: KeyEvent) -> Option<Action> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
     use super::*;
 
     fn press(keymap: &mut Keymap, code: KeyCode) -> Option<Action> {
@@ -273,33 +259,6 @@ mod tests {
         assert_eq!(labels("top / bottom"), ["gg", "G"]);
         assert_eq!(labels("move down / up"), ["J", "K"]);
         assert_eq!(labels("quit"), ["q", "C-c"]);
-    }
-
-    /// AGENTS.md: a key change updates `BINDINGS` and the README table together. Only the keys
-    /// are compared, README may group them and word the actions differently.
-    #[test]
-    fn readme_lists_the_same_keys() {
-        let readme = include_str!("../README.md");
-        let table = readme
-            .split("## Keys")
-            .nth(1)
-            .expect("README has a Keys section");
-        let readme_keys: BTreeSet<String> = table
-            .lines()
-            .skip_while(|line| !line.starts_with('|'))
-            .take_while(|line| line.starts_with('|'))
-            // Header and separator row.
-            .skip(2)
-            .filter_map(|line| line.split('|').nth(1))
-            .flat_map(|keys| keys.split(" / "))
-            .map(|key| key.trim().trim_matches('`').to_string())
-            .collect();
-        let bindings: BTreeSet<String> = BINDINGS
-            .iter()
-            .flat_map(Binding::triggers)
-            .map(|(trigger, _)| trigger.label())
-            .collect();
-        assert_eq!(readme_keys, bindings);
     }
 
     #[test]

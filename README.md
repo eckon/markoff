@@ -53,27 +53,36 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 
 ## Keys
 
-| Key           | Action                                |
-| ------------- | ------------------------------------- |
-| `j` / `↓`     | Down                                  |
-| `k` / `↑`     | Up                                    |
-| `gg` / `Home` | Top                                   |
-| `G` / `End`   | Bottom                                |
-| `{` / `}`     | Previous / next section               |
-| `J` / `S-↓`   | Move task or section down             |
-| `K` / `S-↑`   | Move task or section up               |
-| `<CR>`        | Edit task or rename section           |
-| `o` / `O`     | New task below / above                |
-| `N`           | New section                           |
-| `X`           | Done, moves the task to the archive   |
-| `D`           | Delete task or empty section          |
-| `u`           | Undo                                  |
-| `/`           | Filter, `<CR>` keeps it               |
-| `Esc`         | Clear filter, close help              |
-| `?`           | Toggle help                           |
-| `q` / `C-c`   | Quit                                  |
+### Move
 
-The filter matches titles and bodies. While it is set, moving and adding tasks is off.
+| Key         | Action                                    |
+| ----------- | ----------------------------------------- |
+| `j` / `k`   | Down / up, also `↓` / `↑`                 |
+| `gg` / `G`  | Top / bottom, also `Home` / `End`         |
+| `{` / `}`   | Previous / next section                   |
+
+### Change
+
+| Key         | Action                                    |
+| ----------- | ----------------------------------------- |
+| `J` / `K`   | Move down / up, also `S-↓` / `S-↑`        |
+| `<CR>`      | Open task in `$EDITOR`, or rename section |
+| `o` / `O`   | New task below / above                    |
+| `N`         | New section                               |
+| `X`         | Done, moves the task to the archive       |
+| `D`         | Delete task, or empty section             |
+| `u`         | Undo                                      |
+
+### Other
+
+| Key         | Action                                    |
+| ----------- | ----------------------------------------- |
+| `/`         | Filter titles and bodies, `<CR>` keeps it |
+| `Esc`       | Clear filter, close help                  |
+| `?`         | Toggle help                               |
+| `q` / `C-c` | Quit                                      |
+
+While a filter is set, moving and adding tasks is off.
 
 The editor is `$VISUAL`, then `$EDITOR`, then `vi`.
 
