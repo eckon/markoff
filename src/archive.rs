@@ -51,16 +51,29 @@ pub fn add(archive: Option<&str>, date: &str, section: &str, task: &Task) -> Str
     }
 }
 
-/// How many tasks the archive file holds: its `### ` headings outside code blocks.
+/// How many tasks each `## section` of the archive file holds, in file order: its `### `
+/// headings outside code blocks. Tasks above the first section, possible in a file edited by
+/// hand, have an empty name.
 ///
 /// A `# ` heading inside a task body is shifted to `### ` as well and counts too. Rare enough
 /// for a number in the header.
-pub fn count(archive: &str) -> usize {
+pub fn sections(archive: &str) -> Vec<(String, usize)> {
     let mut fence = Fence::default();
-    archive
-        .split_inclusive('\n')
-        .filter(|line| !fence.update(line) && heading_level(line) == Some(1 + HEADING_SHIFT))
-        .count()
+    let mut sections: Vec<(String, usize)> = Vec::new();
+    for line in archive.split_inclusive('\n') {
+        if fence.update(line) {
+            continue;
+        }
+        match heading_level(line) {
+            Some(2) => sections.push((line[2..].trim().to_string(), 0)),
+            Some(level) if level == 1 + HEADING_SHIFT => match sections.last_mut() {
+                Some((_, done)) => *done += 1,
+                None => sections.push((String::new(), 1)),
+            },
+            _ => {}
+        }
+    }
+    sections
 }
 
 /// The task as it appears in the archive: `### Title`, then the body with shifted headings.
@@ -156,6 +169,14 @@ mod tests {
     }
 
     #[test]
+    fn tasks_per_section() {
+        let archive = "### Loose\n\n## work\n\n### A\n\n```\n### no\n## nor\n```\n\n### B\n\n## home\n\n### C\n";
+        let sections = [("", 1), ("work", 2), ("home", 1)];
+        let sections = sections.map(|(name, done)| (name.to_string(), done));
+        assert_eq!(super::sections(archive), sections);
+    }
+
+    #[test]
     fn count_tasks() {
         let one = add(None, "2026-10-14", "work", &task("# A\n\n## Sub\n"));
         let two = add(
@@ -164,6 +185,7 @@ mod tests {
             "home",
             &task("# B\n\n```\n### no\n```\n"),
         );
+        let count = |archive: &str| -> usize { sections(archive).iter().map(|(_, n)| n).sum() };
         assert_eq!(count(""), 0);
         assert_eq!(count(&one), 1);
         assert_eq!(count(&two), 2);

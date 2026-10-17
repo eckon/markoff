@@ -64,9 +64,10 @@ pub fn read_if_exists(path: &Path) -> Result<Option<String>> {
     }
 }
 
-/// Tasks done per day, from the archive files in `root`, see [`archive::count`]. Files whose
-/// name is no date are skipped. No `.archive/` yet means nothing was done.
-pub fn archive(root: &Path) -> Result<BTreeMap<Date, usize>> {
+/// Tasks done per day and section, from the archive files in `root`, see
+/// [`archive::sections`]. Files whose name is no date are skipped. No `.archive/` yet means
+/// nothing was done.
+pub fn archive(root: &Path) -> Result<BTreeMap<Date, Vec<(String, usize)>>> {
     let dir = root.join(archive::DIR);
     if !dir.is_dir() {
         return Ok(BTreeMap::new());
@@ -80,7 +81,7 @@ pub fn archive(root: &Path) -> Result<BTreeMap<Date, usize>> {
             continue;
         };
         if let Some(content) = read_if_exists(&path)? {
-            days.insert(date, archive::count(&content));
+            days.insert(date, archive::sections(&content));
         }
     }
     Ok(days)
@@ -170,7 +171,8 @@ mod tests {
         let days = archive(dir.path()).unwrap();
         let dates: Vec<String> = days.keys().map(Date::to_string).collect();
         assert_eq!(dates, ["2026-10-02", "2026-10-14"]);
-        assert_eq!(days[&"2026-10-14".parse().unwrap()], 1);
+        let fix_bug = [("work".to_string(), 1)];
+        assert_eq!(days[&"2026-10-14".parse().unwrap()], fix_bug);
     }
 
     #[test]

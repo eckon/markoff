@@ -60,7 +60,7 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 - Filenames follow the title. Files added or edited by hand are renamed on start and before the next change.
 - `.order` is written by markoff. New files go to the end, deleted ones are dropped. Add it to `.gitignore` to keep order changes out of git.
 - Done tasks (`X`) are appended to `.archive/YYYY-MM-DD.md` under their section.
-- `a` shows a heatmap of the done tasks back to the first archived day: recent days one by one, further back each cell covers more. Brighter means more tasks per day, ranked in quarters of the days with anything done. Dividers in the top row mark where a cell starts to cover more: daily, weekly, monthly, yearly.
+- `a` shows a heatmap of the done tasks back to the first archived day: recent days one by one, further back each cell covers more. Brighter means more tasks per day, ranked in quarters of the days with anything done. Dividers in the top row mark where a cell starts to cover more: daily, weekly, monthly, yearly. Below it, a table compares this week, month and year with the same stretch before, the years are bars, and a bar per period shows the share of each section.
 
 ## Keys
 

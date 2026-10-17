@@ -8,6 +8,27 @@ use jiff::{ToSpan, civil::Date};
 /// Tasks done per day, only days with an archive file.
 pub type Days = BTreeMap<Date, usize>;
 
+/// [`Days`] per section, by the section names in the archive.
+pub type Sections = BTreeMap<String, Days>;
+
+/// The tasks per day and section from [`crate::load::archive`] as the days overall and the
+/// days of each section.
+pub fn split(archive: &BTreeMap<Date, Vec<(String, usize)>>) -> (Days, Sections) {
+    let mut days = Days::new();
+    let mut sections = Sections::new();
+    for (&day, done) in archive {
+        days.insert(day, done.iter().map(|(_, done)| done).sum());
+        for (name, done) in done {
+            *sections
+                .entry(name.clone())
+                .or_default()
+                .entry(day)
+                .or_default() += done;
+        }
+    }
+    (days, sections)
+}
+
 pub fn monday(day: Date) -> Date {
     day - i64::from(day.weekday().to_monday_zero_offset()).days()
 }
@@ -277,5 +298,30 @@ mod tests {
         );
         // Day 183 of 365.
         assert_eq!(projected_year(100, date("2026-07-02")), 199);
+    }
+
+    #[test]
+    fn split_into_days_and_sections() {
+        let section = |name: &str, done| (name.to_string(), done);
+        let archive = BTreeMap::from([
+            (
+                date("2026-10-12"),
+                vec![section("work", 2), section("home", 1)],
+            ),
+            (
+                date("2026-10-13"),
+                vec![section("work", 1), section("work", 1)],
+            ),
+        ]);
+        let (days, sections) = split(&archive);
+        assert_eq!(
+            days,
+            Days::from([(date("2026-10-12"), 3), (date("2026-10-13"), 2)])
+        );
+        assert_eq!(
+            sections["work"],
+            Days::from([(date("2026-10-12"), 2), (date("2026-10-13"), 2)])
+        );
+        assert_eq!(sections["home"], Days::from([(date("2026-10-12"), 1)]));
     }
 }
