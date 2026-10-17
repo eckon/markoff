@@ -343,7 +343,7 @@ impl App {
             Action::Done => self.done()?,
             Action::Delete => self.delete()?,
             Action::Undo => self.undo()?,
-            Action::Help => self.show_help = !self.show_help,
+            Action::Help => self.show_help = true,
             Action::Quit => self.running = false,
             Action::Hint(hint) => self.status = Some(Status::Info(hint.to_string())),
             Action::Filter => self.filter_input = true,
