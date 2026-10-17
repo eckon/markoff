@@ -67,7 +67,7 @@ impl Order {
             sections: sections
                 .iter()
                 .map(|section| Group {
-                    name: section.path.join("/"),
+                    name: section.title(),
                     tasks: section
                         .tasks
                         .iter()
