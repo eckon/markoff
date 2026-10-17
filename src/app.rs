@@ -253,10 +253,16 @@ impl App {
             && key.kind == KeyEventKind::Press
         {
             self.status = None;
-            // Any key closes the help and does nothing else, so a stray key cannot change
-            // tasks that are hidden behind the overlay.
-            if self.show_help || !self.renamed.is_empty() {
-                self.show_help = false;
+            // Only `?` and the quit keys close the help. Other keys do nothing, so a stray key
+            // cannot change tasks that are dimmed behind it.
+            if self.show_help {
+                if matches!(self.keymap.handle(key), Some(Action::Help | Action::Quit)) {
+                    self.show_help = false;
+                }
+                return;
+            }
+            // Any key closes the renames popup and does nothing else.
+            if !self.renamed.is_empty() {
                 self.renamed.clear();
                 return;
             }
@@ -723,7 +729,7 @@ fn renamed_message(count: usize) -> String {
 pub mod tests {
     use std::fs;
 
-    use ratatui::crossterm::event::{KeyCode, KeyEvent};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use tempfile::TempDir;
 
     use super::*;
@@ -827,15 +833,26 @@ pub mod tests {
     }
 
     #[test]
-    fn any_key_closes_help_without_acting() {
+    fn only_help_and_quit_keys_close_help() {
         let (_dir, mut app) = app_with_files(&["work/a.md"]);
         app.cursor = 1;
         app.update(Action::Help);
         assert!(app.show_help);
 
-        app.handle_event(Event::Key(KeyCode::Char('x').into()));
-        assert!(!app.show_help);
-        assert_eq!(listing(&app), ["[work]", "a.md"], "x did not archive");
+        app.handle_event(Event::Key(KeyCode::Char('X').into()));
+        assert!(app.show_help, "other keys keep the help open");
+        assert_eq!(listing(&app), ["[work]", "a.md"], "X did not archive");
+
+        for key in [
+            KeyEvent::from(KeyCode::Char('?')),
+            KeyEvent::from(KeyCode::Char('q')),
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        ] {
+            app.update(Action::Help);
+            app.handle_event(Event::Key(key));
+            assert!(!app.show_help, "{key:?} closes the help");
+            assert!(app.running, "{key:?} does not quit");
+        }
     }
 
     #[test]

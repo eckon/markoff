@@ -103,11 +103,9 @@ fn render_renamed(app: &App, frame: &mut Frame) {
     );
 }
 
-/// Width of the group rules in the help.
-const HELP_RULE_WIDTH: usize = 40;
-
-/// The whole screen listing [`BINDINGS`], so it always matches the real keys. Groups as
-/// rules like the sections in the list, dots lead from the keys to what they do.
+/// A panel on the right listing [`BINDINGS`], so it always matches the real keys. Groups as
+/// rules like the sections in the list, dots lead from the keys to what they do. The rest is
+/// dimmed behind it, the status line stays as it is.
 fn render_help(frame: &mut Frame) {
     let label = |binding: &Binding| binding.labels().join(" / ");
     let label_width = BINDINGS
@@ -115,6 +113,13 @@ fn render_help(frame: &mut Frame) {
         .map(|binding| label(binding).chars().count())
         .max()
         .unwrap_or(0);
+    // Rules as wide as the widest line: keys, the dots with a space on each side, the text.
+    let help_width = BINDINGS
+        .iter()
+        .map(|binding| binding.help.chars().count())
+        .max()
+        .unwrap_or(0);
+    let rule_width = label_width + 4 + help_width;
 
     let mut lines = vec![Line::from("help".bold())];
     let mut groups = 0;
@@ -125,7 +130,7 @@ fn render_help(frame: &mut Frame) {
                 binding.group,
                 None,
                 section_color(groups),
-                HELP_RULE_WIDTH,
+                rule_width,
             )));
             groups += 1;
         }
@@ -142,14 +147,24 @@ fn render_help(frame: &mut Frame) {
         line.push(binding.help.into());
         lines.push(Line::from(line));
     }
-    lines.push(Line::default());
-    lines.push(Line::from("any key closes this help".dim()));
 
     let area = frame.area();
-    frame.render_widget(Clear, area);
+    let height = area.height.saturating_sub(1);
+    let behind = Rect { height, ..area };
+    frame.buffer_mut().set_style(behind, Modifier::DIM);
+    // Border and padding take 4 columns.
+    let width = (lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4).min(area.width);
+    let panel = Rect::new(area.right() - width, area.y, width, height);
+    frame.render_widget(Clear, panel);
     frame.render_widget(
-        Paragraph::new(lines).block(Block::new().padding(Padding::new(2, 2, 1, 0))),
-        area,
+        Paragraph::new(lines).block(
+            Block::new()
+                .borders(Borders::LEFT)
+                .border_type(BorderType::Double)
+                .border_style(LINE_COLOR)
+                .padding(Padding::new(2, 1, 1, 0)),
+        ),
+        panel,
     );
 }
 
@@ -229,7 +244,7 @@ fn hints(app: &App) -> Vec<(String, &'static str)> {
             .map(|(key, text)| (key.to_string(), *text))
             .collect();
     }
-    let actions: &[Action] = if app.filter.is_empty() {
+    let actions: &[Action] = if app.filter.is_empty() || app.show_help {
         &[Action::Help]
     } else {
         &[Action::FilterClear, Action::Help]
@@ -241,7 +256,10 @@ fn hints(app: &App) -> Vec<(String, &'static str)> {
                 .iter()
                 .find(|b| b.keys.iter().any(|(_, a)| a == action))
         })
-        .map(|b| (b.labels().join(" / "), b.help))
+        .map(|b| {
+            let text = if app.show_help { "close help" } else { b.help };
+            (b.labels().join(" / "), text)
+        })
         .collect()
 }
 
@@ -693,6 +711,10 @@ mod tests {
         assert_eq!(modifier("j / k ·", 0), Modifier::BOLD);
         assert_eq!(modifier("j / k ·", 2), Modifier::DIM);
         assert_eq!(modifier("/ ····", 0), Modifier::BOLD);
+
+        // The list behind the panel is dimmed, the status line is not.
+        assert!(modifier("home", 0).contains(Modifier::DIM));
+        assert_eq!(modifier("? close help", 0), Modifier::BOLD);
     }
 
     #[test]
