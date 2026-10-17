@@ -1,5 +1,5 @@
-//! Rendering: header, list, preview and status line, the help in [`help`] and the archive in
-//! [`archive`]. Reads the app, never changes it.
+//! Rendering: header, list, preview and status line. The help is in [`help`], the archive in
+//! [`archive`], the experimental daily checklist in [`daily`]. Reads the app, never changes it.
 
 use ratatui::{
     Frame,
@@ -10,10 +10,11 @@ use ratatui::{
 };
 
 mod archive;
+mod daily;
 mod help;
 
 use crate::{
-    app::{self, App, Row, Status},
+    app::{App, Row, Status},
     filter,
     keymap::{Action, BINDINGS, FILTER_INPUT_HINTS},
 };
@@ -46,7 +47,7 @@ pub fn render(app: &App, frame: &mut Frame) -> usize {
     // The preview only shows up for a task with a body, otherwise the list takes all the width.
     let body = match app.selected() {
         Some(Row::Task(s, t)) => Some(app.sections[s].tasks[t].body.as_str()),
-        Some(Row::DailyTask(i)) => app.daily.as_ref().map(|daily| daily[i].body.as_str()),
+        Some(Row::DailyTask(i)) => Some(daily::body(app, i)),
         _ => None,
     };
     let offset = match body {
@@ -197,9 +198,6 @@ fn status_text(app: &App) -> Line<'_> {
 /// colors, so they follow the terminal theme.
 const SECTION_COLORS: [Color; 4] = [Color::Blue, Color::Magenta, Color::Green, Color::Yellow];
 
-/// The daily checklist, outside the section colors so those stay as they are.
-const DAILY_COLOR: Color = Color::Cyan;
-
 /// The date in the header.
 const HEADER_COLOR: Color = Color::Blue;
 
@@ -222,12 +220,11 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
     let mut items: Vec<ListItem> = Vec::new();
     let mut selected = 0;
     let rows = app.rows();
-    let today = app::today();
     for (i, &row) in rows.iter().enumerate() {
         let is_cursor = i == app.cursor;
         let color = match row {
             Row::Section(s) | Row::Task(s, _) => section_color(s),
-            Row::Daily | Row::DailyTask(_) => DAILY_COLOR,
+            Row::Daily | Row::DailyTask(_) => daily::COLOR,
         };
 
         // Blank line before each section except the first. Not a row, the cursor skips it.
@@ -283,22 +280,12 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                 continue;
             }
             Row::Daily => {
-                let daily = app.daily.as_deref().unwrap_or_default();
-                let open = daily.iter().filter(|t| !t.done_on(&today)).count();
-                let count = format!("{open}/{}", daily.len());
                 let mut spans = vec![gutter()];
-                spans.extend(rule("daily", Some(count), color, width.saturating_sub(1)));
+                spans.extend(daily::header(app, width.saturating_sub(1)));
                 items.push(ListItem::new(Line::from(spans)));
                 continue;
             }
-            Row::DailyTask(i) => {
-                let task = &app.daily.as_deref().unwrap_or_default()[i];
-                let mut style = task_style;
-                if task.done_on(&today) {
-                    style = style.dim().crossed_out();
-                }
-                vec![Span::styled(task.title.clone(), style)]
-            }
+            Row::DailyTask(i) => daily::task(app, i, task_style),
             Row::Task(s, t) => {
                 let title = app.sections[s].tasks[t].title();
                 let mut style = task_style;
@@ -471,7 +458,7 @@ mod tests {
     use ratatui::{Terminal, backend::TestBackend, style::Modifier};
 
     /// Renders the app and returns the screen as text, styles (bold, highlight) are ignored.
-    fn screen(app: &App) -> String {
+    pub(super) fn screen(app: &App) -> String {
         let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
         terminal
             .draw(|frame| {
@@ -687,43 +674,6 @@ mod tests {
         app.update(Action::FilterType('x'));
         app.update(Action::FilterType('q'));
         assert!(screen(&app).lines().nth(2).unwrap().contains("no matches"));
-    }
-
-    #[test]
-    fn daily_shows_open_count_and_strikes_done() {
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
-        let today = app::today();
-        app.daily = Some(crate::daily::parse(&format!(
-            "## Jira [done {today}]\n## Menu [done 2000-01-01]\n\nhttps://menu\n"
-        )));
-        let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
-        terminal
-            .draw(|frame| {
-                render(&app, frame);
-            })
-            .unwrap();
-        let buffer = terminal.backend().buffer();
-        let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
-
-        // Right below the header, above the sections.
-        assert!(
-            lines[2].contains("daily") && lines[2].trim_end().ends_with(" 1/2"),
-            "{lines:#?}"
-        );
-        assert!(lines[3].contains("• Jira"), "{lines:#?}");
-        assert!(
-            buffer[(7, 3)]
-                .modifier
-                .contains(Modifier::CROSSED_OUT | Modifier::DIM)
-        );
-        // An old date is open again.
-        assert!(lines[4].contains("• Menu"), "{lines:#?}");
-        assert!(!buffer[(7, 4)].modifier.contains(Modifier::CROSSED_OUT));
-        assert!(lines[6].contains("home"), "{lines:#?}");
-
-        // The body shows in the preview, like for tasks.
-        app.cursor = 2;
-        assert!(screen(&app).contains("https://menu"));
     }
 
     #[test]

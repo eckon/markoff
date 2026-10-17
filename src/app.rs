@@ -1,5 +1,5 @@
 //! App state, the run loop, and what each [`Action`] does to it and to the disk. What needs
-//! `$EDITOR` is in [`editor`].
+//! `$EDITOR` is in [`editor`], the experimental daily checklist in [`daily`].
 
 use std::{
     fs,
@@ -16,13 +16,14 @@ use ratatui::{
     crossterm::event::{self, Event, KeyEventKind},
 };
 
+mod daily;
 mod editor;
 
 use editor::EditorRequest;
 
 use crate::{
     archive,
-    daily::{self, DailyTask},
+    daily::DailyTask,
     edit, filter, history,
     keymap::{self, Action, Keymap},
     load,
@@ -44,7 +45,7 @@ pub enum Row {
     Section(usize),
     /// Section index, task index within that section.
     Task(usize, usize),
-    /// The `daily` header, on top of the sections, see [`daily`].
+    /// The `daily` header, on top of the sections, see [`daily`] (experimental).
     Daily,
     /// Task index in `daily.md`.
     DailyTask(usize),
@@ -196,17 +197,14 @@ impl App {
         self.reload(selected.as_deref())
     }
 
-    /// Path behind a row: the task file or the section directory.
-    ///
-    /// Daily tasks share one file, so they get `daily.md#<index>`. Never touches the disk,
+    /// Path behind a row: the task file or the section directory. Never touches the disk,
     /// only keeps the cursor on the right row, e.g. after undo.
     fn row_path(&self, row: Row) -> PathBuf {
-        let daily_path = || self.daily_path.clone().unwrap_or_default();
         match row {
             Row::Section(s) => self.sections[s].dir.clone(),
             Row::Task(s, t) => self.sections[s].tasks[t].path.clone(),
-            Row::Daily => daily_path(),
-            Row::DailyTask(i) => PathBuf::from(format!("{}#{i}", daily_path().display())),
+            Row::Daily => self.daily_row_path(None),
+            Row::DailyTask(i) => self.daily_row_path(Some(i)),
         }
     }
 
@@ -407,21 +405,6 @@ impl App {
         Ok(())
     }
 
-    /// `X` on a daily task: done for today, or open again. The task stays in the list.
-    fn toggle_daily(&mut self, i: usize) -> Result<()> {
-        let Some(path) = self.daily_path.clone() else {
-            return Ok(());
-        };
-        let before = fs::read_to_string(&path)
-            .wrap_err_with(|| format!("failed to read {}", path.display()))?;
-        let after = daily::toggle(&before, i, &today());
-        self.apply(vec![Op::Update {
-            path,
-            before,
-            after,
-        }])
-    }
-
     /// `J` / `K`: moves the task or section under the cursor one place, the cursor follows.
     /// Nothing happens at the edges.
     fn move_selected(&mut self, down: bool) -> Result<()> {
@@ -530,10 +513,7 @@ impl App {
     /// row number, clamped. The disk is the source of truth, `sections` is only a view of it.
     fn reload(&mut self, select: Option<&Path>) -> Result<()> {
         (self.sections, self.order_file) = load::load(&self.root)?;
-        self.daily = match &self.daily_path {
-            Some(path) => load::read_if_exists(path)?.map(|content| daily::parse(&content)),
-            None => None,
-        };
+        self.reload_daily()?;
         (self.days, self.section_days) = history::split(&load::archive(&self.root)?);
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
         if let Some(path) = select {
@@ -557,13 +537,7 @@ impl App {
     /// A filter keeps matching tasks under their header and hides the rest, daily included.
     /// Computed on demand, so it never gets out of sync with `sections`.
     pub fn rows(&self) -> Vec<Row> {
-        let mut rows = Vec::new();
-        if self.filter.is_empty()
-            && let Some(daily) = &self.daily
-        {
-            rows.push(Row::Daily);
-            rows.extend((0..daily.len()).map(Row::DailyTask));
-        }
+        let mut rows = self.daily_rows();
         for (s, section) in self.sections.iter().enumerate() {
             let tasks: Vec<Row> = (0..section.tasks.len())
                 .filter(|&t| {
@@ -836,105 +810,6 @@ pub mod tests {
         );
     }
 
-    /// `app_with_files` plus a `daily.md` with `content`, set as the daily checklist.
-    pub(super) fn app_with_daily(files: &[&str], content: &str) -> (TempDir, App) {
-        let (dir, mut app) = app_with_files(files);
-        let path = dir.path().join("daily.md");
-        fs::write(&path, content).unwrap();
-        app.daily_path = Some(path);
-        app.reload(None).unwrap();
-        (dir, app)
-    }
-
-    #[test]
-    fn daily_rows_first_hidden_by_filter() {
-        let (_dir, mut app) = app_with_daily(&["work/a.md", "home/b.md"], "## Jira\n## Menu\n");
-        assert_eq!(
-            app.rows(),
-            [
-                Row::Daily,
-                Row::DailyTask(0),
-                Row::DailyTask(1),
-                Row::Section(0),
-                Row::Task(0, 0),
-                Row::Section(1),
-                Row::Task(1, 0),
-            ]
-        );
-        app.cursor = 4;
-        app.update(Action::PrevSection);
-        app.update(Action::PrevSection);
-        assert_eq!(
-            app.selected(),
-            Some(Row::Daily),
-            "`{{` stops at the daily header"
-        );
-
-        // Even when a daily task would match.
-        type_filter(&mut app, "jira");
-        assert!(!app.rows().contains(&Row::Daily));
-    }
-
-    #[test]
-    fn daily_done_toggles_and_undo_restores() {
-        let content = "# Daily\n\n## Jira\n## Menu\n";
-        let (dir, mut app) = app_with_daily(&[], content);
-        let path = dir.path().join("daily.md");
-        app.cursor = 2;
-
-        app.update(Action::Done);
-        let today = today();
-        assert_eq!(
-            fs::read_to_string(&path).unwrap(),
-            format!("# Daily\n\n## Jira\n## Menu [done {today}]\n")
-        );
-        assert_eq!(app.selected(), Some(Row::DailyTask(1)), "stays in the list");
-        assert!(app.daily.as_ref().unwrap()[1].done_on(&today));
-
-        app.update(Action::Done);
-        assert_eq!(
-            fs::read_to_string(&path).unwrap(),
-            content,
-            "X again opens it"
-        );
-
-        app.update(Action::Undo);
-        app.cursor = 0;
-        app.update(Action::Undo);
-        assert_eq!(fs::read_to_string(&path).unwrap(), content);
-        assert_eq!(
-            app.selected(),
-            Some(Row::DailyTask(1)),
-            "undo goes back to the task"
-        );
-    }
-
-    #[test]
-    fn daily_rows_ignore_other_keys() {
-        let content = "## Jira\n";
-        let (dir, mut app) = app_with_daily(&["work/a.md"], content);
-        for cursor in [0, 1] {
-            app.cursor = cursor;
-            for action in [
-                Action::MoveDown,
-                Action::MoveUp,
-                Action::Delete,
-                Action::Open,
-                Action::NewBelow,
-                Action::NewAbove,
-            ] {
-                app.update(action);
-                assert_eq!(app.status, None, "{action:?}");
-                assert_eq!(app.editor_request, None, "{action:?}");
-            }
-        }
-        assert_eq!(
-            fs::read_to_string(dir.path().join("daily.md")).unwrap(),
-            content
-        );
-        assert_eq!(listing(&app), ["[daily]", "Jira", "[work]", "a.md"]);
-    }
-
     #[test]
     fn delete_section_only_if_empty() {
         let (dir, mut app) = app_with_files(&["work/a.md", "home/", "x/b.md"]);
@@ -965,7 +840,7 @@ pub mod tests {
     }
 
     /// Types `text` into the filter input, like `/` followed by the keys.
-    fn type_filter(app: &mut App, text: &str) {
+    pub(super) fn type_filter(app: &mut App, text: &str) {
         app.update(Action::Filter);
         for c in text.chars() {
             app.update(Action::FilterType(c));

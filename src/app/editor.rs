@@ -167,7 +167,10 @@ mod tests {
 
     use super::*;
     use crate::{
-        app::tests::{app_with_daily, app_with_files, listing, order_file},
+        app::{
+            daily::tests::app_with_daily,
+            tests::{app_with_files, listing, order_file},
+        },
         keymap::Action,
         order,
     };

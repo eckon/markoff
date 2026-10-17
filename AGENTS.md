@@ -10,7 +10,7 @@ markoff is a Rust TUI for todos stored as markdown files. This file is the sourc
 - The `# Heading` is the task's title, the filename follows it.
 - Normalize (slug, cleaned `.order`) runs at startup and before every write action, never on watcher reloads: renaming a file another editor has open breaks that editor's next save.
 - Done tasks go to `.archive/YYYY-MM-DD.md` in the root under their section heading. The header counts today's, so archiving is visible. `a` shows them as a heatmap back to the first day, cells growing with age so years fit.
-- The daily checklist is an add-on in its own module (`daily.rs`), only with `[experimental] daily` in the config: `X` marks a task done for today. Kept apart until recurring tasks get a real design.
+- The daily checklist is an add-on in its own modules (`daily.rs`, `app/daily.rs`, `ui/daily.rs`), only with `[experimental] daily` in the config: `X` marks a task done for today. Kept apart until recurring tasks get a real design.
 - Writing text happens in `$EDITOR`, the TUI only has quick actions. Keys are vim-like, destructive ones uppercase.
 - Every action is one undo step, undo puts the cursor back where it was.
 
