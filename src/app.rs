@@ -92,8 +92,6 @@ pub struct App {
     pub status: Option<Status>,
     /// Help overlay is open.
     pub show_help: bool,
-    /// Renames done at startup, relative to the root. Shown as a popup until the next key.
-    pub renamed: Vec<(PathBuf, PathBuf)>,
     editor_request: Option<EditorRequest>,
     /// `/` filter, empty for none. Applied in [`App::rows`], so everything that works on rows
     /// sees only what matches.
@@ -128,7 +126,6 @@ impl App {
             undo: Vec::new(),
             status: None,
             show_help: false,
-            renamed: Vec::new(),
             editor_request: None,
             filter: String::new(),
             filter_input: false,
@@ -139,26 +136,13 @@ impl App {
         }
     }
 
-    /// Loads `root` and normalizes it. Renames are listed in a popup, since files changing
-    /// their names on start can be a surprise. `daily` is the daily checklist file, if set.
+    /// Loads `root` and normalizes it, renames are mentioned in the status line. `daily` is
+    /// the daily checklist file, if set.
     pub fn load(root: PathBuf, daily: Option<PathBuf>) -> Result<Self> {
-        let mut app = Self::new(root.clone(), Vec::new());
+        let mut app = Self::new(root, Vec::new());
         app.daily_path = daily;
         app.reload(None)?;
-        match app.normalize() {
-            Ok(renames) => {
-                let relative = |path: PathBuf| {
-                    path.strip_prefix(&root)
-                        .map(Path::to_path_buf)
-                        .unwrap_or(path)
-                };
-                app.renamed = renames
-                    .into_iter()
-                    .map(|(from, to)| (relative(from), relative(to)))
-                    .collect();
-            }
-            Err(err) => app.report(Err(err)),
-        }
+        app.normalize_before_action();
         Ok(app)
     }
 
@@ -258,7 +242,7 @@ impl App {
             } else {
                 self.keymap.handle(key)
             };
-            // The quit keys quit everywhere, also from the popups.
+            // The quit keys quit everywhere, also from the help.
             if action == Some(Action::Quit) {
                 self.running = false;
                 return;
@@ -269,11 +253,6 @@ impl App {
                 if matches!(action, Some(Action::Help | Action::FilterClear)) {
                     self.show_help = false;
                 }
-                return;
-            }
-            // Any other key closes the renames popup and does nothing else.
-            if !self.renamed.is_empty() {
-                self.renamed.clear();
                 return;
             }
             if let Some(action) = action {
@@ -429,7 +408,8 @@ impl App {
         Ok(renames)
     }
 
-    /// [`Self::normalize`] before an action that writes, so the action sees clean names.
+    /// [`Self::normalize`] at startup and before an action that writes, so the action sees
+    /// clean names.
     ///
     /// Renames are mentioned in the status line. A failure is reported there too, everything
     /// was rolled back then, so the action still runs on the unchanged files.
@@ -857,18 +837,13 @@ pub mod tests {
     }
 
     #[test]
-    fn quit_keys_quit_from_popups() {
+    fn quit_keys_quit_from_help() {
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         for key in [KeyEvent::from(KeyCode::Char('q')), ctrl_c] {
             let (_dir, mut app) = app_with_files(&["work/a.md"]);
             app.update(Action::Help);
             app.handle_event(Event::Key(key));
             assert!(!app.running, "{key:?} quits from the help");
-
-            let (_dir, mut app) = app_with_files(&["work/a.md"]);
-            app.renamed = vec![("old.md".into(), "new.md".into())];
-            app.handle_event(Event::Key(key));
-            assert!(!app.running, "{key:?} quits from the renames popup");
         }
     }
 
@@ -1427,7 +1402,7 @@ pub mod tests {
     }
 
     #[test]
-    fn startup_normalizes_and_lists_renames() {
+    fn startup_normalizes_and_mentions_renames() {
         // Old numbered names, no order file yet.
         let dir = TempDir::new().unwrap();
         let work = dir.path().join("work");
@@ -1436,26 +1411,19 @@ pub mod tests {
         fs::write(work.join("02-b.md"), "# b").unwrap();
         fs::write(work.join("01-a.md"), "# a").unwrap();
         fs::write(dir.path().join("01-home/old.md"), "# Old task").unwrap();
-        let mut app = App::load(dir.path().to_path_buf(), None).unwrap();
+        let app = App::load(dir.path().to_path_buf(), None).unwrap();
 
         assert_eq!(
             listing(&app),
             ["[01-home]", "old-task.md", "[work]", "a.md", "b.md"]
         );
-        assert_eq!(
-            app.renamed,
-            [
-                ("01-home/old.md".into(), "01-home/old-task.md".into()),
-                ("work/01-a.md".into(), "work/a.md".into()),
-                ("work/02-b.md".into(), "work/b.md".into()),
-            ]
-        );
         assert_eq!(order_file(&dir), "# 01-home\nold-task\n\n# work\na\nb\n");
-
-        // Any key closes the popup and does nothing else.
-        app.handle_event(Event::Key(KeyCode::Char('j').into()));
-        assert!(app.renamed.is_empty());
-        assert_eq!(app.cursor, 0);
+        assert_eq!(
+            app.status,
+            Some(Status::Info(
+                "renamed 3 files to match their titles".to_string()
+            ))
+        );
     }
 
     #[test]
@@ -1467,11 +1435,11 @@ pub mod tests {
         )
         .unwrap();
 
-        // Not listed: to the end, by name. Listed but gone: dropped. No rename, no popup.
+        // Not listed: to the end, by name. Listed but gone: dropped. No rename, no message.
         let app = App::load(dir.path().to_path_buf(), None).unwrap();
         assert_eq!(listing(&app), ["[x]", "[work]", "b.md", "a.md", "[home]"]);
         assert_eq!(order_file(&dir), "# x\n\n# work\nb\na\n\n# home\n");
-        assert!(app.renamed.is_empty());
+        assert_eq!(app.status, None);
     }
 
     #[test]

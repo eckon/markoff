@@ -1,8 +1,8 @@
-//! Rendering: header, list, preview, status line and popups. Reads the app, never changes it.
+//! Rendering: header, list, preview, status line and the help. Reads the app, never changes it.
 
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Layout, Rect},
+    layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span, Text},
     widgets::{
@@ -53,54 +53,7 @@ pub fn render(app: &App, frame: &mut Frame) -> usize {
     if app.show_help {
         render_help(frame);
     }
-    if !app.renamed.is_empty() {
-        render_renamed(app, frame);
-    }
     offset
-}
-
-/// Centered popup listing the renames done at startup, old name above the new one.
-fn render_renamed(app: &App, frame: &mut Frame) {
-    let mut lines = vec![
-        Line::from("Files were renamed to match"),
-        Line::from("their titles:"),
-        Line::default(),
-    ];
-
-    // Borders, the 3 lines above and the 2 below take 7 rows, each rename takes 2.
-    let room = (frame.area().height as usize).saturating_sub(7);
-    let total = app.renamed.len();
-    let shown = if total * 2 <= room {
-        total
-    } else {
-        room.saturating_sub(1) / 2
-    };
-    for (from, to) in &app.renamed[..shown] {
-        lines.push(Line::from(from.display().to_string()));
-        lines.push(Line::from(format!("  -> {}", to.display())));
-    }
-    if shown < total {
-        lines.push(Line::from(format!("… and {} more", total - shown)).dim());
-    }
-    lines.push(Line::default());
-    lines.push(Line::from("any key closes this").dim().centered());
-
-    let width = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4;
-    let height = lines.len() as u16 + 2;
-    let area = frame
-        .area()
-        .centered(Constraint::Length(width), Constraint::Length(height));
-    frame.render_widget(Clear, area);
-    frame.render_widget(
-        Paragraph::new(lines).block(
-            Block::bordered()
-                .title(" renamed ")
-                .title_alignment(Alignment::Center)
-                .border_type(BorderType::Rounded)
-                .padding(Padding::horizontal(1)),
-        ),
-        area,
-    );
 }
 
 /// A panel on the right listing [`BINDINGS`], so it always matches the real keys. Groups as
@@ -713,33 +666,6 @@ mod tests {
         // The list behind the panel is dimmed, the status line is not.
         assert!(modifier("home", 0).contains(Modifier::DIM));
         assert_eq!(modifier("? toggle help", 0), Modifier::BOLD);
-    }
-
-    #[test]
-    fn renamed_popup_lists_renames() {
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
-        app.renamed = vec![("old.md".into(), "new-title.md".into())];
-        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
-        terminal
-            .draw(|frame| {
-                render(&app, frame);
-            })
-            .unwrap();
-        let screen: String = terminal
-            .backend()
-            .buffer()
-            .content()
-            .iter()
-            .map(|c| c.symbol())
-            .collect();
-        for text in [
-            " renamed ",
-            "old.md",
-            "-> new-title.md",
-            "any key closes this",
-        ] {
-            assert!(screen.contains(text), "missing {text:?}");
-        }
     }
 
     #[test]

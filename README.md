@@ -51,7 +51,7 @@ Every directory in the root is a section, every `.md` in a section a task (renam
 - A task file starts with `# Title`. The filename follows the title.
 - `.order` lists each section as `# name` with its tasks, one name per line (without `.md`). markoff writes it. Files it does not list go to the end of their section, names that no longer exist are dropped.
 - To keep order changes out of git, add `.order` to your `.gitignore`. The order then stays on each machine.
-- Files created or edited by hand are renamed into this shape on start and with the next action. Renames on start are listed in a popup.
+- Files created or edited by hand are renamed into this shape on start and with the next action. The status line says how many were renamed.
 - Every task lives in a section, so start with `N` in an empty root. Sections are created with `N` (or `mkdir home`), renamed with `<CR>`, reordered with `J`/`K` and deleted with `D` when empty. A section's name is its directory name, from `N` and `<CR>` the heading as slug: `# Work Stuff` becomes `work-stuff`.
 - Done tasks are appended to `.archive/YYYY-MM-DD.md` under their section, then deleted. The header on top shows the date, the open tasks and how many are done today.
 
