@@ -106,6 +106,73 @@ pub fn level<T: Copy + PartialOrd + Default>(value: T, bounds: &[T]) -> usize {
     1 + bounds.iter().filter(|&&end| value > end).count()
 }
 
+/// Tasks done from `start` to `end`, both included.
+fn done(days: &Days, start: Date, end: Date) -> usize {
+    days.range(start..=end).map(|(_, &done)| done).sum()
+}
+
+/// A stretch of time up to today for the table below the heatmap.
+#[derive(Debug, PartialEq)]
+pub struct Period {
+    pub name: &'static str,
+    pub done: usize,
+    /// The same stretch of the period before, up to the same weekday or date, so a period
+    /// that is not over yet compares fairly. `None` for all time.
+    pub previous: Option<usize>,
+    /// Tasks per day of the period so far, like the heatmap's shades.
+    pub per_day: f64,
+    /// The most tasks done on one day.
+    pub best_day: usize,
+}
+
+/// This week, month and year and all time, each up to `today`.
+pub fn periods(days: &Days, today: Date) -> Vec<Period> {
+    let first = days.keys().next().map_or(today, |&day| day.min(today));
+    let month = today.first_of_month();
+    let year = today.first_of_year();
+    let stretches = [
+        ("week", monday(today), Some(7.days())),
+        ("month", month, Some(1.month())),
+        ("year", year, Some(1.year())),
+        ("all time", first, None),
+    ];
+    stretches
+        .into_iter()
+        .map(|(name, start, back)| {
+            let done = done(days, start, today);
+            let length = i64::from((today - start).get_days()) + 1;
+            Period {
+                name,
+                done,
+                previous: back.map(|back| self::done(days, start - back, today - back)),
+                per_day: done as f64 / length as f64,
+                best_day: days
+                    .range(start..=today)
+                    .map(|(_, &done)| done)
+                    .max()
+                    .unwrap_or(0),
+            }
+        })
+        .collect()
+}
+
+/// Tasks done per year, newest first, every year from today's back to the first archived one.
+pub fn years(days: &Days, today: Date) -> Vec<(i16, usize)> {
+    let first = days.keys().next().map_or(today, |&day| day.min(today));
+    (first.year()..=today.year())
+        .rev()
+        .map(|year| {
+            let start = jiff::civil::date(year, 1, 1);
+            (year, done(days, start, start.last_of_year()))
+        })
+        .collect()
+}
+
+/// Where this year ends if it goes on like so far.
+pub fn projected_year(so_far: usize, today: Date) -> usize {
+    so_far * today.days_in_year() as usize / today.day_of_year() as usize
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,5 +230,52 @@ mod tests {
         assert_eq!(level(4, &bounds([1, 2, 3, 4, 50].into_iter(), 4)), 4);
         // Mostly ones stay light.
         assert_eq!(level(1, &bounds([1, 1, 1, 1, 1, 5].into_iter(), 4)), 1);
+    }
+
+    #[test]
+    fn periods_compare_with_the_same_stretch_before() {
+        // A Saturday, its week starts on Monday 2026-10-12.
+        let today = date("2026-10-17");
+        let days = Days::from([
+            (date("2025-03-01"), 4),
+            (date("2025-10-10"), 3),
+            (date("2026-09-15"), 5),
+            (date("2026-09-30"), 9),
+            (date("2026-10-08"), 1),
+            (date("2026-10-12"), 2),
+            (date("2026-10-17"), 5),
+        ]);
+        let periods = periods(&days, today);
+        let names: Vec<&str> = periods.iter().map(|period| period.name).collect();
+        assert_eq!(names, ["week", "month", "year", "all time"]);
+        let numbers: Vec<_> = periods
+            .iter()
+            .map(|period| (period.done, period.previous, period.best_day))
+            .collect();
+        assert_eq!(
+            numbers,
+            [
+                // Last week up to Saturday: only 2026-10-08.
+                (7, Some(1), 5),
+                // September up to the 17th: 2026-09-15, not the 30th.
+                (8, Some(5), 5),
+                // 2025 up to Oct 17: both of 2025's days.
+                (22, Some(7), 9),
+                (29, None, 9),
+            ]
+        );
+        // 7 tasks in the 6 days from Monday to Saturday.
+        assert_eq!(periods[0].per_day, 7.0 / 6.0);
+    }
+
+    #[test]
+    fn years_newest_first_back_to_the_first() {
+        let days = Days::from([(date("2024-03-01"), 2), (date("2026-01-01"), 1)]);
+        assert_eq!(
+            years(&days, date("2026-10-17")),
+            [(2026, 1), (2025, 0), (2024, 2)]
+        );
+        // Day 183 of 365.
+        assert_eq!(projected_year(100, date("2026-07-02")), 199);
     }
 }

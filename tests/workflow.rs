@@ -424,10 +424,10 @@ fn archive() {
     ]);
     app.wait_for("✓ 0 done");
 
-    // Closed until `a`: recent days one cell each, today in brackets and still empty.
+    // Closed until `a`: recent days one cell each, the stats below, nothing done this week.
     app.press("a");
     app.wait_for("daily");
-    app.wait_for("[·]");
+    app.wait_for("done     │     0 ");
     assert!(
         app.screen().lines().any(|row| row.contains(" Mon ")),
         "{}",
@@ -440,12 +440,12 @@ fn archive() {
     app.wait_for("? toggle help");
     app.wait_for("✓ 0 done");
 
-    // Done shows up in today's cell, `a` toggles.
+    // Done shows up in the stats, `a` toggles.
     app.press("jX");
     app.wait_for("✓ 1 done");
     app.press("a");
-    app.wait_for("✓ 1 today");
-    app.wait_for("[░]");
+    app.wait_for("✓ 1 done");
+    app.wait_for("done     │     1 ");
     app.press("a");
     app.wait_for("? toggle help");
 

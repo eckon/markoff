@@ -1,5 +1,6 @@
 //! Rendering: header, list, preview, status line and the help. Reads the app, never changes it.
 
+use jiff::civil::Date;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -29,8 +30,7 @@ pub fn render(app: &App, frame: &mut Frame) -> usize {
         Constraint::Length(1),
     ])
     .areas(frame.area());
-    // Today's done tasks are in the archive's title while it is open.
-    render_header(app, frame, header_area, !app.show_archive);
+    render_header(app, frame, header_area);
     let [list_area, preview_area] =
         Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
             .areas(main_area);
@@ -75,11 +75,31 @@ pub fn render(app: &App, frame: &mut Frame) -> usize {
 /// The heatmap in a frame from the bottom of `area`, the rest dimmed behind it like for the
 /// help. The status line stays as it is.
 fn render_archive(app: &App, frame: &mut Frame, area: Rect) {
-    let block = heatmap_block(app);
-    let lines = match app.days.is_empty() {
-        true => vec![Line::from("nothing archived yet".dim())],
-        false => heatmap_lines(&app.days, block.inner(area).width as usize),
+    let block = archive_block();
+    let width = block.inner(area).width as usize;
+    let (mut lines, stats, split) = match app.days.is_empty() {
+        true => (
+            vec![Line::from("nothing archived yet".dim())],
+            Vec::new(),
+            false,
+        ),
+        false => {
+            let (stats, split) = stats_lines(&app.days, width);
+            (heatmap_lines(&app.days, width), stats, split)
+        }
     };
+    // A blank line above and below the heatmap where there is room: the frame, the
+    // separator and the stats come on top.
+    if lines.len() + 2 + 1 + stats.len() + 2 <= area.height as usize {
+        lines.insert(0, Line::default());
+        lines.push(Line::default());
+    }
+    // A line through the frame between the heatmap and the stats, drawn below.
+    let separator = lines.len() as u16;
+    if !stats.is_empty() {
+        lines.push(Line::default());
+        lines.extend(stats);
+    }
     let behind = Rect {
         height: frame.area().height.saturating_sub(1),
         ..frame.area()
@@ -90,6 +110,199 @@ fn render_archive(app: &App, frame: &mut Frame, area: Rect) {
     let panel = Rect::new(area.x, area.bottom() - height, area.width, height);
     frame.render_widget(Clear, panel);
     frame.render_widget(Paragraph::new(lines).block(block), panel);
+
+    let y = panel.y + 1 + separator;
+    if separator > 0 && y < panel.bottom() - 1 {
+        let buffer = frame.buffer_mut();
+        for x in panel.x..panel.right() {
+            buffer[(x, y)].set_symbol("─").set_fg(LINE_COLOR);
+        }
+        buffer[(panel.x, y)].set_symbol("├");
+        buffer[(panel.right() - 1, y)].set_symbol("┤");
+        // The table's lines join the line above and the frame below, border and padding
+        // come before the table.
+        let x = |at: usize| panel.x + 1 + PADDING + at as u16;
+        for at in column_lines() {
+            buffer[(x(at), y)].set_symbol("┬");
+            buffer[(x(at), panel.bottom() - 1)].set_symbol("┴");
+        }
+        // The lines under the names of the periods and the years run from frame to frame,
+        // the row below the heading.
+        let underline = y + 2;
+        if underline < panel.bottom() - 1 {
+            buffer[(panel.x, underline)].set_symbol("├");
+            for x in (panel.x + 1..x(0)).chain(match split {
+                true => panel.right() - 1 - PADDING..panel.right() - 1,
+                false => 0..0,
+            }) {
+                buffer[(x, underline)].set_symbol("─").set_fg(LINE_COLOR);
+            }
+            if split {
+                buffer[(panel.right() - 1, underline)].set_symbol("┤");
+            }
+        }
+        if split {
+            buffer[(x(TABLE_WIDTH), y)].set_symbol("╥");
+            buffer[(x(TABLE_WIDTH), panel.bottom() - 1)].set_symbol("╨");
+        }
+    }
+}
+
+/// Width of the row names in the period table.
+const LABEL_WIDTH: usize = 9;
+
+/// Width of each period's numbers, `all time` is wider.
+const PERIOD_WIDTHS: [usize; 4] = [6, 6, 6, 8];
+
+/// The period table: the row names, then per period a line, its numbers and a space.
+const TABLE_WIDTH: usize = {
+    let mut width = LABEL_WIDTH;
+    let mut i = 0;
+    while i < PERIOD_WIDTHS.len() {
+        width += PERIOD_WIDTHS[i] + 2;
+        i += 1;
+    }
+    width
+};
+
+/// Where the lines between the columns of the period table are.
+fn column_lines() -> impl Iterator<Item = usize> {
+    PERIOD_WIDTHS.iter().scan(LABEL_WIDTH, |x, width| {
+        let at = *x;
+        *x += width + 2;
+        Some(at)
+    })
+}
+
+/// The period table on the left and the years on the right, if there is room for them, with
+/// a divider between. Says whether the divider is there.
+fn stats_lines(days: &history::Days, width: usize) -> (Vec<Line<'static>>, bool) {
+    let today = jiff::Zoned::now().date();
+    let periods = history::periods(days, today);
+    // The divider and a space after it, the table ends in a space.
+    let bars_width = width.saturating_sub(TABLE_WIDTH + 2);
+    let split = bars_width >= 20;
+
+    // A column per period, a row per number, so each row says what it shows. Thin lines
+    // between the columns keep the numbers apart.
+    let row = |label: &str, cell: &dyn Fn(&history::Period) -> String, header: bool| {
+        let mut spans = vec![format!("{label:<LABEL_WIDTH$}").into()];
+        for (period, width) in periods.iter().zip(PERIOD_WIDTHS) {
+            let text = format!("{:>width$} ", cell(period));
+            spans.push("│".fg(LINE_COLOR));
+            spans.push(if header { text.dim() } else { text.into() });
+        }
+        spans
+    };
+    // A line under the names of the periods, crossing the lines between them.
+    let mut underline = vec!["─".repeat(LABEL_WIDTH).fg(LINE_COLOR)];
+    for width in PERIOD_WIDTHS {
+        underline.push(format!("┼{}", "─".repeat(width + 1)).fg(LINE_COLOR));
+    }
+    let rows = [
+        row("", &|period| period.name.to_string(), true),
+        underline,
+        row("done", &|period| period.done.to_string(), false),
+        row(
+            "previous",
+            &|period| {
+                period
+                    .previous
+                    .map_or("–".to_string(), |done| done.to_string())
+            },
+            false,
+        ),
+        row("per day", &|period| format!("{:.1}", period.per_day), false),
+        row("best day", &|period| period.best_day.to_string(), false),
+    ];
+    // Next to the table's heading and its line, the years have the same, so the bars start
+    // next to the numbers.
+    let mut bars = vec![
+        vec!["years".dim()],
+        vec!["─".repeat(bars_width).fg(LINE_COLOR)],
+    ];
+    bars.extend(year_bars(
+        &history::years(days, today),
+        today,
+        bars_width,
+        rows.len() - 2,
+    ));
+    let lines = rows
+        .into_iter()
+        .enumerate()
+        .map(|(i, mut spans)| {
+            // A double line, the years are not part of the table.
+            if split {
+                let divider = if i == 1 { "╫─" } else { "║ " };
+                spans.push(divider.fg(LINE_COLOR));
+                spans.extend(bars.get(i).cloned().unwrap_or_default());
+            }
+            Line::from(spans)
+        })
+        .collect();
+    (lines, split)
+}
+
+/// A bar per year, newest on top, as long as its tasks done, in `rows` lines: with more years
+/// the last line sums up the rest. This year goes on dimmed to where it ends at the pace so far.
+fn year_bars(
+    years: &[(i16, usize)],
+    today: Date,
+    width: usize,
+    rows: usize,
+) -> Vec<Vec<Span<'static>>> {
+    const EIGHTHS: [&str; 8] = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
+    let (shown, rest) = match years.len() > rows {
+        true => years.split_at(rows - 1),
+        false => (years, &[][..]),
+    };
+    let projected = |year: i16, done: usize| match year == today.year() {
+        true => history::projected_year(done, today),
+        false => done,
+    };
+    let most = shown
+        .iter()
+        .map(|&(year, done)| projected(year, done))
+        .max()
+        .unwrap_or(0)
+        .max(1);
+    let rest_done: usize = rest.iter().map(|(_, done)| done).sum();
+    let digits = most.max(rest_done).to_string().len();
+    // The year, a space each side of the bar, the number and ` so far`.
+    let bar_width = width.saturating_sub(5 + 1 + digits + 7);
+    let eighths = |count: usize| count * bar_width * 8 / most;
+    let mut lines: Vec<Vec<Span>> = shown
+        .iter()
+        .map(|&(year, done)| {
+            let filled = eighths(done);
+            let bar = "█".repeat(filled / 8) + EIGHTHS[filled % 8];
+            let ahead = (eighths(projected(year, done)) / 8).saturating_sub(filled.div_ceil(8));
+            let mut spans = vec![
+                format!("{year} ").dim(),
+                bar.fg(DONE_COLOR),
+                "░".repeat(ahead).fg(DONE_COLOR).dim(),
+                " ".repeat(bar_width.saturating_sub(filled.div_ceil(8) + ahead) + 1)
+                    .into(),
+                format!("{done:>digits$}").into(),
+            ];
+            if year == today.year() {
+                spans.push(" so far".dim());
+            }
+            spans
+        })
+        .collect();
+    // Years come newest first, so the rest runs from its last to its first.
+    if let (Some((newest, _)), Some((oldest, _))) = (rest.first(), rest.last()) {
+        let label = format!("{oldest}–{newest}");
+        // Up to where the numbers of the bars start.
+        let pad = (5 + bar_width + 1).saturating_sub(label.chars().count());
+        lines.push(vec![
+            label.dim(),
+            " ".repeat(pad).into(),
+            format!("{rest_done:>digits$}").into(),
+        ]);
+    }
+    lines
 }
 
 /// A panel on the right listing [`BINDINGS`], so it always matches the real keys. Groups as
@@ -157,28 +370,17 @@ fn render_help(frame: &mut Frame) {
     );
 }
 
-/// The frame of the heatmap, its title says what it is: today's and all done tasks, and since
-/// when.
-fn heatmap_block(app: &App) -> Block<'static> {
-    let total: usize = app.days.values().sum();
-    let since = app
-        .days
-        .keys()
-        .next()
-        .map(|day| day.strftime("%b %Y").to_string())
-        .unwrap_or_default();
-    let counts = Line::from(vec![
-        " ".into(),
-        "✓".fg(DONE_COLOR),
-        format!(" {} today · {total} since {since} ", app.done_today).dim(),
-    ]);
+/// The frame of the archive, its title says what it is, the numbers are in the stats.
+fn archive_block() -> Block<'static> {
     Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(LINE_COLOR)
-        .padding(Padding::horizontal(1))
-        .title(Line::from(" done ".fg(DONE_COLOR).bold()))
-        .title(counts.right_aligned())
+        .padding(Padding::horizontal(PADDING))
+        .title(Line::from(" archive ".fg(DONE_COLOR).bold()))
 }
+
+/// Space inside the archive's frame on the left and the right.
+const PADDING: u16 = 2;
 
 /// Room for the weekdays on the right, next to the day cells they belong to.
 const WEEKDAYS: usize = 4;
@@ -227,13 +429,13 @@ fn heatmap_lines(days: &history::Days, width: usize) -> Vec<Line<'static>> {
                 0 => "·".fg(LINE_COLOR),
                 level => steps[level - 1].clone(),
             };
-            // The brackets go into the gaps around it.
-            if cell.0 == today && spans.last().is_some_and(|gap| gap.content == " ") {
-                spans.pop();
-                spans.extend(["[".bold(), shade, "]".bold()]);
+            // Today in the header's blue.
+            let shade = if cell.0 == today {
+                shade.fg(HEADER_COLOR)
             } else {
-                spans.extend([shade, gap]);
-            }
+                shade
+            };
+            spans.extend([shade, gap]);
         }
         let weekday = match (day_cells, row) {
             (true, 0) => "Mon",
@@ -330,25 +532,22 @@ fn connect_divider(frame: &mut Frame, x: u16, header_y: u16, gap_y: u16, bottom_
 
 /// `── Sat 17 Oct ──────── 4 open · ✓ 2 done` over the whole width: today, the tasks in all
 /// sections and those archived today, so done tasks don't just vanish.
-fn render_header(app: &App, frame: &mut Frame, area: Rect, with_done: bool) {
+fn render_header(app: &App, frame: &mut Frame, area: Rect) {
     let date = jiff::Zoned::now().strftime("%a %d %b").to_string();
     let open: usize = app.sections.iter().map(|section| section.tasks.len()).sum();
     let done = app.done_today;
 
-    let count = match with_done {
-        true => format!("{open} open · ✓ {done} done"),
-        false => format!("{open} open"),
-    };
-    let mut spans = rule(&date, Some(count), HEADER_COLOR, area.width as usize);
+    let mut spans = rule(
+        &date,
+        Some(format!("{open} open · ✓ {done} done")),
+        HEADER_COLOR,
+        area.width as usize,
+    );
     // Same text as the count `rule` made, only the check in green.
     spans.pop();
-    if with_done {
-        spans.push(format!(" {open} open · ").dim());
-        spans.push("✓".fg(DONE_COLOR));
-        spans.push(format!(" {done} done").dim());
-    } else {
-        spans.push(format!(" {open} open").dim());
-    }
+    spans.push(format!(" {open} open · ").dim());
+    spans.push("✓".fg(DONE_COLOR));
+    spans.push(format!(" {done} done").dim());
     frame.render_widget(Line::from(spans), area);
 }
 
@@ -1096,14 +1295,16 @@ mod tests {
     fn archive_from_the_bottom_when_toggled() {
         let today = jiff::Zoned::now().date();
         let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
-        let lines = |app: &App| {
-            let mut terminal = Terminal::new(TestBackend::new(60, 30)).unwrap();
+        let draw = |app: &App| {
+            let mut terminal = Terminal::new(TestBackend::new(80, 30)).unwrap();
             terminal
                 .draw(|frame| {
                     render(app, frame);
                 })
                 .unwrap();
-            let buffer = terminal.backend().buffer();
+            terminal.backend().buffer().clone()
+        };
+        let lines = |buffer: &ratatui::buffer::Buffer| {
             buffer
                 .content()
                 .chunks(buffer.area.width as usize)
@@ -1115,32 +1316,77 @@ mod tests {
         app.done_today = 3;
 
         // Closed by default: the list, a rule above the status line, today's done in the header.
-        let screen = lines(&app);
+        let screen = lines(&draw(&app));
         assert!(screen[0].ends_with(" 1 open · ✓ 3 done"), "{screen:#?}");
         assert!(
-            !screen.iter().any(|line| line.contains("╭ done")),
+            !screen.iter().any(|line| line.contains("╭ archive")),
             "{screen:#?}"
         );
-        assert_eq!(screen[28], "─".repeat(60), "{screen:#?}");
+        assert_eq!(screen[28], "─".repeat(80), "{screen:#?}");
 
-        // Open: the frame from the bottom with its title, the labels and 7 rows.
+        // Open: the frame from the bottom with its title, the labels and 7 rows, then the stats.
         app.update(Action::Archive);
-        let screen = lines(&app);
-        assert!(screen[0].ends_with(" 1 open"), "{screen:#?}");
-        assert!(screen[19].starts_with("╭ done ─"), "{screen:#?}");
-        assert!(screen[19].contains("✓ 3 today · 6 since"), "{screen:#?}");
-        assert!(screen[20].starts_with("│ daily"), "{screen:#?}");
-        let row = 21 + today.weekday().to_monday_zero_offset() as usize;
+        let buffer = draw(&app);
+        let screen = lines(&buffer);
+        assert!(screen[0].ends_with(" 1 open · ✓ 3 done"), "{screen:#?}");
+        assert!(screen[10].starts_with("╭ archive ─"), "{screen:#?}");
         assert!(
-            screen[row].contains("[█]"),
-            "today in brackets\n{screen:#?}"
+            screen[10].ends_with("─╮"),
+            "no numbers in the title\n{screen:#?}"
         );
-        assert!(screen[21].contains(" Mon "), "{screen:#?}");
-        assert!(screen[28].starts_with("╰─"), "{screen:#?}");
+        // Room around the heatmap: a blank line above and below, two spaces at the sides.
+        assert_eq!(screen[11].trim_matches(['│', ' ']), "", "{screen:#?}");
+        assert!(screen[12].starts_with("│  daily"), "{screen:#?}");
+        assert!(screen[13].contains(" Mon "), "{screen:#?}");
+        assert_eq!(screen[20].trim_matches(['│', ' ']), "", "{screen:#?}");
+        // Today is the one blue cell, without brackets.
+        let row = 13 + today.weekday().to_monday_zero_offset() as u16;
+        let blue: Vec<u16> = (0..80)
+            .filter(|&x| buffer[(x, row)].fg == HEADER_COLOR)
+            .collect();
+        assert_eq!(blue.len(), 1, "{screen:#?}");
+        assert_eq!(buffer[(blue[0], row)].symbol(), "█");
+        assert!(!screen[row as usize].contains('['), "{screen:#?}");
+
+        // The table with lines between its columns, joined where they meet the others, a
+        // double line to the years, both with a heading and a line below it.
+        assert!(
+            screen[21].starts_with("├───────────┬───────┬───────┬───────┬─────────╥─"),
+            "{screen:#?}"
+        );
+        assert!(
+            screen[22].starts_with("│           │  week │ month │  year │all time ║ years "),
+            "{screen:#?}"
+        );
+        assert!(
+            screen[23].starts_with("├───────────┼───────┼───────┼───────┼─────────╫─"),
+            "{screen:#?}"
+        );
+        assert!(screen[23].ends_with("─┤"), "{screen:#?}");
+        assert!(
+            screen[24].starts_with("│  done     │     3 "),
+            "{screen:#?}"
+        );
+        assert!(
+            screen[24].contains(&format!("║ {} ", today.year())),
+            "{screen:#?}"
+        );
+        assert!(
+            screen[25].contains("│       – ║"),
+            "no previous for all time\n{screen:#?}"
+        );
+        assert!(
+            screen[27].starts_with("│  best day │     3 "),
+            "{screen:#?}"
+        );
+        assert!(
+            screen[28].starts_with("╰───────────┴───────┴───────┴───────┴─────────╨─"),
+            "{screen:#?}"
+        );
         assert!(screen[29].ends_with("a toggle archive"), "{screen:#?}");
 
         app.days.clear();
-        let screen = lines(&app);
-        assert!(screen[27].contains("nothing archived yet"), "{screen:#?}");
+        let screen = lines(&draw(&app));
+        assert!(screen[26].contains("nothing archived yet"), "{screen:#?}");
     }
 }
