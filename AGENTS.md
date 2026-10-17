@@ -41,6 +41,7 @@ For TUI changes also run the real app in tmux against a scratch root dir (or a c
 - Errors go to the status line, they never end the app.
 - Colors: only the 16 terminal colors, so the look follows the terminal theme.
 - Comments say why, not what. Match the density and style of the surrounding code.
+- No helper function for a single use or a plain call chain, inline it unless it has a reason of its own.
 
 ## Tests
 

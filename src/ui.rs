@@ -92,7 +92,13 @@ fn render_renamed(app: &App, frame: &mut Frame) {
         .centered(Constraint::Length(width), Constraint::Length(height));
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Paragraph::new(lines).block(block(" renamed ".to_string()).padding(Padding::horizontal(1))),
+        Paragraph::new(lines).block(
+            Block::bordered()
+                .title(" renamed ")
+                .title_alignment(Alignment::Center)
+                .border_type(BorderType::Rounded)
+                .padding(Padding::horizontal(1)),
+        ),
         area,
     );
 }
@@ -505,13 +511,6 @@ fn highlight(text: &str, filter: &str, style: Style) -> Vec<Span<'static>> {
     }
     spans.push(Span::styled(text[at..].to_string(), style));
     spans
-}
-
-fn block<'a>(title: String) -> Block<'a> {
-    Block::bordered()
-        .title(title)
-        .title_alignment(Alignment::Center)
-        .border_type(BorderType::Rounded)
 }
 
 #[cfg(test)]

@@ -430,8 +430,11 @@ impl App {
         self.normalize_before_action();
         // `sections` is from before the editor. If the files changed meanwhile, the ops refuse
         // and the text is lost, so say that clearly.
-        self.insert(section, index, &task)
-            .map_err(|err| eyre!("task not added: {err}"))
+        let (ops, created) = edit::insert(&self.sections, section, index, &task, &self.order_file);
+        self.apply(ops)
+            .map_err(|err| eyre!("task not added: {err}"))?;
+        self.select_path(&created);
+        Ok(())
     }
 
     /// Creates a section named by the heading written in the editor, at `index`.
@@ -609,14 +612,6 @@ impl App {
         let ops = edit::delete_section(&self.sections, s, &self.order_file);
         self.apply(ops)?;
         self.status = Some(Status::Info(format!("deleted {title} (u to undo)")));
-        Ok(())
-    }
-
-    /// Writes `task` into section `s` at `index` and puts the cursor on it.
-    fn insert(&mut self, s: usize, index: usize, task: &Task) -> Result<()> {
-        let (ops, created) = edit::insert(&self.sections, s, index, task, &self.order_file);
-        self.apply(ops)?;
-        self.select_path(&created);
         Ok(())
     }
 
