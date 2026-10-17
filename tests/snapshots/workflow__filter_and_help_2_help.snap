@@ -1,0 +1,47 @@
+---
+source: tests/workflow.rs
+expression: app.state()
+---
+── [date] ─║
+                                        ║  help
+ ▌── home ────────────────── 2          ║
+    • Buy milk                          ║  ── move ────────────────────────────
+    • Call mom                          ║  j / k ···· down / up
+                                        ║  gg / G ··· top / bottom
+  ── work ────────────────── 1          ║  { / } ···· previous / next section
+    • Review PR                         ║
+                                        ║  ── change ──────────────────────────
+                                        ║  J / K ···· move down / up
+                                        ║  <CR> ····· open in $EDITOR
+                                        ║  o / O ···· new task below / above
+                                        ║  N ········ new section
+                                        ║  X ········ done (archive)
+                                        ║  D ········ delete
+                                        ║  u ········ undo
+                                        ║
+                                        ║  ── other ───────────────────────────
+                                        ║  / ········ filter
+                                                                   ? toggle help
+
+--- .order
+# home
+buy-milk
+call-mom
+
+# work
+review-pr
+
+--- home/
+
+--- home/buy-milk.md
+# Buy milk
+
+--- home/call-mom.md
+# Call mom
+
+Ask about the milk frother.
+
+--- work/
+
+--- work/review-pr.md
+# Review PR

@@ -1,0 +1,24 @@
+---
+source: tests/workflow.rs
+expression: app.state()
+---
+── [date] ─ 0 open · ✓ 0 done
+
+  no sections yet, N creates one
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                   ? toggle help

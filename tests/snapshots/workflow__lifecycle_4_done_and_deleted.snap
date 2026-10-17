@@ -1,0 +1,46 @@
+---
+source: tests/workflow.rs
+expression: app.state()
+---
+── [date] ─ 2 open · ✓ 1 done
+
+  ── house ───────────────── 2
+ ▌  • Call mom
+    • Write report
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+task deleted (u to undo)                                           ? toggle help
+
+--- .archive/
+
+--- .archive/[date].md
+# [date]
+
+## house
+
+### Pay rent
+
+--- .order
+# house
+call-mom
+write-report
+
+--- house/
+
+--- house/call-mom.md
+# Call mom
+
+--- house/write-report.md
+# Write report

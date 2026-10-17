@@ -1,0 +1,41 @@
+---
+source: tests/workflow.rs
+expression: app.state()
+---
+── [date] ─ 3 open · ✓ 0 done
+
+  ── home ────────────────── 3
+    • Buy milk
+ ▌  • Pay rent
+    • Call mom
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                   ? toggle help
+
+--- .order
+# home
+buy-milk
+pay-rent
+call-mom
+
+--- home/
+
+--- home/buy-milk.md
+# Buy milk
+
+--- home/call-mom.md
+# Call mom
+
+--- home/pay-rent.md
+# Pay rent

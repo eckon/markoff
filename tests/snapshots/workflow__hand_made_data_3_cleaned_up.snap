@@ -1,0 +1,53 @@
+---
+source: tests/workflow.rs
+expression: app.state()
+---
+── [date] ─┬───────────────────────────── 3 open · ✓ 0 done
+                                │
+  ── home ────────────────── 1  │ On mobile only.
+    • Buy bread                 │
+                                │
+  ── work ────────────────── 2  │
+ ▌  • Fix login bug             │
+    • Review PR 42              │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+1 file renamed to match its title                                  ? toggle help
+
+--- .order
+# home
+buy-bread
+
+# work
+fix-login-bug
+review-pr-42
+
+--- home/
+
+--- home/buy-bread.md
+# Buy bread
+
+--- notes.md
+# Not a task, files in the root are ignored
+
+--- work/
+
+--- work/.scratch.md
+# Hidden, ignored
+
+--- work/fix-login-bug.md
+# Fix login bug
+
+On mobile only.
+
+--- work/review-pr-42.md
+# Review PR 42

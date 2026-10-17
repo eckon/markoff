@@ -49,6 +49,7 @@ For TUI changes also run the real app in tmux against a scratch root dir (or a c
 - Pure logic: plain unit tests, ops compared as short strings (`describe`).
 - App actions: on a `TempDir`, checking the files on disk, the cursor and the status.
 - Rendering: ratatui `TestBackend`, checking the screen text.
+- Workflows (`tests/workflow.rs`): the real binary in a pty, a few long scenarios from start to quit, snapshots of screen and files at checkpoints. Keep them few and long: a new or changed feature goes into the scenario it fits, a removed one comes out of it, no scenario per feature. Experimental features stay out. A failing snapshot leaves a `.snap.new` (ignored by git): review it with `cargo insta review` (needs `cargo install cargo-insta --locked` once), or regenerate all with `INSTA_UPDATE=always cargo test --test workflow` and read the git diff. Never accept them unread.
 - When behavior changes, update the expectations, keep the coverage.
 
 ## Docs
