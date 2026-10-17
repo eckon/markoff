@@ -19,41 +19,28 @@ use crate::{
 /// Draws the whole screen from the current state. Rendering never mutates the app, it
 /// returns the list's scroll offset for the caller to keep in [`App::list_offset`].
 pub fn render(app: &App, frame: &mut Frame) -> usize {
-    // The header gets a blank line below, like the one above every section.
-    let [header_area, gap_area, body_area, status_area] = Layout::vertical([
+    // The header gets a blank line below, like the one above every section. A rule keeps the
+    // status line apart, so its messages and hints are not taken for the last list row.
+    let [header_area, gap_area, main_area, rule_area, status_area] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Min(0),
         Constraint::Length(1),
+        Constraint::Length(1),
     ])
     .areas(frame.area());
-    // The heatmap with a blank line above, only once something is archived and only if the
-    // list keeps enough room: the tasks come first.
-    let heatmap_block = list_block().padding(Padding::new(1, 2, 1, 0));
-    let heatmap = match app.days.is_empty() {
-        true => Vec::new(),
-        false => heatmap_lines(&app.days, heatmap_block.inner(body_area).width as usize),
-    };
-    let heatmap_height = heatmap.len() as u16 + 1;
-    let (main_area, heatmap_area) =
-        if !heatmap.is_empty() && body_area.height >= MIN_LIST_HEIGHT + heatmap_height {
-            let [main, heatmap] =
-                Layout::vertical([Constraint::Min(0), Constraint::Length(heatmap_height)])
-                    .areas(body_area);
-            (main, Some(heatmap))
-        } else {
-            (body_area, None)
-        };
-    if let Some(area) = heatmap_area {
-        frame.render_widget(Paragraph::new(heatmap).block(heatmap_block), area);
-    }
-    render_header(app, frame, header_area);
+    // Today's done tasks are in the archive's title while it is open.
+    render_header(app, frame, header_area, !app.show_archive);
     let [list_area, preview_area] =
         Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
             .areas(main_area);
     // Rules keep the split width even when the list gets the whole screen,
     // so they don't jump while moving between tasks with and without a body.
     let rule_width = list_block().inner(list_area).width as usize;
+
+    // Before the preview, so its divider can join it.
+    let rule = "─".repeat(rule_area.width as usize).fg(LINE_COLOR);
+    frame.render_widget(Line::from(rule), rule_area);
 
     // The preview only shows up for a task with a body, otherwise the list takes all the width.
     let body = match app.selected() {
@@ -64,7 +51,13 @@ pub fn render(app: &App, frame: &mut Frame) -> usize {
     let offset = match body {
         Some(body) if !body.trim().is_empty() => {
             render_preview(app, frame, preview_area, body);
-            connect_divider(frame, preview_area.x, header_area.y, gap_area.y);
+            connect_divider(
+                frame,
+                preview_area.x,
+                header_area.y,
+                gap_area.y,
+                rule_area.y,
+            );
             render_list(app, frame, list_area, rule_width)
         }
         _ => render_list(app, frame, main_area, rule_width),
@@ -73,7 +66,30 @@ pub fn render(app: &App, frame: &mut Frame) -> usize {
     if app.show_help {
         render_help(frame);
     }
+    if app.show_archive {
+        render_archive(app, frame, main_area.union(rule_area));
+    }
     offset
+}
+
+/// The heatmap in a frame from the bottom of `area`, the rest dimmed behind it like for the
+/// help. The status line stays as it is.
+fn render_archive(app: &App, frame: &mut Frame, area: Rect) {
+    let block = heatmap_block(app);
+    let lines = match app.days.is_empty() {
+        true => vec![Line::from("nothing archived yet".dim())],
+        false => heatmap_lines(&app.days, block.inner(area).width as usize),
+    };
+    let behind = Rect {
+        height: frame.area().height.saturating_sub(1),
+        ..frame.area()
+    };
+    frame.buffer_mut().set_style(behind, Modifier::DIM);
+    // The frame takes 2 lines.
+    let height = (lines.len() as u16 + 2).min(area.height);
+    let panel = Rect::new(area.x, area.bottom() - height, area.width, height);
+    frame.render_widget(Clear, panel);
+    frame.render_widget(Paragraph::new(lines).block(block), panel);
 }
 
 /// A panel on the right listing [`BINDINGS`], so it always matches the real keys. Groups as
@@ -141,8 +157,28 @@ fn render_help(frame: &mut Frame) {
     );
 }
 
-/// Lines the list keeps before the heatmap below it is left out.
-const MIN_LIST_HEIGHT: u16 = 10;
+/// The frame of the heatmap, its title says what it is: today's and all done tasks, and since
+/// when.
+fn heatmap_block(app: &App) -> Block<'static> {
+    let total: usize = app.days.values().sum();
+    let since = app
+        .days
+        .keys()
+        .next()
+        .map(|day| day.strftime("%b %Y").to_string())
+        .unwrap_or_default();
+    let counts = Line::from(vec![
+        " ".into(),
+        "✓".fg(DONE_COLOR),
+        format!(" {} today · {total} since {since} ", app.done_today).dim(),
+    ]);
+    Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(LINE_COLOR)
+        .padding(Padding::horizontal(1))
+        .title(Line::from(" done ".fg(DONE_COLOR).bold()))
+        .title(counts.right_aligned())
+}
 
 /// Room for the weekdays on the right, next to the day cells they belong to.
 const WEEKDAYS: usize = 4;
@@ -281,9 +317,11 @@ fn put(row: &mut [(char, Style)], x: usize, text: &str, style: Style) {
 }
 
 /// Joins the preview divider at column `x` to the header: `┬` in the header rule, `│` in the
-/// blank line below. Only where the rule is a line, never over the date or the counts.
-fn connect_divider(frame: &mut Frame, x: u16, header_y: u16, gap_y: u16) {
+/// blank line below. Only where the rule is a line, never over the date or the counts. At the
+/// bottom `┴` in the rule above the status line.
+fn connect_divider(frame: &mut Frame, x: u16, header_y: u16, gap_y: u16, bottom_y: u16) {
     let buffer = frame.buffer_mut();
+    buffer[(x, bottom_y)].set_symbol("┴");
     if buffer[(x, header_y)].symbol() == "─" {
         buffer[(x, header_y)].set_symbol("┬");
     }
@@ -292,22 +330,25 @@ fn connect_divider(frame: &mut Frame, x: u16, header_y: u16, gap_y: u16) {
 
 /// `── Sat 17 Oct ──────── 4 open · ✓ 2 done` over the whole width: today, the tasks in all
 /// sections and those archived today, so done tasks don't just vanish.
-fn render_header(app: &App, frame: &mut Frame, area: Rect) {
+fn render_header(app: &App, frame: &mut Frame, area: Rect, with_done: bool) {
     let date = jiff::Zoned::now().strftime("%a %d %b").to_string();
     let open: usize = app.sections.iter().map(|section| section.tasks.len()).sum();
     let done = app.done_today;
 
-    let mut spans = rule(
-        &date,
-        Some(format!("{open} open · ✓ {done} done")),
-        HEADER_COLOR,
-        area.width as usize,
-    );
+    let count = match with_done {
+        true => format!("{open} open · ✓ {done} done"),
+        false => format!("{open} open"),
+    };
+    let mut spans = rule(&date, Some(count), HEADER_COLOR, area.width as usize);
     // Same text as the count `rule` made, only the check in green.
     spans.pop();
-    spans.push(format!(" {open} open · ").dim());
-    spans.push("✓".fg(DONE_COLOR));
-    spans.push(format!(" {done} done").dim());
+    if with_done {
+        spans.push(format!(" {open} open · ").dim());
+        spans.push("✓".fg(DONE_COLOR));
+        spans.push(format!(" {done} done").dim());
+    } else {
+        spans.push(format!(" {open} open").dim());
+    }
     frame.render_widget(Line::from(spans), area);
 }
 
@@ -339,7 +380,7 @@ fn render_status(app: &App, frame: &mut Frame, area: Rect) {
         if i > 0 {
             spans.push("  ".into());
         }
-        spans.push(key.bold());
+        spans.push(key.bold().fg(HEADER_COLOR));
         spans.push(format!(" {text}").dim());
     }
 
@@ -357,7 +398,9 @@ fn hints(app: &App) -> Vec<(String, &'static str)> {
             .collect();
     }
     let help = (Action::Help, "toggle help");
-    let hints = if app.filter.is_empty() || app.show_help {
+    let hints = if app.show_archive {
+        vec![(Action::Archive, "toggle archive")]
+    } else if app.filter.is_empty() || app.show_help {
         vec![help]
     } else {
         vec![(Action::FilterClear, "clear filter"), help]
@@ -376,7 +419,7 @@ fn hints(app: &App) -> Vec<(String, &'static str)> {
 /// The left side of the status line when the filter input is closed.
 fn status_text(app: &App) -> Line<'_> {
     match (&app.status, app.keymap.pending()) {
-        (Some(Status::Error(message)), _) => Line::from(message.as_str().red()),
+        (Some(Status::Error(message)), _) => Line::from(message.as_str().red().bold()),
         (Some(Status::Info(message)), _) => Line::from(message.as_str()),
         (None, Some(key)) => Line::from(key.to_string()),
         (None, None) if !app.filter.is_empty() => {
@@ -709,15 +752,15 @@ mod tests {
 
         app.update(Action::Bottom);
         let lines = draw(&mut app);
-        assert!(lines[7].contains("▌   • Task 20"), "{lines:#?}");
+        assert!(lines[6].contains("▌   • Task 20"), "{lines:#?}");
 
         // Moving up inside the screen moves the cursor, not the view.
         app.update(Action::Up);
         draw(&mut app);
         app.update(Action::Up);
         let lines = draw(&mut app);
-        assert!(lines[7].contains("• Task 20"), "{lines:#?}");
-        assert!(lines[5].contains("▌   • Task 18"), "{lines:#?}");
+        assert!(lines[6].contains("• Task 20"), "{lines:#?}");
+        assert!(lines[4].contains("▌   • Task 18"), "{lines:#?}");
     }
 
     #[test]
@@ -778,7 +821,7 @@ mod tests {
     }
 
     #[test]
-    fn preview_divider_joins_the_header() {
+    fn preview_divider_joins_the_header_and_the_rule() {
         let mut app = App::new(
             PathBuf::new(),
             sections(&[("home", &["Fix typo", "Empty"])]),
@@ -791,12 +834,14 @@ mod tests {
         let divider = column(&lines[2], '│').expect("preview divider");
         assert_eq!(column(&lines[0], '┬'), Some(divider), "{lines:#?}");
         assert_eq!(column(&lines[1], '│'), Some(divider), "{lines:#?}");
+        assert_eq!(column(&lines[7], '┴'), Some(divider), "{lines:#?}");
 
-        // Without a preview the header is a plain line.
+        // Without a preview the header and the rule are plain lines.
         app.update(Action::Down);
         let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
         assert!(!lines[0].contains('┬'), "{lines:#?}");
         assert_eq!(lines[1].trim(), "");
+        assert!(!lines[7].contains('┴'), "{lines:#?}");
     }
 
     #[test]
@@ -1048,11 +1093,11 @@ mod tests {
     }
 
     #[test]
-    fn heatmap_below_the_list_once_something_is_archived() {
+    fn archive_from_the_bottom_when_toggled() {
         let today = jiff::Zoned::now().date();
         let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
-        let lines = |app: &App, height| {
-            let mut terminal = Terminal::new(TestBackend::new(60, height)).unwrap();
+        let lines = |app: &App| {
+            let mut terminal = Terminal::new(TestBackend::new(60, 30)).unwrap();
             terminal
                 .draw(|frame| {
                     render(app, frame);
@@ -1065,24 +1110,37 @@ mod tests {
                 .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
                 .collect::<Vec<_>>()
         };
-        let shown = |lines: &[String]| lines.iter().any(|line| line.trim_end().ends_with("Mon"));
-        assert!(!shown(&lines(&app, 30)), "nothing archived yet");
-
         // Today the busiest, older days so it is not in the first column.
         app.days = [(today, 3), (today - 10.days(), 1), (today - 20.days(), 2)].into();
-        let screen = lines(&app, 30);
-        assert!(screen[2].contains("home"), "{screen:#?}");
-        // A blank line, the labels and 7 rows above the status line.
-        assert_eq!(screen[20].trim(), "", "{screen:#?}");
-        assert!(screen[21].starts_with(" daily"), "{screen:#?}");
-        let row = 22 + today.weekday().to_monday_zero_offset() as usize;
+        app.done_today = 3;
+
+        // Closed by default: the list, a rule above the status line, today's done in the header.
+        let screen = lines(&app);
+        assert!(screen[0].ends_with(" 1 open · ✓ 3 done"), "{screen:#?}");
+        assert!(
+            !screen.iter().any(|line| line.contains("╭ done")),
+            "{screen:#?}"
+        );
+        assert_eq!(screen[28], "─".repeat(60), "{screen:#?}");
+
+        // Open: the frame from the bottom with its title, the labels and 7 rows.
+        app.update(Action::Archive);
+        let screen = lines(&app);
+        assert!(screen[0].ends_with(" 1 open"), "{screen:#?}");
+        assert!(screen[19].starts_with("╭ done ─"), "{screen:#?}");
+        assert!(screen[19].contains("✓ 3 today · 6 since"), "{screen:#?}");
+        assert!(screen[20].starts_with("│ daily"), "{screen:#?}");
+        let row = 21 + today.weekday().to_monday_zero_offset() as usize;
         assert!(
             screen[row].contains("[█]"),
             "today in brackets\n{screen:#?}"
         );
-        assert!(screen[22].trim_end().ends_with("Mon"), "{screen:#?}");
+        assert!(screen[21].contains(" Mon "), "{screen:#?}");
+        assert!(screen[28].starts_with("╰─"), "{screen:#?}");
+        assert!(screen[29].ends_with("a toggle archive"), "{screen:#?}");
 
-        // The tasks come first: too short for both, the heatmap goes.
-        assert!(!shown(&lines(&app, 20)));
+        app.days.clear();
+        let screen = lines(&app);
+        assert!(screen[27].contains("nothing archived yet"), "{screen:#?}");
     }
 }

@@ -92,6 +92,8 @@ pub struct App {
     pub status: Option<Status>,
     /// Help overlay is open.
     pub show_help: bool,
+    /// The heatmap of done tasks is open over the list.
+    pub show_archive: bool,
     editor_request: Option<EditorRequest>,
     /// `/` filter, empty for none. Applied in [`App::rows`], so everything that works on rows
     /// sees only what matches.
@@ -128,6 +130,7 @@ impl App {
             undo: Vec::new(),
             status: None,
             show_help: false,
+            show_archive: false,
             editor_request: None,
             filter: String::new(),
             filter_input: false,
@@ -258,6 +261,13 @@ impl App {
                 }
                 return;
             }
+            // The same for the archive with `a` and `Esc`.
+            if self.show_archive {
+                if matches!(action, Some(Action::Archive | Action::FilterClear)) {
+                    self.show_archive = false;
+                }
+                return;
+            }
             if let Some(action) = action {
                 self.update(action);
             }
@@ -355,6 +365,7 @@ impl App {
             Action::Delete => self.delete()?,
             Action::Undo => self.undo()?,
             Action::Help => self.show_help = true,
+            Action::Archive => self.show_archive = true,
             Action::Quit => self.running = false,
             Action::Hint(hint) => self.status = Some(Status::Info(hint.to_string())),
             Action::Filter => self.filter_input = true,
@@ -842,6 +853,25 @@ pub mod tests {
             app.update(Action::Help);
             app.handle_event(Event::Key(code.into()));
             assert!(!app.show_help, "{code:?} closes the help");
+            assert!(app.running, "{code:?} does not quit");
+        }
+    }
+
+    #[test]
+    fn only_a_and_esc_close_the_archive() {
+        let (_dir, mut app) = app_with_files(&["work/a.md"]);
+        app.cursor = 1;
+        app.handle_event(Event::Key(KeyCode::Char('a').into()));
+        assert!(app.show_archive);
+
+        app.handle_event(Event::Key(KeyCode::Char('X').into()));
+        assert!(app.show_archive, "other keys keep the archive open");
+        assert_eq!(listing(&app), ["[work]", "a.md"], "X did not archive");
+
+        for code in [KeyCode::Char('a'), KeyCode::Esc] {
+            app.update(Action::Archive);
+            app.handle_event(Event::Key(code.into()));
+            assert!(!app.show_archive, "{code:?} closes the archive");
             assert!(app.running, "{code:?} does not quit");
         }
     }

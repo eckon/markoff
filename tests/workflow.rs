@@ -34,9 +34,8 @@ struct Markoff {
     screen: Arc<Mutex<vt100::Parser>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn portable_pty::Child + Send + Sync>,
-    /// The pty's master side, to resize the terminal.
-    master: Box<dyn portable_pty::MasterPty + Send>,
-    // Only kept alive: the fake HOME.
+    // Both only kept alive: the pty's master side and the fake HOME.
+    _master: Box<dyn portable_pty::MasterPty + Send>,
     _home: TempDir,
 }
 
@@ -47,11 +46,6 @@ impl Markoff {
 
     /// Starts on a root that already has `files`, as `(path in root, content)`.
     fn start_with(files: &[(&str, &str)]) -> Self {
-        Self::start_with_rows(files, ROWS)
-    }
-
-    /// Like [`Markoff::start_with`] in a terminal of `rows` lines.
-    fn start_with_rows(files: &[(&str, &str)], rows: u16) -> Self {
         let root = TempDir::new().unwrap();
         for (path, content) in files {
             write(&root.path().join(path), content);
@@ -62,7 +56,7 @@ impl Markoff {
 
         let pty = native_pty_system()
             .openpty(PtySize {
-                rows,
+                rows: ROWS,
                 cols: COLS,
                 ..PtySize::default()
             })
@@ -79,7 +73,7 @@ impl Markoff {
         command.env("VISUAL", format!("cp {}", next_edit.display()));
         let child = pty.slave.spawn_command(command).unwrap();
 
-        let screen = Arc::new(Mutex::new(vt100::Parser::new(rows, COLS, 0)));
+        let screen = Arc::new(Mutex::new(vt100::Parser::new(ROWS, COLS, 0)));
         let writer = Arc::new(Mutex::new(pty.master.take_writer().unwrap()));
         let mut reader = pty.master.try_clone_reader().unwrap();
         let (parser, answer) = (Arc::clone(&screen), Arc::clone(&writer));
@@ -104,7 +98,7 @@ impl Markoff {
             screen,
             writer,
             child,
-            master: pty.master,
+            _master: pty.master,
             _home: home,
         }
     }
@@ -417,54 +411,43 @@ fn filter_and_help() {
     app.quit();
 }
 
-/// The heatmap of done tasks below the list. It moves with the date (today's row, the month
-/// names), so this one checks what holds on any day instead of taking snapshots.
+/// The archive: a heatmap of done tasks over the list with `a`. It moves with the date (today's
+/// row, the month names), so this one checks what holds on any day instead of snapshots.
 #[test]
-fn heatmap() {
-    use jiff::ToSpan;
-
+fn archive() {
     let today = jiff::Zoned::now().date();
-    let earlier = today - 10.days();
+    let earlier = today.saturating_sub(jiff::Span::new().days(10));
     let archive = format!("# {earlier}\n\n## work\n\n### Old one\n\n### Old two\n");
-    let mut app = Markoff::start_with_rows(
-        &[
-            ("work/fix-bug.md", "# Fix bug\n"),
-            (&format!(".archive/{earlier}.md"), &archive),
-        ],
-        30,
-    );
+    let mut app = Markoff::start_with(&[
+        ("work/fix-bug.md", "# Fix bug\n"),
+        (&format!(".archive/{earlier}.md"), &archive),
+    ]);
+    app.wait_for("✓ 0 done");
 
-    // Recent days one cell each, today in brackets and still empty, weekdays on the right.
-    app.wait_for("• Fix bug");
+    // Closed until `a`: recent days one cell each, today in brackets and still empty.
+    app.press("a");
     app.wait_for("daily");
     app.wait_for("[·]");
     assert!(
-        app.screen().lines().any(|row| row.ends_with("Mon")),
+        app.screen().lines().any(|row| row.contains(" Mon ")),
         "{}",
         app.screen()
     );
 
-    // Done shows up in today's cell, undo takes it back out.
+    // Other keys do nothing while it is open, `Esc` closes it.
+    app.press("jX");
+    app.press("<Esc>");
+    app.wait_for("? toggle help");
+    app.wait_for("✓ 0 done");
+
+    // Done shows up in today's cell, `a` toggles.
     app.press("jX");
     app.wait_for("✓ 1 done");
+    app.press("a");
+    app.wait_for("✓ 1 today");
     app.wait_for("[░]");
-    app.press("u");
-    app.wait_for("[·]");
-
-    // The tasks come first: a terminal too short for both leaves the heatmap out.
-    let size = PtySize {
-        rows: 20,
-        cols: COLS,
-        ..PtySize::default()
-    };
-    app.screen.lock().unwrap().screen_mut().set_size(20, COLS);
-    app.master.resize(size).unwrap();
-    app.wait_for("• Fix bug");
-    let start = Instant::now();
-    while app.screen().contains("daily") {
-        assert!(start.elapsed() < Duration::from_secs(5), "{}", app.screen());
-        thread::sleep(Duration::from_millis(10));
-    }
+    app.press("a");
+    app.wait_for("? toggle help");
 
     app.quit();
 }

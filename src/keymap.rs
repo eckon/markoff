@@ -26,6 +26,8 @@ pub enum Action {
     Delete,
     Undo,
     Help,
+    /// `a`: the heatmap of done tasks, from the bottom over the list.
+    Archive,
     Quit,
     /// A key that is not mapped on purpose, with a hint what to press instead.
     Hint(&'static str),
@@ -83,8 +85,9 @@ pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('D'))], A::Delete)], help: "delete", group: "change" },
     Binding { keys: &[(&[Key(Char('u'))], A::Undo)], help: "undo", group: "change" },
     Binding { keys: &[(&[Key(Char('/'))], A::Filter)], help: "filter", group: "other" },
-    Binding { keys: &[(&[Key(Esc)], A::FilterClear)], help: "clear filter / close help", group: "other" },
+    Binding { keys: &[(&[Key(Esc)], A::FilterClear)], help: "clear filter / close view", group: "other" },
     Binding { keys: &[(&[Key(Char('?'))], A::Help)], help: "toggle help", group: "other" },
+    Binding { keys: &[(&[Key(Char('a'))], A::Archive)], help: "toggle archive", group: "other" },
     Binding { keys: &[(&[Key(Char('q')), Ctrl('c')], A::Quit)], help: "quit", group: "other" },
 ];
 
