@@ -33,7 +33,10 @@ fn monday(day: Date) -> Date {
     day - i64::from(day.weekday().to_monday_zero_offset()).days()
 }
 
-/// A column of the heatmap: 7 cells of `unit` days each, from `start`.
+/// Cells in a heatmap column, a day each on the right, so a column is a week there.
+pub const CELLS: i64 = 7;
+
+/// A column of the heatmap: [`CELLS`] cells of `unit` days each, from `start`.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Column {
     pub start: Date,
@@ -52,11 +55,11 @@ impl Column {
 /// that reaches back to the first day: recent days in detail, years back still there.
 pub fn columns(days: &Days, today: Date, count: usize) -> Vec<Column> {
     let first = days.keys().next().map_or(today, |&day| day.min(today));
-    let mut end = monday(today) + 7.days();
+    let mut end = monday(today) + CELLS.days();
     let span = i64::from((end - first).get_days());
     let mut columns = Vec::new();
     for unit in units(count, span) {
-        let start = end - (7 * unit).days();
+        let start = end - (CELLS * unit).days();
         columns.push(Column { start, unit });
         end = start;
         if start <= first {
@@ -76,12 +79,13 @@ fn units(count: usize, span: i64) -> Vec<i64> {
             .collect()
     };
     let reaches = |factor: f64| {
-        let weeks = sizes(factor)
+        let columns = sizes(factor)
             .iter()
             .fold(0i64, |sum, unit| sum.saturating_add(*unit));
-        weeks.saturating_mul(7) >= span
+        columns.saturating_mul(CELLS) >= span
     };
-    let (mut low, mut high) = (1.0, 3.0);
+    // A factor of `span` reaches back from the second column on, so the search starts there.
+    let (mut low, mut high) = (1.0, span.max(1) as f64);
     for _ in 0..50 {
         let factor = (low + high) / 2.0;
         if reaches(factor) {
@@ -214,6 +218,15 @@ mod tests {
             assert!(pair[0].unit >= pair[1].unit, "{pair:?}");
             assert_eq!(pair[0].start + (7 * pair[0].unit).days(), pair[1].start);
         }
+    }
+
+    #[test]
+    fn few_columns_still_reach_back_to_the_first_day() {
+        let today = date("2026-10-17");
+        let days = Days::from([(date("2022-04-09"), 1)]);
+        let columns = columns(&days, today, 3);
+        assert_eq!(columns.len(), 3);
+        assert!(columns[0].start <= date("2022-04-09"), "{:?}", columns[0]);
     }
 
     #[test]

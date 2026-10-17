@@ -16,7 +16,7 @@ mod help;
 use crate::{
     app::{App, Row, Status},
     filter,
-    keymap::{Action, BINDINGS, FILTER_INPUT_HINTS},
+    keymap::{self, Action, BINDINGS, FILTER_INPUT_HINTS},
 };
 
 /// Draws the whole screen from the current state. Rendering never mutates the app, it
@@ -93,17 +93,12 @@ fn render_header(app: &App, frame: &mut Frame, area: Rect) {
     let open: usize = app.sections.iter().map(|section| section.tasks.len()).sum();
     let done = app.done_today();
 
-    let mut spans = rule(
-        &date,
-        Some(format!("{open} open · ✓ {done} done")),
-        HEADER_COLOR,
-        area.width as usize,
-    );
-    // Same text as the count `rule` made, only the check in green.
-    spans.pop();
-    spans.push(format!(" {open} open · ").dim());
-    spans.push("✓".fg(DONE_COLOR));
-    spans.push(format!(" {done} done").dim());
+    let count = vec![
+        format!("{open} open · ").dim(),
+        "✓".fg(DONE_COLOR),
+        format!(" {done} done").dim(),
+    ];
+    let spans = rule(None, &date, count, HEADER_COLOR, area.width as usize);
     frame.render_widget(Line::from(spans), area);
 }
 
@@ -118,29 +113,28 @@ fn render_status(app: &App, frame: &mut Frame, area: Rect) {
         status_text(app)
     };
 
+    // Between the hints, and at least that much between the two sides.
+    const GAP: &str = "  ";
+    let line = |hints: &[(String, &str)]| {
+        let mut spans = Vec::new();
+        for (i, (key, text)) in hints.iter().enumerate() {
+            if i > 0 {
+                spans.push(GAP.into());
+            }
+            spans.push(key.clone().bold().fg(HEADER_COLOR));
+            spans.push(format!(" {text}").dim());
+        }
+        Line::from(spans)
+    };
     // Hints give way from the end, the left side is what just happened.
     let mut hints = hints(app);
-    let width = |hints: &[(String, &str)]| {
-        let keys_and_texts: usize = hints
-            .iter()
-            .map(|(key, text)| key.chars().count() + 1 + text.chars().count())
-            .sum();
-        keys_and_texts + 2 * hints.len().saturating_sub(1)
-    };
-    while !hints.is_empty() && left.width() + 2 + width(&hints) > area.width as usize {
+    while !hints.is_empty() && left.width() + GAP.len() + line(&hints).width() > area.width as usize
+    {
         hints.pop();
-    }
-    let mut spans = Vec::new();
-    for (i, (key, text)) in hints.into_iter().enumerate() {
-        if i > 0 {
-            spans.push("  ".into());
-        }
-        spans.push(key.bold().fg(HEADER_COLOR));
-        spans.push(format!(" {text}").dim());
     }
 
     frame.render_widget(left, area);
-    frame.render_widget(Line::from(spans).right_aligned(), area);
+    frame.render_widget(line(&hints).right_aligned(), area);
 }
 
 /// Key hints per mode: how to get out of the filter, and where to find the rest. Keys from
@@ -214,6 +208,9 @@ fn section_color(index: usize) -> Color {
 /// No box around the list. Sections are rules, tasks get a bullet in the section color,
 /// the cursor is a bar in the gutter. Returns the scroll offset.
 fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize {
+    /// Opens the section key in a section rule: `──[1]─ work`.
+    const KEY_OPEN: &str = "──[";
+
     let block = list_block();
     let text_width = block.inner(area).width as usize;
 
@@ -256,32 +253,37 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                     .iter()
                     .filter(|row| matches!(row, Row::Task(task_s, _) if *task_s == s))
                     .count();
-                // `1`-`9` jump here. The key replaces the leading `── ` of the rule, 4 columns
-                // wider, the digit right above the bullets. Dim like the count, so the name
-                // stays what stands out. Without a key the rule is as long, the names align.
-                let lead = if s < 9 {
+                // The key that jumps here replaces the leading `── ` of the rule, the key right
+                // above the bullets. Dim like the count, so the name stays what stands out.
+                // Without a key the rule is as long, the names align.
+                let keyed = |key: char| {
                     vec![
-                        "──[".fg(LINE_COLOR),
-                        (s + 1).to_string().dim(),
+                        KEY_OPEN.fg(LINE_COLOR),
+                        key.to_string().dim(),
                         "]─ ".fg(LINE_COLOR),
                     ]
-                } else {
-                    vec!["────── ".fg(LINE_COLOR)]
+                };
+                let lead = match keymap::jump_key(s) {
+                    Some(key) => keyed(key),
+                    None => {
+                        let lead_width: usize = keyed(' ').iter().map(Span::width).sum();
+                        vec![format!("{} ", "─".repeat(lead_width - 1)).fg(LINE_COLOR)]
+                    }
                 };
                 let mut spans = vec![gutter()];
                 spans.extend(rule(
+                    Some(lead),
                     &section.name,
-                    Some(count.to_string()),
+                    vec![count.to_string().dim()],
                     color,
-                    width.saturating_sub(5),
+                    width.saturating_sub(gutter().width()),
                 ));
-                spans.splice(1..2, lead);
                 items.push(ListItem::new(Line::from(spans)));
                 continue;
             }
             Row::Daily => {
                 let mut spans = vec![gutter()];
-                spans.extend(daily::header(app, width.saturating_sub(1)));
+                spans.extend(daily::header(app, width.saturating_sub(gutter().width())));
                 items.push(ListItem::new(Line::from(spans)));
                 continue;
             }
@@ -302,8 +304,16 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
             }
         };
 
-        // Gutter and `   • ` before the title, the bullet below the digit of the section key.
-        let title_width = text_width.saturating_sub(6);
+        // Gutter and indent before the title, the bullet below the key of the section.
+        let prefix = |first: bool| -> Vec<Span<'static>> {
+            let bullet = if first { "• ".fg(color) } else { "  ".into() };
+            vec![
+                gutter(),
+                " ".repeat(KEY_OPEN.chars().count()).into(),
+                bullet,
+            ]
+        };
+        let title_width = text_width.saturating_sub(Line::from(prefix(true)).width());
         let title_lines = if is_cursor {
             wrap(title, title_width)
         } else {
@@ -313,12 +323,7 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
             .into_iter()
             .enumerate()
             .map(|(n, title)| {
-                let bullet = if n == 0 {
-                    "• ".fg(color)
-                } else {
-                    "  ".into()
-                };
-                let mut spans = vec![gutter(), "   ".into(), bullet];
+                let mut spans = prefix(n == 0);
                 spans.extend(title);
                 Line::from(spans)
             })
@@ -397,16 +402,24 @@ fn list_block<'a>() -> Block<'a> {
 }
 
 /// `── work ─────── 2`, filled to `width`. Section headers, the date header, help groups.
-fn rule(title: &str, count: Option<String>, color: Color, width: usize) -> Vec<Span<'static>> {
-    let count = count.map(|c| format!(" {c}")).unwrap_or_default();
-    let used = 3 + title.chars().count() + 1 + count.chars().count();
-    vec![
-        "── ".fg(LINE_COLOR),
-        title.to_string().fg(color).bold(),
-        " ".into(),
-        "─".repeat(width.saturating_sub(used)).fg(LINE_COLOR),
-        count.dim(),
-    ]
+/// `lead` replaces the `── ` before the title, `count` goes after the fill as styled.
+fn rule(
+    lead: Option<Vec<Span<'static>>>,
+    title: &str,
+    mut count: Vec<Span<'static>>,
+    color: Color,
+    width: usize,
+) -> Vec<Span<'static>> {
+    let mut spans = lead.unwrap_or_else(|| vec!["── ".fg(LINE_COLOR)]);
+    spans.push(title.to_string().fg(color).bold());
+    spans.push(" ".into());
+    if !count.is_empty() {
+        count.insert(0, " ".into());
+    }
+    let used: usize = spans.iter().chain(&count).map(Span::width).sum();
+    spans.push("─".repeat(width.saturating_sub(used)).fg(LINE_COLOR));
+    spans.extend(count);
+    spans
 }
 
 /// Task body as raw text, read only. No title, the cursor row in the list shows it in full.

@@ -8,7 +8,10 @@ use color_eyre::{Result, eyre::eyre};
 use ratatui::DefaultTerminal;
 
 use super::{App, Row, Status};
-use crate::{edit, editor, task::Task};
+use crate::{
+    edit, editor,
+    task::{HEADING, split_heading},
+};
 
 /// Work that needs the editor. Set by `update`, handled by the run loop, which owns
 /// the terminal. Keeps `update` testable without a terminal.
@@ -36,7 +39,8 @@ impl App {
                 editor::open(terminal, &path, &[]).and_then(|()| self.after_edit())
             }
             EditorRequest::Create { section, index } => {
-                editor::create(terminal, &self.sections[section].dir, "# \n")
+                let draft = format!("{HEADING}\n");
+                editor::create(terminal, &self.sections[section].dir, &draft)
                     .and_then(|content| self.after_create(section, index, &content))
             }
             EditorRequest::CreateSection(index) => {
@@ -97,15 +101,21 @@ impl App {
 
     /// Inserts what was written in the editor for `o` / `O`.
     fn after_create(&mut self, section: usize, index: usize, content: &str) -> Result<()> {
-        let task = Task::parse(PathBuf::from("new.md"), content);
-        if task.heading.is_none() {
+        let Some(title) = split_heading(content).0 else {
             return Err(eyre!("aborted, empty title"));
-        }
+        };
         // Normalizing keeps the order of tasks and sections, so `section` and `index` stay valid.
         self.normalize_before_action();
         // `sections` is from before the editor. If the files changed meanwhile, the ops refuse
         // and the text is lost, so say that clearly.
-        let (ops, created) = edit::insert(&self.sections, section, index, &task, &self.order_file);
+        let (ops, created) = edit::insert(
+            &self.sections,
+            section,
+            index,
+            &title,
+            content,
+            &self.order_file,
+        );
         self.apply(ops)
             .map_err(|err| eyre!("task not added: {err}"))?;
         self.select_path(&created);

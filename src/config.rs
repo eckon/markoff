@@ -20,6 +20,9 @@ use crate::load;
 /// Env var with the root directory, used when no `--dir` is given.
 const DIR_ENV: &str = "MARKOFF_DIR";
 
+/// The config file in the config directory, `~/.config` by default.
+const CONFIG_FILE: &str = "markoff/config.toml";
+
 /// What the config file sets, everything is optional.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Config {
@@ -39,7 +42,7 @@ pub fn info(mut args: impl Iterator<Item = String>) -> Option<String> {
              \n\
              Usage: markoff [--dir <path>]\n\
              \n\
-             \x20 --dir <path>   Root directory, else ${DIR_ENV}, else `dir` in ~/.config/markoff/config.toml\n\
+             \x20 --dir <path>   Root directory, else ${DIR_ENV}, else `dir` in ~/.config/{CONFIG_FILE}\n\
              \x20 -h, --help     Show this help\n\
              \x20 -V, --version  Show the version\n"
         )),
@@ -78,7 +81,7 @@ pub fn root_dir(
         Some(dir) => Ok(dir),
         None => bail!(
             "no directory given, use --dir <path>, set {DIR_ENV}, \
-             or set `dir` in ~/.config/markoff/config.toml"
+             or set `dir` in ~/.config/{CONFIG_FILE}"
         ),
     }
 }
@@ -101,7 +104,7 @@ fn config_path(xdg_config_home: Option<String>, home: Option<String>) -> Option<
         Some(dir) => PathBuf::from(dir),
         None => PathBuf::from(home?).join(".config"),
     };
-    Some(base.join("markoff").join("config.toml"))
+    Some(base.join(CONFIG_FILE))
 }
 
 /// Reads the config file. A missing file is an empty config.

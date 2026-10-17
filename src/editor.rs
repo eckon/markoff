@@ -15,6 +15,8 @@ use ratatui::{
 };
 use tempfile::NamedTempFile;
 
+use crate::{op::TEMP_PREFIX, task::EXTENSION};
+
 /// Leaves the TUI, opens `path` in the editor, and comes back once the editor exits.
 /// `args` go to the editor before the path.
 pub fn open(terminal: &mut DefaultTerminal, path: &Path, args: &[&str]) -> Result<()> {
@@ -68,8 +70,8 @@ fn edit_draft(
 /// The `.md` suffix gives editors markdown highlighting.
 fn draft(dir: &Path, kind: &str, content: &str) -> Result<NamedTempFile> {
     let file = tempfile::Builder::new()
-        .prefix(&format!(".markoff-{kind}-"))
-        .suffix(".md")
+        .prefix(&format!("{TEMP_PREFIX}{kind}-"))
+        .suffix(&format!(".{EXTENSION}"))
         .tempfile_in(dir)
         .wrap_err_with(|| format!("failed to create draft in {}", dir.display()))?;
     fs::write(file.path(), content)?;

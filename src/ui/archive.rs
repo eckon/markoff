@@ -17,7 +17,8 @@ use crate::{app::App, history};
 /// help. The status line stays as it is.
 pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     let block = archive_block();
-    let width = block.inner(area).width as usize;
+    let inner = block.inner(area);
+    let width = inner.width as usize;
     let (mut lines, stats) = match app.days.is_empty() {
         true => (
             vec![Line::from("nothing archived yet".dim())],
@@ -25,9 +26,9 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         ),
         false => (heatmap_lines(&app.days, width), stats(app, width)),
     };
-    // A blank line above and below the heatmap where there is room: the frame, the
-    // separator and the stats come on top.
-    if lines.len() + 2 + 1 + stats.lines.len() + 2 <= area.height as usize {
+    // A blank line above and below the heatmap where there is room: the separator and the
+    // stats come on top.
+    if lines.len() + 1 + stats.lines.len() + 2 <= inner.height as usize {
         lines.insert(0, Line::default());
         lines.push(Line::default());
     }
@@ -43,9 +44,12 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         ..frame.area()
     };
     frame.buffer_mut().set_style(behind, Modifier::DIM);
-    // The frame takes 2 lines.
-    let height = (lines.len() as u16 + 2).min(area.height);
+    let chrome = area.height - inner.height;
+    let height = (lines.len() as u16 + chrome).min(area.height);
     let panel = Rect::new(area.x, area.bottom() - height, area.width, height);
+    // Inside the border, and inside the padding too.
+    let framed = block.clone().padding(Padding::ZERO).inner(panel);
+    let inner = block.inner(panel);
     frame.render_widget(Clear, panel);
     frame.render_widget(Paragraph::new(lines).block(block), panel);
     if !has_stats {
@@ -54,11 +58,11 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
 
     // Lines of the stats, joined to the frame and to each other.
     let buffer = frame.buffer_mut();
-    let bottom = panel.bottom() - 1;
-    let row = |at: usize| panel.y + 1 + (separator + 1 + at) as u16;
-    let x = |at: usize| panel.x + 1 + PADDING + at as u16;
-    let top = panel.y + 1 + separator as u16;
-    for at in panel.x + 1..panel.right() - 1 {
+    let bottom = framed.bottom();
+    let row = |at: usize| inner.y + (separator + 1 + at) as u16;
+    let x = |at: usize| inner.x + at as u16;
+    let top = inner.y + separator as u16;
+    for at in framed.left()..framed.right() {
         buffer[(at, top)].set_symbol("─").set_fg(LINE_COLOR);
     }
     let mut rule = |y: u16, right: bool| {
@@ -66,15 +70,15 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
             return;
         }
         buffer[(panel.x, y)].set_symbol("├");
-        let ends = (panel.x + 1..x(0)).chain(match right {
-            true => panel.right() - 1 - PADDING..panel.right() - 1,
+        let ends = (framed.left()..inner.left()).chain(match right {
+            true => inner.right()..framed.right(),
             false => 0..0,
         });
         for at in ends {
             buffer[(at, y)].set_symbol("─").set_fg(LINE_COLOR);
         }
         if right {
-            buffer[(panel.right() - 1, y)].set_symbol("┤");
+            buffer[(framed.right(), y)].set_symbol("┤");
         }
     };
     rule(top, true);
@@ -82,6 +86,10 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         rule(row(at), right);
     }
     for &(at, top_join, end_join, bottom_join) in &stats.verticals {
+        // The table does not shrink, on a narrow screen its lines run past the frame.
+        if x(at) >= framed.right() {
+            continue;
+        }
         buffer[(x(at), top)].set_symbol(top_join);
         if row(stats.end) < bottom {
             buffer[(x(at), row(stats.end))].set_symbol(end_join);
@@ -90,32 +98,6 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
             buffer[(x(at), bottom)].set_symbol(join);
         }
     }
-}
-
-/// Width of the row names in the period table.
-const LABEL_WIDTH: usize = 9;
-
-/// Width of each period's numbers, `all time` is wider.
-const PERIOD_WIDTHS: [usize; 4] = [6, 6, 6, 8];
-
-/// The period table: the row names, then per period a line, its numbers and a space.
-const TABLE_WIDTH: usize = {
-    let mut width = LABEL_WIDTH;
-    let mut i = 0;
-    while i < PERIOD_WIDTHS.len() {
-        width += PERIOD_WIDTHS[i] + 2;
-        i += 1;
-    }
-    width
-};
-
-/// Where the lines between the columns of the period table are.
-fn column_lines() -> impl Iterator<Item = usize> {
-    PERIOD_WIDTHS.iter().scan(LABEL_WIDTH, |x, width| {
-        let at = *x;
-        *x += width + 2;
-        Some(at)
-    })
 }
 
 /// The stats below the heatmap and where their lines go, so the frame can join them.
@@ -164,45 +146,73 @@ fn sections(app: &App) -> (Vec<(String, Style, history::Days)>, history::Days) {
 /// The period table on the left and the years on the right, if there is room for them, with
 /// a double line between. Below a line, a bar per period split by the sections.
 fn stats(app: &App, width: usize) -> Stats {
+    /// Least width of each period's numbers, so the columns don't change with every digit.
+    const MIN_NUMBER_WIDTH: usize = 6;
+    /// Least room for the years next to the table: a year, a short bar and its number.
+    /// Below it the shares go under the table instead.
+    const MIN_YEARS_WIDTH: usize = 20;
+    /// Longest share bar without the years, so it doesn't stretch over a wide screen.
+    const MAX_SHARE_BAR: usize = 40;
+
     let days = &app.days;
     let today = jiff::Zoned::now().date();
     let periods = history::periods(days, today);
+    let numbers: [NumberRow; 4] = [
+        ("done", |period| period.done.to_string()),
+        ("previous", |period| {
+            period
+                .previous
+                .map_or("–".to_string(), |done| done.to_string())
+        }),
+        ("per day", |period| format!("{:.1}", period.per_day)),
+        ("best day", |period| period.best_day.to_string()),
+    ];
+    // The row names here and the period names in the shares below, then a space.
+    let label_width = numbers
+        .iter()
+        .map(|(label, _)| label.chars().count())
+        .chain(periods.iter().map(|period| period.name.chars().count()))
+        .max()
+        .unwrap_or(0)
+        + 1;
+    // Each period as wide as its name and its numbers, at least [`MIN_NUMBER_WIDTH`].
+    let widths: Vec<usize> = periods
+        .iter()
+        .map(|period| {
+            numbers
+                .iter()
+                .map(|(_, cell)| cell(period).chars().count())
+                .chain([period.name.chars().count(), MIN_NUMBER_WIDTH])
+                .max()
+                .unwrap_or(0)
+        })
+        .collect();
+    // The row names, then per period a line, its numbers and a space.
+    let table_width = label_width + widths.iter().map(|width| width + 2).sum::<usize>();
     // The divider and a space after it, the table ends in a space.
-    let years_width = width.saturating_sub(TABLE_WIDTH + 2);
-    let split = years_width >= 20;
+    let years_width = width.saturating_sub(table_width + 2);
+    let split = years_width >= MIN_YEARS_WIDTH;
 
     // A column per period, a row per number, so each row says what it shows. Thin lines
     // between the columns keep the numbers apart.
-    let row = |label: &str, cell: &dyn Fn(&history::Period) -> String, header: bool| {
-        let mut spans = vec![format!("{label:<LABEL_WIDTH$}").into()];
-        for (period, width) in periods.iter().zip(PERIOD_WIDTHS) {
+    let row = |label: &str, cell: fn(&history::Period) -> String, header: bool| {
+        let mut spans = vec![format!("{label:<label_width$}").into()];
+        for (period, &width) in periods.iter().zip(&widths) {
             let text = format!("{:>width$} ", cell(period));
             spans.push("│".fg(LINE_COLOR));
             spans.push(if header { text.dim() } else { text.into() });
         }
         spans
     };
+    let mut rows = vec![row("", |period| period.name.to_string(), true)];
     // A line under the names of the periods, crossing the lines between them.
-    let mut underline = vec!["─".repeat(LABEL_WIDTH).fg(LINE_COLOR)];
-    for width in PERIOD_WIDTHS {
+    let underline_at = rows.len();
+    let mut underline = vec!["─".repeat(label_width).fg(LINE_COLOR)];
+    for width in &widths {
         underline.push(format!("┼{}", "─".repeat(width + 1)).fg(LINE_COLOR));
     }
-    let rows = [
-        row("", &|period| period.name.to_string(), true),
-        underline,
-        row("done", &|period| period.done.to_string(), false),
-        row(
-            "previous",
-            &|period| {
-                period
-                    .previous
-                    .map_or("–".to_string(), |done| done.to_string())
-            },
-            false,
-        ),
-        row("per day", &|period| format!("{:.1}", period.per_day), false),
-        row("best day", &|period| period.best_day.to_string(), false),
-    ];
+    rows.push(underline);
+    rows.extend(numbers.iter().map(|(label, cell)| row(label, *cell, false)));
     // Next to the table's heading and its line, the years have the same, so the bars start
     // next to the numbers.
     let mut years = vec![
@@ -213,7 +223,7 @@ fn stats(app: &App, width: usize) -> Stats {
         &history::years(days, today),
         today,
         years_width,
-        rows.len() - 2,
+        numbers.len(),
     );
     years.extend(year_bars);
     let mut lines: Vec<Line> = rows
@@ -222,17 +232,24 @@ fn stats(app: &App, width: usize) -> Stats {
         .map(|(i, mut spans)| {
             // A double line, the years are not part of the table.
             if split {
-                spans.push(if i == 1 { "╫─" } else { "║ " }.fg(LINE_COLOR));
+                spans.push(if i == underline_at { "╫─" } else { "║ " }.fg(LINE_COLOR));
                 spans.extend(years.get(i).cloned().unwrap_or_default());
             }
             Line::from(spans)
         })
         .collect();
-    let mut verticals: Vec<(usize, &str, &str, Option<&str>)> =
-        column_lines().map(|x| (x, "┬", "┴", None)).collect();
+    // Where the lines between the columns of the table are.
+    let mut verticals: Vec<(usize, &str, &str, Option<&str>)> = widths
+        .iter()
+        .scan(label_width, |x, width| {
+            let at = *x;
+            *x += width + 2;
+            Some((at, "┬", "┴", None))
+        })
+        .collect();
     // The double line goes on through the shares below, to the frame.
     if split {
-        verticals.push((TABLE_WIDTH, "╥", "╫", Some("╨")));
+        verticals.push((table_width, "╥", "╫", Some("╨")));
     }
 
     // The table and the years end in a line, then the share of each section per period.
@@ -249,7 +266,7 @@ fn stats(app: &App, width: usize) -> Stats {
             .iter()
             .map(|(name, style, periods)| (name.clone(), *style, periods[i].done))
             .collect();
-        let mut spans = vec![format!("{:<LABEL_WIDTH$}", period.name).dim()];
+        let mut spans = vec![format!("{:<label_width$}", period.name).dim()];
         let Some((parts, total)) = merge_small(&shares, gone[i].done) else {
             spans.push("nothing done".dim());
             lines.push(Line::from(spans));
@@ -258,10 +275,10 @@ fn stats(app: &App, width: usize) -> Stats {
         // Like the rows above: the text left of the double line, the bar right of it, where
         // and as long as the year bars are.
         if split {
-            let (legend, named) = share_legend(&parts, total, TABLE_WIDTH - LABEL_WIDTH - 1);
+            let (legend, named) = share_legend(&parts, total, table_width - label_width - 1);
             let used: usize = legend.iter().map(Span::width).sum();
             spans.extend(legend);
-            spans.push(" ".repeat(TABLE_WIDTH - LABEL_WIDTH - used).into());
+            spans.push(" ".repeat(table_width - label_width - used).into());
             spans.push("║ ".fg(LINE_COLOR));
             spans.push(" ".repeat(YEAR_LABEL).into());
             // The tasks of the named shares where the years have their numbers. Where they
@@ -273,7 +290,7 @@ fn stats(app: &App, width: usize) -> Stats {
             spans.push(" ".into());
             spans.extend(counts);
         } else {
-            let bar_width = (width.saturating_sub(LABEL_WIDTH) / 2).min(40);
+            let bar_width = (width.saturating_sub(label_width) / 2).min(MAX_SHARE_BAR);
             spans.extend(share_bar(&parts, total, bar_width));
             spans.push("  ".into());
             spans.extend(share_legend(&parts, total, usize::MAX).0);
@@ -282,11 +299,14 @@ fn stats(app: &App, width: usize) -> Stats {
     }
     Stats {
         lines,
-        rules: vec![(1, split), (end, true)],
+        rules: vec![(underline_at, split), (end, true)],
         verticals,
         end,
     }
 }
+
+/// A row of numbers in the period table: its name and its number for a period.
+type NumberRow = (&'static str, fn(&history::Period) -> String);
 
 /// The year before each year bar and its space.
 const YEAR_LABEL: usize = 5;
@@ -390,6 +410,8 @@ fn year_bars(
     rows: usize,
 ) -> (Vec<Vec<Span<'static>>>, usize) {
     const EIGHTHS: [&str; 8] = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
+    /// After this year's number, its bar runs on to the projection.
+    const SO_FAR: &str = " so far";
     let (shown, rest) = match years.len() > rows {
         true => years.split_at(rows - 1),
         false => (years, &[][..]),
@@ -406,8 +428,8 @@ fn year_bars(
         .max(1);
     let rest_done: usize = rest.iter().map(|(_, done)| done).sum();
     let digits = most.max(rest_done).to_string().len();
-    // The year, a space after the bar, the number and ` so far`.
-    let bar_width = width.saturating_sub(YEAR_LABEL + 1 + digits + 7);
+    // The year, a space after the bar, the number and [`SO_FAR`].
+    let bar_width = width.saturating_sub(YEAR_LABEL + 1 + digits + SO_FAR.len());
     let eighths = |count: usize| count * bar_width * 8 / most;
     let mut lines: Vec<Vec<Span>> = shown
         .iter()
@@ -424,7 +446,7 @@ fn year_bars(
                 format!("{done:>digits$}").into(),
             ];
             if year == today.year() {
-                spans.push(" so far".dim());
+                spans.push(SO_FAR.dim());
             }
             spans
         })
@@ -448,12 +470,9 @@ fn archive_block() -> Block<'static> {
     Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(LINE_COLOR)
-        .padding(Padding::horizontal(PADDING))
+        .padding(Padding::horizontal(2))
         .title(Line::from(" archive ".fg(DONE_COLOR).bold()))
 }
-
-/// Space inside the archive's frame on the left and the right.
-const PADDING: u16 = 2;
 
 /// Room for the weekdays on the right, next to the day cells they belong to.
 const WEEKDAYS: usize = 4;
@@ -476,9 +495,9 @@ fn heatmap_lines(days: &history::Days, width: usize) -> Vec<Line<'static>> {
     let columns = history::columns(days, today, room / STEP);
     let steps = steps();
     let bounds = history::bounds(
-        columns
-            .iter()
-            .flat_map(|column| (0..7).map(|row| history::rate(days, column.cell(row)))),
+        columns.iter().flat_map(|column| {
+            (0..history::CELLS).map(|row| history::rate(days, column.cell(row)))
+        }),
         steps.len(),
     );
     // Weekdays only line up for day cells, which are on the right.
@@ -486,7 +505,7 @@ fn heatmap_lines(days: &history::Days, width: usize) -> Vec<Line<'static>> {
 
     let zone_starts = zone_starts(&columns);
     let mut lines = vec![labels(&columns, &zone_starts)];
-    for row in 0..7 {
+    for row in 0..history::CELLS {
         let mut spans: Vec<Span> = Vec::new();
         for (i, column) in columns.iter().enumerate() {
             let cell = column.cell(row);
@@ -510,11 +529,12 @@ fn heatmap_lines(days: &history::Days, width: usize) -> Vec<Line<'static>> {
             };
             spans.extend([shade, gap]);
         }
-        let weekday = match (day_cells, row) {
-            (true, 0) => "Mon",
-            (true, 2) => "Wed",
-            (true, 4) => "Fri",
-            _ => "",
+        // Every other weekday, named after the day of its cell.
+        let weekday = match columns.last() {
+            Some(last) if day_cells && matches!(row, 0 | 2 | 4) => {
+                last.cell(row).0.strftime("%a").to_string()
+            }
+            _ => String::new(),
         };
         spans.push(weekday.dim());
         lines.push(Line::from(spans));
@@ -600,6 +620,22 @@ mod tests {
 
     use super::*;
     use crate::{app::tests::sections, keymap::Action, ui::render};
+
+    #[test]
+    fn narrow_screen_cuts_the_table_off() {
+        let today = jiff::Zoned::now().date();
+        let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
+        app.days = [(today, 3)].into();
+        app.update(Action::Archive);
+        let mut terminal = Terminal::new(TestBackend::new(30, 30)).unwrap();
+        terminal
+            .draw(|frame| {
+                render(&app, frame);
+            })
+            .unwrap();
+        let screen = format!("{:?}", terminal.backend().buffer());
+        assert!(screen.contains("╭ archive"), "{screen}");
+    }
 
     #[test]
     fn archive_from_the_bottom_when_toggled() {

@@ -21,59 +21,58 @@ pub fn render(frame: &mut Frame) {
         .map(|binding| label(binding).chars().count())
         .max()
         .unwrap_or(0);
-    // Rules as wide as the widest line: keys, the dots with a space on each side, the text.
-    let help_width = BINDINGS
+    let key_lines: Vec<Line> = BINDINGS
         .iter()
-        .map(|binding| binding.help.chars().count())
-        .max()
-        .unwrap_or(0);
-    let rule_width = label_width + 4 + help_width;
+        .map(|binding| {
+            // Only the keys are bold, so the `/` between them is not taken for the filter key.
+            let mut line = Vec::new();
+            for key in binding.labels() {
+                if !line.is_empty() {
+                    line.push(" / ".dim());
+                }
+                line.push(key.bold());
+            }
+            let dots = "·".repeat(label_width + 2 - label(binding).chars().count());
+            line.push(format!(" {dots} ").fg(LINE_COLOR));
+            line.push(binding.help.into());
+            Line::from(line)
+        })
+        .collect();
+    // Rules as wide as the widest line.
+    let rule_width = key_lines.iter().map(Line::width).max().unwrap_or(0);
 
     let mut lines = vec![Line::from("help".bold())];
     let mut groups = 0;
-    for (i, binding) in BINDINGS.iter().enumerate() {
+    for (i, (binding, line)) in BINDINGS.iter().zip(key_lines).enumerate() {
         if i == 0 || BINDINGS[i - 1].group != binding.group {
             lines.push(Line::default());
             lines.push(Line::from(rule(
-                binding.group,
                 None,
+                binding.group,
+                Vec::new(),
                 section_color(groups),
                 rule_width,
             )));
             groups += 1;
         }
-        // Only the keys are bold, so the `/` between them is not taken for the filter key.
-        let mut line = Vec::new();
-        for key in binding.labels() {
-            if !line.is_empty() {
-                line.push(" / ".dim());
-            }
-            line.push(key.bold());
-        }
-        let dots = "·".repeat(label_width + 2 - label(binding).chars().count());
-        line.push(format!(" {dots} ").fg(LINE_COLOR));
-        line.push(binding.help.into());
-        lines.push(Line::from(line));
+        lines.push(line);
     }
 
     let area = frame.area();
     let height = area.height.saturating_sub(1);
     let behind = Rect { height, ..area };
     frame.buffer_mut().set_style(behind, Modifier::DIM);
-    // Border and padding take 4 columns.
-    let width = (lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4).min(area.width);
+    let block = Block::new()
+        .borders(Borders::LEFT)
+        .border_type(BorderType::Double)
+        .border_style(LINE_COLOR)
+        .padding(Padding::new(2, 1, 1, 0));
+    // The columns the border and padding take.
+    let chrome = area.width - block.inner(area).width;
+    let width = (lines.iter().map(Line::width).max().unwrap_or(0) as u16 + chrome).min(area.width);
     let panel = Rect::new(area.right() - width, area.y, width, height);
     frame.render_widget(Clear, panel);
-    frame.render_widget(
-        Paragraph::new(lines).block(
-            Block::new()
-                .borders(Borders::LEFT)
-                .border_type(BorderType::Double)
-                .border_style(LINE_COLOR)
-                .padding(Padding::new(2, 1, 1, 0)),
-        ),
-        panel,
-    );
+    frame.render_widget(Paragraph::new(lines).block(block), panel);
 }
 
 #[cfg(test)]

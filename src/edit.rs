@@ -11,7 +11,7 @@ use crate::{
     name::slugify,
     op::Op,
     order::{Group, Order, OrderFile},
-    task::{Section, Task},
+    task::{EXTENSION, HEADING, Section, Task, split_heading},
 };
 
 /// `D`: removes task `t` of section `s`.
@@ -46,15 +46,15 @@ const SECTION_NOTE: &str = "<!-- Only the heading is used: it becomes the sectio
 
 /// What the editor shows to create (`N`, empty `title`) or rename (`<CR>`) a section.
 pub fn section_draft(title: &str) -> String {
-    format!("# {title}\n\n{SECTION_NOTE}\n")
+    format!("{HEADING}{title}\n\n{SECTION_NOTE}\n")
 }
 
 /// The section name from a saved [`section_draft`]: the heading as slug, and whether
 /// there was more text than the heading and the note. `None` for an empty heading.
 pub fn section_name(content: &str) -> Option<(String, bool)> {
-    let draft = Task::parse(PathBuf::from("section.md"), content);
-    let slug = slugify(&draft.heading?);
-    let more = !draft.body.replace(SECTION_NOTE, "").trim().is_empty();
+    let (heading, body) = split_heading(content);
+    let slug = slugify(&heading?);
+    let more = !body.replace(SECTION_NOTE, "").trim().is_empty();
     Some((slug, more))
 }
 
@@ -160,12 +160,14 @@ pub fn normalize(sections: &[Section], file: &OrderFile) -> Vec<Op> {
     ops
 }
 
-/// `o` / `O`: writes `task` into section `s` at position `index`. Returns the ops and the new path.
+/// `o` / `O`: writes a task with `title` and `content` into section `s` at position `index`.
+/// Returns the ops and the new path.
 pub fn insert(
     sections: &[Section],
     s: usize,
     index: usize,
-    task: &Task,
+    title: &str,
+    content: &str,
     file: &OrderFile,
 ) -> (Vec<Op>, PathBuf) {
     let section = &sections[s];
@@ -174,14 +176,14 @@ pub fn insert(
         .iter()
         .map(|task| task.stem().to_string())
         .collect();
-    let name = unique_slug(&taken, slugify(&task.title()));
-    let path = section.dir.join(format!("{name}.md"));
+    let name = unique_slug(&taken, slugify(title));
+    let path = section.dir.join(&name).with_extension(EXTENSION);
     let mut order = Order::of(sections);
     order.sections[s].tasks.insert(index, name);
 
     let mut ops = vec![Op::Create {
         path: path.clone(),
-        content: task.content.clone(),
+        content: content.to_string(),
     }];
     ops.extend(file.write(&order));
     (ops, path)
@@ -242,7 +244,7 @@ pub fn move_task(
         let dir = &sections[to].dir;
         let (renames, names) = renames(&target, dir);
         ops.extend(renames);
-        let path = dir.join(format!("{}.md", names[index]));
+        let path = dir.join(&names[index]).with_extension(EXTENSION);
         order.sections[to].tasks = names;
         path
     };
@@ -277,7 +279,7 @@ fn renames(entries: &[Entry], dir: &Path) -> (Vec<Op>, Vec<String>) {
         .iter()
         .zip(&names)
         .filter_map(|(entry, name)| {
-            let to = dir.join(format!("{name}.md"));
+            let to = dir.join(name).with_extension(EXTENSION);
             (entry.path != to).then(|| (entry.path.clone(), to))
         })
         .collect();
@@ -380,10 +382,6 @@ mod tests {
             path: PathBuf::from("root/.order"),
             content: Some(Order::of(sections).format()),
         }
-    }
-
-    fn task(title: &str) -> Task {
-        Task::parse(PathBuf::from("old.md"), &format!("# {title}\n\nbody"))
     }
 
     /// Ops as short strings with file names only: `rename a.md -> b.md`. An order file
@@ -568,7 +566,7 @@ mod tests {
     #[test]
     fn insert_keeps_content() {
         let s = tree(&[("work", &[])]);
-        let (ops, path) = insert(&s, 0, 0, &task("Fix bug"), &file_for(&s));
+        let (ops, path) = insert(&s, 0, 0, "Fix bug", "# Fix bug\n\nbody", &file_for(&s));
         let Op::Create { content, .. } = &ops[0] else {
             panic!("expected a create first");
         };
@@ -579,7 +577,7 @@ mod tests {
     #[test]
     fn insert_only_writes_the_order() {
         let s = tree(&[("work", &["a.md", "b.md"])]);
-        let insert_at = |index| describe(&insert(&s, 0, index, &task("New"), &file_for(&s)).0);
+        let insert_at = |index| describe(&insert(&s, 0, index, "New", "# New", &file_for(&s)).0);
 
         assert_eq!(insert_at(0), ["create new.md", "order # work new a b"]);
         assert_eq!(insert_at(1), ["create new.md", "order # work a new b"]);
@@ -589,7 +587,7 @@ mod tests {
     #[test]
     fn insert_name_collision() {
         let s = tree(&[("work", &["new.md", "new-2.md"])]);
-        let (ops, path) = insert(&s, 0, 2, &task("New"), &file_for(&s));
+        let (ops, path) = insert(&s, 0, 2, "New", "# New", &file_for(&s));
         assert_eq!(
             describe(&ops),
             ["create new-3.md", "order # work new new-2 new-3"]

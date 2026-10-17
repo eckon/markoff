@@ -29,7 +29,7 @@ use crate::{
     load,
     op::{self, Op},
     order::{self, OrderFile},
-    task::Section,
+    task::{self, Section},
     ui,
     watch::TodoWatcher,
 };
@@ -385,7 +385,7 @@ impl App {
         };
         let date = today();
         let archive_dir = self.root.join(archive::DIR);
-        let archive_path = archive_dir.join(format!("{date}.md"));
+        let archive_path = archive_dir.join(&date).with_extension(task::EXTENSION);
         // Not an op: an empty `.archive/` left behind by undo does no harm.
         fs::create_dir_all(&archive_dir)
             .wrap_err_with(|| format!("failed to create {}", archive_dir.display()))?;

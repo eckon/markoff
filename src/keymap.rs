@@ -105,7 +105,10 @@ impl Binding {
     pub fn labels(&self) -> Vec<String> {
         self.triggers()
             .filter_map(|(trigger, action)| match (trigger, action) {
-                (_, Action::JumpSection(0)) => Some("1-9".to_string()),
+                (_, Action::JumpSection(0)) => {
+                    let last = (0..).map_while(jump_key).last()?;
+                    Some(format!("{}-{last}", jump_key(0)?))
+                }
                 (_, Action::JumpSection(_)) | (Key(Up | Down | Home | End) | Shift(_), _) => None,
                 (Key(Char(c)), _) => Some(c.to_string()),
                 (Key(Enter), _) => Some("<CR>".to_string()),
@@ -121,6 +124,17 @@ impl Binding {
             .iter()
             .flat_map(|(triggers, action)| triggers.iter().map(|t| (*t, *action)))
     }
+}
+
+/// The key that jumps to section `s`, `None` for a section without one.
+pub fn jump_key(s: usize) -> Option<char> {
+    BINDINGS
+        .iter()
+        .flat_map(Binding::triggers)
+        .find_map(|(trigger, action)| match (trigger, action) {
+            (Key(Char(c)), Action::JumpSection(n)) if n == s => Some(c),
+            _ => None,
+        })
 }
 
 /// Translates key presses into [`Action`]s, including multi-key sequences like `gg`.

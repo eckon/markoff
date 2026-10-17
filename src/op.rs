@@ -14,6 +14,9 @@ use color_eyre::{
     eyre::{WrapErr, bail, eyre},
 };
 
+/// Starts the names of markoff's temp files. Hidden, so the loader never takes one for a task.
+pub const TEMP_PREFIX: &str = ".markoff-";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
     /// Writes a new file. Fails if it already exists.
@@ -137,7 +140,7 @@ fn ensure_free(path: &Path) -> Result<()> {
 fn write_atomic(path: &Path, content: &str) -> Result<()> {
     let dir = path.parent().unwrap_or(Path::new("."));
     let mut tmp = tempfile::Builder::new()
-        .prefix(".markoff-")
+        .prefix(TEMP_PREFIX)
         .tempfile_in(dir)
         .wrap_err_with(|| format!("failed to create temp file in {}", dir.display()))?;
 

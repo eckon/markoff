@@ -8,21 +8,12 @@ const MAX_SLUG_LEN: usize = 120;
 /// Slug for titles without any usable characters, so a file is never named `.md`.
 const FALLBACK_SLUG: &str = "untitled";
 
-/// Turns a title into a filename-safe slug: `Äpfel kaufen!` -> `aepfel-kaufen`.
+/// Turns a title into a filename-safe slug: `Äpfel kaufen!` -> `apfel-kaufen`.
 ///
 /// ASCII only, lowercase, `a-z0-9` separated by single `-`, at most [`MAX_SLUG_LEN`] chars.
 /// Falls back to [`FALLBACK_SLUG`] if nothing is left.
 pub fn slugify(title: &str) -> String {
-    // German umlauts first, deunicode would turn `ä` into `a`.
-    let title = title
-        .replace('ä', "ae")
-        .replace('ö', "oe")
-        .replace('ü', "ue")
-        .replace('Ä', "Ae")
-        .replace('Ö', "Oe")
-        .replace('Ü', "Ue")
-        .replace('ß', "ss");
-    let ascii = deunicode::deunicode(&title).to_lowercase();
+    let ascii = deunicode::deunicode(title).to_lowercase();
 
     // Every run of non-alphanumeric chars becomes a single `-`.
     let mut slug = String::new();
@@ -58,7 +49,7 @@ mod tests {
 
     #[test]
     fn slugify_transliterates() {
-        assert_eq!(slugify("Äpfel kaufen"), "aepfel-kaufen");
+        assert_eq!(slugify("Äpfel kaufen"), "apfel-kaufen");
         assert_eq!(slugify("Straße"), "strasse");
         assert_eq!(slugify("Café crème"), "cafe-creme");
     }

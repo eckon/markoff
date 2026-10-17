@@ -12,7 +12,7 @@ use jiff::civil::Date;
 use crate::{
     archive,
     order::{self, Order, OrderFile},
-    task::{Section, Task},
+    task::{self, Section, Task},
 };
 
 /// Loads the sections and their tasks in the order file's order. Also returns the order file
@@ -74,8 +74,9 @@ pub fn archive(root: &Path) -> Result<BTreeMap<Date, Vec<(String, usize)>>> {
     }
     let mut days = BTreeMap::new();
     for path in visible_entries(&dir)? {
-        let Some(date) = file_name(&path)
-            .strip_suffix(".md")
+        let Some(date) = Some(&path)
+            .filter(|path| is_markdown(path))
+            .and_then(|path| path.file_stem()?.to_str())
             .and_then(|stem| stem.parse::<Date>().ok())
         else {
             continue;
@@ -135,7 +136,7 @@ fn file_name(path: &Path) -> &str {
 }
 
 fn is_markdown(path: &Path) -> bool {
-    path.extension().is_some_and(|ext| ext == "md")
+    path.extension().is_some_and(|ext| ext == task::EXTENSION)
 }
 
 #[cfg(test)]

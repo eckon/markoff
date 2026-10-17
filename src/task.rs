@@ -4,6 +4,12 @@
 
 use std::path::{Path, PathBuf};
 
+/// Extension of task files. Archive files and drafts have it too, for markdown highlighting.
+pub const EXTENSION: &str = "md";
+
+/// Starts the `# Heading` that is the title, of tasks and of the drafts in the editor.
+pub const HEADING: &str = "# ";
+
 /// One task file, e.g. `work/fix-login-bug.md` in the root.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Task {
@@ -60,14 +66,14 @@ fn stem(path: &Path) -> Option<&str> {
 /// An empty heading (`# `) is treated as no heading, which is how `o` / `O` detect an aborted
 /// create.
 /// No frontmatter support yet: a file starting with `---` has no heading.
-fn split_heading(content: &str) -> (Option<String>, &str) {
+pub fn split_heading(content: &str) -> (Option<String>, &str) {
     let trimmed = content.trim_start();
     let (first_line, rest) = trimmed.split_once('\n').unwrap_or((trimmed, ""));
 
     // `trim_end` also removes the `\r` of Windows line endings, and turns an empty `# ` into `#`.
     let heading = match first_line.trim_end() {
-        "#" => "",
-        line => match line.strip_prefix("# ") {
+        line if line == HEADING.trim_end() => "",
+        line => match line.strip_prefix(HEADING) {
             Some(heading) => heading,
             None => return (None, content),
         },

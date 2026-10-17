@@ -20,8 +20,14 @@ pub const DIR: &str = ".archive";
 /// Deepest heading level in markdown.
 const MAX_HEADING_LEVEL: usize = 6;
 
-/// How far task headings move down: `# Task` becomes `### Task` below `## section`.
-const HEADING_SHIFT: usize = 2;
+/// Level of the section headings: `## work`.
+const SECTION_LEVEL: usize = 2;
+
+/// Level of the task headings, one below their section: `# Task` becomes `### Task`.
+const TASK_LEVEL: usize = SECTION_LEVEL + 1;
+
+/// How far headings in a task move down, so its `# Task` lands on [`TASK_LEVEL`].
+const HEADING_SHIFT: usize = TASK_LEVEL - 1;
 
 /// Adds `task` under `## {section}` and returns the new archive content.
 ///
@@ -31,7 +37,7 @@ const HEADING_SHIFT: usize = 2;
 /// added again at the end then. Nothing is lost.
 pub fn add(archive: Option<&str>, date: &str, section: &str, task: &Task) -> String {
     let entry = entry(task);
-    let heading = format!("## {section}");
+    let heading = format!("{} {section}", "#".repeat(SECTION_LEVEL));
 
     let Some(archive) = archive else {
         return format!("# {date}\n\n{heading}\n\n{entry}\n");
@@ -65,8 +71,8 @@ pub fn sections(archive: &str) -> Vec<(String, usize)> {
             continue;
         }
         match heading_level(line) {
-            Some(2) => sections.push((line[2..].trim().to_string(), 0)),
-            Some(level) if level == 1 + HEADING_SHIFT => match sections.last_mut() {
+            Some(SECTION_LEVEL) => sections.push((line[SECTION_LEVEL..].trim().to_string(), 0)),
+            Some(TASK_LEVEL) => match sections.last_mut() {
                 Some((_, done)) => *done += 1,
                 None => sections.push((String::new(), 1)),
             },
@@ -78,7 +84,7 @@ pub fn sections(archive: &str) -> Vec<(String, usize)> {
 
 /// The task as it appears in the archive: `### Title`, then the body with shifted headings.
 fn entry(task: &Task) -> String {
-    let title = "#".repeat(1 + HEADING_SHIFT);
+    let title = "#".repeat(TASK_LEVEL);
     let body = shift_headings(task.body.trim());
     if body.is_empty() {
         format!("{title} {}", task.title())
@@ -113,7 +119,7 @@ fn section_end(archive: &str, heading: &str) -> Option<usize> {
     let mut in_section = false;
     let mut offset = 0;
     for line in archive.split_inclusive('\n') {
-        if !fence.update(line) && heading_level(line) == Some(2) {
+        if !fence.update(line) && heading_level(line) == Some(SECTION_LEVEL) {
             if in_section {
                 return Some(offset);
             }

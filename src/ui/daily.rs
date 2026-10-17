@@ -2,7 +2,7 @@
 //! tasks, on top of the sections.
 
 use ratatui::{
-    style::{Color, Style},
+    style::{Color, Style, Stylize},
     text::Span,
 };
 
@@ -28,7 +28,7 @@ pub fn header(app: &App, width: usize) -> Vec<Span<'static>> {
         .filter(|task| !task.done_on(&today))
         .count();
     let count = format!("{open}/{}", tasks(app).len());
-    rule("daily", Some(count), COLOR, width)
+    rule(None, "daily", vec![count.dim()], COLOR, width)
 }
 
 /// Task `i`, crossed out once done today.
