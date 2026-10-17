@@ -2,8 +2,8 @@
 //!
 //! Everything here is pure string handling, no file system access.
 
-/// Max slug length, so filenames stay readable in `ls`.
-const MAX_SLUG_LEN: usize = 50;
+/// Max slug length. Long titles still fit, the file system allows 255 bytes per name.
+const MAX_SLUG_LEN: usize = 120;
 
 /// Slug for titles without any usable characters, so a file is never named `.md`.
 const FALLBACK_SLUG: &str = "untitled";
@@ -65,7 +65,7 @@ mod tests {
 
     #[test]
     fn slugify_truncates_without_trailing_dash() {
-        let slug = slugify(&"word ".repeat(20));
+        let slug = slugify(&"word ".repeat(40));
         assert!(slug.len() <= MAX_SLUG_LEN);
         assert!(!slug.ends_with('-'));
     }
