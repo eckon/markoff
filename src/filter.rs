@@ -62,6 +62,6 @@ mod tests {
         // `ä` takes two bytes, the range still fits the original text.
         assert_eq!(find("Bär bär", "BÄR"), [0..4, 5..9]);
         assert_eq!(find("aaaa", "aa"), [0..2, 2..4], "no overlaps");
-        assert_eq!(find("text", ""), []);
+        assert!(find("text", "").is_empty());
     }
 }
