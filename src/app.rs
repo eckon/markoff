@@ -47,6 +47,8 @@ enum EditorRequest {
     Open(PathBuf),
     /// `n`: write a new task, inserted at `index` in section `section`.
     Create { section: usize, index: usize },
+    /// `N`: write a new section, inserted after section `section`.
+    CreateSection(usize),
     /// `<CR>` on a section header: rename section `section`.
     RenameSection(usize),
 }
@@ -183,8 +185,13 @@ impl App {
                         editor::create(terminal, &self.sections[section].dir, "# \n")
                             .and_then(|content| self.after_create(section, index, &content))
                     }
+                    EditorRequest::CreateSection(section) => {
+                        let draft = edit::section_draft("");
+                        editor::create(terminal, &self.sections[0].dir, &draft)
+                            .and_then(|content| self.after_create_section(section, &content))
+                    }
                     EditorRequest::RenameSection(section) => {
-                        let draft = edit::section_draft(&self.sections[section]);
+                        let draft = edit::section_draft(&self.sections[section].title());
                         editor::rename(terminal, &self.sections[0].dir, &draft)
                             .and_then(|content| self.after_rename_section(section, &content))
                     }
@@ -248,9 +255,13 @@ impl App {
     }
 
     fn try_update(&mut self, action: Action) -> Result<()> {
-        // Where a task goes is unclear while tasks in between are hidden.
+        // Where a task goes is unclear while tasks in between are hidden, and a new task or
+        // section would mostly be hidden right away.
         if !self.filter.is_empty()
-            && matches!(action, Action::MoveDown | Action::MoveUp | Action::New)
+            && matches!(
+                action,
+                Action::MoveDown | Action::MoveUp | Action::New | Action::NewSection
+            )
         {
             self.status = Some(Status::Info("clear the filter first (Esc)".to_string()));
             return Ok(());
@@ -289,6 +300,11 @@ impl App {
                 if let Some(Row::Section(section) | Row::Task(section, _)) = self.selected() {
                     let index = self.sections[section].tasks.len();
                     self.editor_request = Some(EditorRequest::Create { section, index });
+                }
+            }
+            Action::NewSection => {
+                if let Some(Row::Section(section) | Row::Task(section, _)) = self.selected() {
+                    self.editor_request = Some(EditorRequest::CreateSection(section));
                 }
             }
             Action::Done => self.done()?,
@@ -389,6 +405,33 @@ impl App {
             .map_err(|err| eyre!("task not added: {err}"))
     }
 
+    /// Creates a section named by the heading written in the editor, after section `s`.
+    fn after_create_section(&mut self, s: usize, content: &str) -> Result<()> {
+        let (slug, more) =
+            edit::section_name(content).ok_or_else(|| eyre!("aborted, empty title"))?;
+        self.ensure_no_section(&slug)?;
+        // Renames keep the order of sections, so `s` stays valid.
+        self.normalize_before_action();
+        let (ops, created) = edit::insert_section(&self.sections, s, &slug)
+            .ok_or_else(|| eyre!("too many sections ({MAX_ORDER})"))?;
+        self.apply(ops)?;
+        self.select_path(&created);
+        if more {
+            self.status = Some(Status::Info(
+                "created, only the heading is used for a section".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Two sections with the same name would look the same in the list and the archive.
+    fn ensure_no_section(&self, slug: &str) -> Result<()> {
+        if self.sections.iter().any(|section| section.title() == slug) {
+            return Err(eyre!("a section named {slug} already exists"));
+        }
+        Ok(())
+    }
+
     /// Renames section `s` to the heading written in the editor.
     fn after_rename_section(&mut self, s: usize, content: &str) -> Result<()> {
         let (slug, more) =
@@ -396,9 +439,7 @@ impl App {
         if slug == self.sections[s].title() {
             return Ok(());
         }
-        if self.sections.iter().any(|section| section.title() == slug) {
-            return Err(eyre!("a section named {slug} already exists"));
-        }
+        self.ensure_no_section(&slug)?;
         // Renames keep the order of sections, so `s` stays valid.
         self.normalize_before_action();
         let (op, to) = edit::rename_section(&self.sections[s], &slug)
@@ -902,7 +943,12 @@ pub mod tests {
         type_filter(&mut app, "a");
         app.update(Action::FilterAccept);
         app.cursor = 1;
-        for action in [Action::MoveDown, Action::MoveUp, Action::New] {
+        for action in [
+            Action::MoveDown,
+            Action::MoveUp,
+            Action::New,
+            Action::NewSection,
+        ] {
             app.status = None;
             app.update(action);
             assert_eq!(
@@ -1016,10 +1062,69 @@ pub mod tests {
     }
 
     #[test]
+    fn after_create_section_inserts_and_undo_removes() {
+        let (dir, mut app) = app_with_files(&["01-a.md", "01-work/01-b.md", "02-home/"]);
+        let before = listing(&app);
+        let draft = edit::section_draft;
+
+        assert_eq!(
+            app.after_create_section(1, &draft(""))
+                .unwrap_err()
+                .to_string(),
+            "aborted, empty title"
+        );
+        assert_eq!(
+            app.after_create_section(1, &draft("Home"))
+                .unwrap_err()
+                .to_string(),
+            "a section named home already exists"
+        );
+        assert_eq!(listing(&app), before);
+
+        // `N` was pressed on `b`: after `work`, `home` makes room.
+        app.cursor = 3;
+        let content = format!("{}\nnotes", draft("Garden"));
+        app.after_create_section(1, &content).unwrap();
+        assert_eq!(
+            listing(&app),
+            [
+                "[inbox]", "01-a.md", "[work]", "01-b.md", "[garden]", "[home]"
+            ]
+        );
+        assert!(dir.path().join("todo/02-garden").is_dir());
+        assert!(dir.path().join("todo/03-home").is_dir());
+        assert_eq!(app.cursor, 4, "cursor on the new section");
+        assert_eq!(
+            app.status,
+            Some(Status::Info(
+                "created, only the heading is used for a section".to_string()
+            ))
+        );
+
+        app.update(Action::Undo);
+        assert_eq!(listing(&app), before);
+        assert_eq!(app.cursor, 3, "back on `b`");
+    }
+
+    #[test]
+    fn new_section_requests_create_after_cursor_section() {
+        let (_dir, mut app) = app_with_files(&["01-a.md", "01-work/01-b.md"]);
+        for (cursor, section) in [(0, 0), (1, 0), (2, 1), (3, 1)] {
+            app.cursor = cursor;
+            app.update(Action::NewSection);
+            assert_eq!(
+                app.editor_request,
+                Some(EditorRequest::CreateSection(section)),
+                "cursor {cursor}"
+            );
+        }
+    }
+
+    #[test]
     fn after_rename_section_renames_and_undo_reverts() {
         let (dir, mut app) = app_with_files(&["01-work/01-a.md", "02-home/"]);
         let before = listing(&app);
-        let template = edit::section_draft(&app.sections[1]);
+        let template = edit::section_draft("work");
         let draft = |title: &str| template.replace("# work", title);
 
         // Empty title, unchanged name and a clash change nothing.

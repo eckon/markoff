@@ -41,9 +41,9 @@ pub fn delete_section(sections: &[Section], s: usize) -> Vec<Op> {
 /// In the section draft: a section is a directory, there is no file for text to go into.
 const SECTION_NOTE: &str = "<!-- Only the heading is used: it becomes the section name. -->";
 
-/// `<CR>` on a section header: what the editor shows to rename it.
-pub fn section_draft(section: &Section) -> String {
-    format!("# {}\n\n{SECTION_NOTE}\n", section.title())
+/// What the editor shows to create (`N`, empty `title`) or rename (`<CR>`) a section.
+pub fn section_draft(title: &str) -> String {
+    format!("# {title}\n\n{SECTION_NOTE}\n")
 }
 
 /// The section name from a saved [`section_draft`]: the heading as slug, and whether
@@ -204,6 +204,29 @@ pub fn insert(section: &Section, index: usize, task: &Task) -> Option<(Vec<Op>, 
         path: path.clone(),
         content: task.content.clone(),
     });
+    Some((ops, path))
+}
+
+/// `N`: creates section `slug` right after section `s` (first if `s` is the inbox) and
+/// renumbers the sections after it. Returns the ops and the new directory, `None` if there
+/// are too many sections.
+pub fn insert_section(sections: &[Section], s: usize, slug: &str) -> Option<(Vec<Op>, PathBuf)> {
+    // Position among the section directories, the inbox is not one of them.
+    let index = s;
+    let mut entries = section_entries(sections);
+    entries.insert(
+        index,
+        Entry {
+            path: None,
+            current_slug: None,
+            slug: slug.to_string(),
+            suffix: "",
+        },
+    );
+    let todo_dir = &sections[0].dir;
+    let (mut ops, names) = renumber(&entries, todo_dir)?;
+    let path = todo_dir.join(names[index].to_stem());
+    ops.push(Op::CreateDir { path: path.clone() });
     Some((ops, path))
 }
 
@@ -443,10 +466,7 @@ mod tests {
 
     #[test]
     fn section_draft_round_trip() {
-        let sections = tree(&[("", &[]), ("01-work", &[])]);
-        let mut s = sections[1].clone();
-        s.path = vec!["work".to_string()];
-        let draft = section_draft(&s);
+        let draft = section_draft("work");
         assert_eq!(section_name(&draft), Some(("work".to_string(), false)));
 
         let renamed = draft.replace("# work", "# Work Stuff");
@@ -459,6 +479,21 @@ mod tests {
 
         assert_eq!(section_name(&draft.replace("# work", "# ")), None);
         assert_eq!(section_name("no heading"), None);
+    }
+
+    #[test]
+    fn insert_section_makes_room() {
+        let sections = tree(&[("", &[]), ("01-a", &[]), ("02-b", &[])]);
+        let (ops, path) = insert_section(&sections, 1, "new").unwrap();
+        assert_eq!(describe(&ops), ["rename 02-b -> 03-b", "mkdir 02-new"]);
+        assert_eq!(path, Path::new("todo/02-new"));
+
+        // From the inbox: first section.
+        let (ops, _) = insert_section(&sections, 0, "new").unwrap();
+        assert_eq!(
+            describe(&ops),
+            ["rename 01-a -> 02-a", "rename 02-b -> 03-b", "mkdir 01-new"]
+        );
     }
 
     #[test]
