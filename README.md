@@ -13,6 +13,16 @@ A TUI for todos stored as plain markdown files. Quick actions in the TUI, writin
 
 ## Install
 
+Prebuilt static binary for Linux (x86_64): download `markoff-x86_64-unknown-linux-musl.tar.xz` from the latest [release](https://github.com/eckon/markoff/releases), then:
+
+```sh
+tar -xJf markoff-x86_64-unknown-linux-musl.tar.xz --strip-components=1 -C ~/.local/bin markoff-x86_64-unknown-linux-musl/markoff
+```
+
+Do the same again to update.
+
+From source:
+
 ```sh
 cargo install --path .
 ```

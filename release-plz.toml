@@ -1,0 +1,9 @@
+[workspace]
+# Not on crates.io, the last released version comes from the git tags.
+git_only = true
+# Stay on 0.x until 1.0 is a conscious step: `feat` bumps the minor, not the patch.
+features_always_increment_minor = true
+# Release only when the release PR is merged, not on every push.
+release_always = false
+# dist uploads the binaries to the draft and publishes it.
+git_release_draft = true

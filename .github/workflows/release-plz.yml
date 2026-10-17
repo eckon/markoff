@@ -1,0 +1,45 @@
+name: Release-plz
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  # Tags and drafts the release once the release PR is merged, the tag starts release.yml (dist).
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: release-plz/action@v0.5
+        with:
+          command: release
+        env:
+          # A tag pushed with GITHUB_TOKEN would not trigger release.yml.
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+
+  # Opens or updates the release PR with the next version and changelog.
+  release-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: release-plz-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          # PRs opened with GITHUB_TOKEN do not run CI.
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
