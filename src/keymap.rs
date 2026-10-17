@@ -180,6 +180,9 @@ impl Keymap {
     }
 }
 
+/// Key hints in the status line while the filter input is open, see [`filter_input`].
+pub const FILTER_INPUT_HINTS: &[(&str, &str)] = &[("<CR>", "keep filter"), ("Esc", "clear filter")];
+
 /// Keys while the filter input is open: text goes into the filter, not to [`BINDINGS`].
 /// Not in the help, the README lists them. `C-c` still quits.
 pub fn filter_input(key: KeyEvent) -> Option<Action> {

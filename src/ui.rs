@@ -13,7 +13,7 @@ use ratatui::{
 use crate::{
     app::{App, Row, Status},
     filter,
-    keymap::{BINDINGS, Binding},
+    keymap::{Action, BINDINGS, Binding, FILTER_INPUT_HINTS},
 };
 
 /// Draws the whole screen from the current state. Rendering never mutates the app, it
@@ -125,21 +125,71 @@ fn render_help(frame: &mut Frame) {
     );
 }
 
-/// The open filter input with the terminal cursor at its end. Otherwise the last error or
-/// message, the pending key of an unfinished sequence (`g`), or the filter that is set with
-/// its number of matching tasks.
+/// Left the open filter input with the terminal cursor at its end, otherwise the last error
+/// or message, the pending key of an unfinished sequence (`g`), or the filter that is set
+/// with its number of matching tasks. Right the key hints for the current mode.
 fn render_status(app: &App, frame: &mut Frame, area: Rect) {
-    let filter = format!("/{}", app.filter);
-    if app.filter_input {
+    let left = if app.filter_input {
+        let filter = format!("/{}", app.filter);
         let end = area.x + Line::from(filter.as_str()).width() as u16;
-        frame.render_widget(Line::from(filter), area);
         frame.set_cursor_position((end.min(area.right().saturating_sub(1)), area.y));
-        return;
+        Line::from(filter)
+    } else {
+        status_text(app)
+    };
+
+    // Hints give way from the end, the left side is what just happened.
+    let mut hints = hints(app);
+    let width = |hints: &[(String, &str)]| {
+        let keys_and_texts: usize = hints
+            .iter()
+            .map(|(key, text)| key.chars().count() + 1 + text.chars().count())
+            .sum();
+        keys_and_texts + 2 * hints.len().saturating_sub(1)
+    };
+    while !hints.is_empty() && left.width() + 2 + width(&hints) > area.width as usize {
+        hints.pop();
     }
-    let line = match (&app.status, app.keymap.pending()) {
+    let mut spans = Vec::new();
+    for (i, (key, text)) in hints.into_iter().enumerate() {
+        if i > 0 {
+            spans.push("  ".into());
+        }
+        spans.push(key.bold());
+        spans.push(format!(" {text}").dim());
+    }
+
+    frame.render_widget(left, area);
+    frame.render_widget(Line::from(spans).right_aligned(), area);
+}
+
+/// Key hints per mode: how to get out of the filter, and where to find the rest. Keys and
+/// texts from [`BINDINGS`], so they always match.
+fn hints(app: &App) -> Vec<(String, &'static str)> {
+    if app.filter_input {
+        return FILTER_INPUT_HINTS
+            .iter()
+            .map(|(key, text)| (key.to_string(), *text))
+            .collect();
+    }
+    let actions: &[Action] = if app.filter.is_empty() {
+        &[Action::Help]
+    } else {
+        &[Action::FilterClear, Action::Help]
+    };
+    actions
+        .iter()
+        .filter_map(|action| BINDINGS.iter().find(|b| b.action == *action))
+        .map(|b| (b.label(), b.help))
+        .collect()
+}
+
+/// The left side of the status line when the filter input is closed.
+fn status_text(app: &App) -> Line<'_> {
+    match (&app.status, app.keymap.pending()) {
         (Some(Status::Error(message)), _) => Line::from(message.as_str().red()),
         (Some(Status::Info(message)), _) => Line::from(message.as_str()),
-        (None, Some(key)) => Line::from(key.to_string()).right_aligned(),
+        (None, Some(key)) => Line::from(key.to_string()),
         (None, None) if !app.filter.is_empty() => {
             let count = app
                 .rows()
@@ -150,12 +200,11 @@ fn render_status(app: &App, frame: &mut Frame, area: Rect) {
             Line::from(vec![
                 "filter: ".dim(),
                 app.filter.as_str().bold(),
-                format!(" · {count} {tasks}   Esc clears").dim(),
+                format!(" · {count} {tasks}").dim(),
             ])
         }
         (None, None) => Line::default(),
-    };
-    frame.render_widget(line, area);
+    }
 }
 
 /// Colors of the sections in list order (inbox first), repeating. Only the 16 terminal
@@ -484,16 +533,25 @@ mod tests {
         assert!(lines[1].contains("Review"), "{lines:#?}");
         assert!(!lines.join("\n").contains("Fix typo"));
         assert!(lines[8].starts_with("/rev "), "input at the bottom");
+        assert!(lines[8].ends_with("<CR> keep filter  Esc clear filter"));
 
         // Accepted, the filter stays visible in the status line, with its matches.
         app.update(Action::FilterAccept);
-        assert!(
-            screen(&app)
-                .lines()
-                .last()
-                .unwrap()
-                .starts_with("filter: rev · 1 task   Esc clears")
-        );
+        let screen = screen(&app);
+        let status = screen.lines().last().unwrap();
+        assert!(status.starts_with("filter: rev · 1 task "), "{status:?}");
+        assert!(status.ends_with("Esc clear filter  ? help"), "{status:?}");
+    }
+
+    #[test]
+    fn status_hints_give_way_to_messages() {
+        let mut app = App::new(PathBuf::new(), sections(&[(&[], &[])]));
+        assert!(screen(&app).lines().last().unwrap().ends_with("? help"));
+
+        // 50 columns: no room for the hint next to this message.
+        let message = "x".repeat(44);
+        app.status = Some(Status::Info(message.clone()));
+        assert_eq!(screen(&app).lines().last().unwrap().trim_end(), message);
     }
 
     #[test]
