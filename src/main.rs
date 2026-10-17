@@ -23,8 +23,9 @@ fn main() -> Result<()> {
     color_eyre::install()?;
 
     // Load before entering the TUI, so errors print to a normal terminal.
-    let root = config::root_dir_from_env()?;
-    let app = App::load(root)?;
+    let (root, config) = config::from_env()?;
+    let daily = config.daily.map(|name| root.join(name));
+    let app = App::load(root, daily)?;
 
     // `ratatui::run` sets up the terminal, restores it on exit and installs a panic hook.
     ratatui::run(|terminal| app.run(terminal))

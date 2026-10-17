@@ -149,21 +149,33 @@ fn render_status(app: &App, frame: &mut Frame, area: Rect) {
         status_text(app)
     };
 
-    // Hints give way from the end, the left side is what just happened.
+    // Done today, so archived tasks don't just vanish. Shown in every mode.
+    let mut done = (app.done_today > 0).then(|| format!("{} done today", app.done_today));
+
+    // Hints give way from the end, then the count. The left side is what just happened.
     let mut hints = hints(app);
-    let width = |hints: &[(String, &str)]| {
-        let keys_and_texts: usize = hints
-            .iter()
-            .map(|(key, text)| key.chars().count() + 1 + text.chars().count())
-            .sum();
-        keys_and_texts + 2 * hints.len().saturating_sub(1)
+    let width = |done: &Option<String>, hints: &[(String, &str)]| {
+        let items = done.iter().map(|done| done.chars().count()).chain(
+            hints
+                .iter()
+                .map(|(key, text)| key.chars().count() + 1 + text.chars().count()),
+        );
+        let count = done.iter().count() + hints.len();
+        items.sum::<usize>() + 2 * count.saturating_sub(1)
     };
-    while !hints.is_empty() && left.width() + 2 + width(&hints) > area.width as usize {
-        hints.pop();
+    while (done.is_some() || !hints.is_empty())
+        && left.width() + 2 + width(&done, &hints) > area.width as usize
+    {
+        if hints.pop().is_none() {
+            done = None;
+        }
     }
     let mut spans = Vec::new();
-    for (i, (key, text)) in hints.into_iter().enumerate() {
-        if i > 0 {
+    if let Some(done) = done {
+        spans.push(done.dim());
+    }
+    for (key, text) in hints {
+        if !spans.is_empty() {
             spans.push("  ".into());
         }
         spans.push(key.bold());
@@ -592,6 +604,25 @@ mod tests {
         let message = "x".repeat(44);
         app.status = Some(Status::Info(message.clone()));
         assert_eq!(screen(&app).lines().last().unwrap().trim_end(), message);
+    }
+
+    #[test]
+    fn status_shows_done_today_before_the_hints() {
+        let mut app = App::new(PathBuf::new(), sections(&[(&[], &[])]));
+        assert!(!screen(&app).contains("done today"), "not for 0");
+
+        app.done_today = 3;
+        app.status = Some(Status::Info("done Fix typo (u to undo)".to_string()));
+        let status = screen(&app).lines().last().unwrap().to_string();
+        assert!(status.starts_with("done Fix typo"), "{status:?}");
+        assert!(status.ends_with("3 done today  ? help"), "{status:?}");
+
+        // The hint gives way first, then the count.
+        app.status = Some(Status::Info("x".repeat(30)));
+        let status = screen(&app).lines().last().unwrap().to_string();
+        assert!(status.trim_end().ends_with("3 done today"), "{status:?}");
+        app.status = Some(Status::Info("x".repeat(44)));
+        assert!(!screen(&app).contains("done today"));
     }
 
     #[test]

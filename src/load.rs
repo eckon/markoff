@@ -1,4 +1,4 @@
-//! Reads the `todo/` directory into [`Section`]s, in the order of [`order::FILE`].
+//! Reads the root directory into [`Section`]s, in the order of [`order::FILE`].
 
 use std::{
     fs, io,
@@ -15,34 +15,38 @@ use crate::{
 /// Loads all sections, inbox first, then the section directories, both in the order file's
 /// order. What it does not list goes last, sorted by name.
 ///
+/// `skip` is a file that is not a task (the daily checklist).
+///
 /// Also returns the order file as read. Actions write it based on that content, so it is
 /// never overwritten with an order from before a change made outside markoff.
 ///
 /// The inbox is always present, even if empty, so there is always somewhere to add a task.
 /// Only one level of sections is read, deeper directories are ignored for now.
-pub fn load(todo_dir: &Path) -> Result<(Vec<Section>, OrderFile)> {
-    let file = read_order_file(todo_dir)?;
+pub fn load(root: &Path, skip: Option<&Path>) -> Result<(Vec<Section>, OrderFile)> {
+    let file = read_order_file(root)?;
     // A missing order file is an empty order: everything sorted by name.
     let order = file
         .content
         .as_deref()
         .map(Order::parse)
         .unwrap_or_default();
-    let entries = visible_entries(todo_dir)?;
+    let is_task =
+        |path: &PathBuf| path.is_file() && is_markdown(path) && Some(path.as_path()) != skip;
+    let entries = visible_entries(root)?;
 
     let mut inbox_tasks = Vec::new();
     let mut section_dirs = Vec::new();
     for path in entries {
         if path.is_dir() {
             section_dirs.push(path);
-        } else if is_markdown(&path) {
+        } else if is_task(&path) {
             inbox_tasks.push(path);
         }
     }
 
     let mut sections = vec![Section {
         path: vec![],
-        dir: todo_dir.to_path_buf(),
+        dir: root.to_path_buf(),
         tasks: load_tasks(inbox_tasks, &order, "")?,
     }];
 
@@ -51,10 +55,7 @@ pub fn load(todo_dir: &Path) -> Result<(Vec<Section>, OrderFile)> {
     });
     for dir in section_dirs {
         let name = file_name(&dir).to_string();
-        let task_paths = visible_entries(&dir)?
-            .into_iter()
-            .filter(|path| path.is_file() && is_markdown(path))
-            .collect();
+        let task_paths = visible_entries(&dir)?.into_iter().filter(is_task).collect();
         sections.push(Section {
             tasks: load_tasks(task_paths, &order, &name)?,
             path: vec![name],
@@ -65,8 +66,8 @@ pub fn load(todo_dir: &Path) -> Result<(Vec<Section>, OrderFile)> {
     Ok((sections, file))
 }
 
-fn read_order_file(todo_dir: &Path) -> Result<OrderFile> {
-    let path = todo_dir.join(order::FILE);
+fn read_order_file(root: &Path) -> Result<OrderFile> {
+    let path = root.join(order::FILE);
     let content = match fs::read_to_string(&path) {
         Ok(content) => Some(content),
         Err(err) if err.kind() == io::ErrorKind::NotFound => None,
@@ -95,7 +96,7 @@ fn load_tasks(mut paths: Vec<PathBuf>, order: &Order, section: &str) -> Result<V
         .collect()
 }
 
-/// Directory entries without hidden ones (`.git`, `.order`, editor swap files).
+/// Directory entries without hidden ones (`.git`, `.order`, `.archive`, editor swap files).
 fn visible_entries(dir: &Path) -> Result<Vec<PathBuf>> {
     let read_dir =
         fs::read_dir(dir).wrap_err_with(|| format!("failed to read {}", dir.display()))?;
@@ -133,7 +134,7 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    /// Creates a temp `todo/` with the given files. Paths ending in `/` become empty directories.
+    /// Creates a temp root with the given files. Paths ending in `/` become empty directories.
     fn fixture(files: &[(&str, &str)]) -> TempDir {
         let dir = TempDir::new().unwrap();
         for (path, content) in files {
@@ -155,7 +156,7 @@ mod tests {
     #[test]
     fn empty_dir_has_inbox() {
         let dir = fixture(&[]);
-        let (sections, _) = load(dir.path()).unwrap();
+        let (sections, _) = load(dir.path(), None).unwrap();
         assert_eq!(sections.len(), 1);
         assert_eq!(sections[0].title(), "inbox");
         assert!(sections[0].tasks.is_empty());
@@ -177,7 +178,7 @@ mod tests {
             ("work/fix-login-bug.md", "# Fix login bug"),
             ("work/review-pr.md", "# Review PR"),
         ]);
-        let (sections, _) = load(dir.path()).unwrap();
+        let (sections, _) = load(dir.path(), None).unwrap();
 
         assert_eq!(section_titles(&sections), ["inbox", "work", "private"]);
         assert_eq!(titles(&sections[0]), ["Fix typo"]);
@@ -200,7 +201,7 @@ mod tests {
             ("home/", ""),
             ("work/", ""),
         ]);
-        let (sections, _) = load(dir.path()).unwrap();
+        let (sections, _) = load(dir.path(), None).unwrap();
 
         assert_eq!(titles(&sections[0]), ["b", "a", "c"]);
         assert_eq!(section_titles(&sections), ["inbox", "work", "home", "misc"]);
@@ -210,7 +211,7 @@ mod tests {
     fn without_order_file_by_name() {
         // Old numbered names keep their order this way until they are renamed.
         let dir = fixture(&[("02-b.md", ""), ("01-a.md", ""), ("01-work/", "")]);
-        let (sections, _) = load(dir.path()).unwrap();
+        let (sections, _) = load(dir.path(), None).unwrap();
         assert_eq!(titles(&sections[0]), ["01 a", "02 b"]);
         assert_eq!(section_titles(&sections), ["inbox", "01-work"]);
     }
@@ -219,13 +220,14 @@ mod tests {
     fn ignores_hidden_non_markdown_and_nested() {
         let dir = fixture(&[
             (".git/config", ""),
+            (".archive/2026-10-14.md", ""),
             (".hidden.md", ""),
             ("readme.txt", ""),
             ("work/.swap.md", ""),
             ("work/nested/deep.md", ""),
             ("work/task.md", "# Task"),
         ]);
-        let (sections, _) = load(dir.path()).unwrap();
+        let (sections, _) = load(dir.path(), None).unwrap();
 
         assert_eq!(sections.len(), 2);
         assert!(sections[0].tasks.is_empty());
@@ -233,9 +235,20 @@ mod tests {
     }
 
     #[test]
+    fn skips_the_given_file() {
+        let dir = fixture(&[("daily.md", "## Jira"), ("a.md", "# A")]);
+        let (sections, _) = load(dir.path(), Some(&dir.path().join("daily.md"))).unwrap();
+        assert_eq!(titles(&sections[0]), ["A"]);
+
+        // Without it, `daily.md` is a task like any other.
+        let (sections, _) = load(dir.path(), None).unwrap();
+        assert_eq!(titles(&sections[0]), ["A", "daily"]);
+    }
+
+    #[test]
     fn missing_dir_is_an_error() {
         let dir = fixture(&[]);
-        let err = load(&dir.path().join("nope")).unwrap_err();
+        let err = load(&dir.path().join("nope"), None).unwrap_err();
         assert!(err.to_string().contains("failed to read"));
     }
 }

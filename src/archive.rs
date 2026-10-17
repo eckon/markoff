@@ -1,4 +1,4 @@
-//! Text of the daily archive file, `archive/YYYY-MM-DD.md`.
+//! Text of the daily archive file, `.archive/YYYY-MM-DD.md` in the root.
 //!
 //! ```markdown
 //! # 2026-10-14
@@ -13,6 +13,9 @@
 //! Pure string handling, writing the file is up to the caller.
 
 use crate::task::Task;
+
+/// Directory in the root. Hidden, so it is never loaded as a section.
+pub const DIR: &str = ".archive";
 
 /// Deepest heading level in markdown.
 const MAX_HEADING_LEVEL: usize = 6;
@@ -46,6 +49,18 @@ pub fn add(archive: Option<&str>, date: &str, section: &str, task: &Task) -> Str
         }
         None => format!("{}\n\n{heading}\n\n{entry}\n", archive.trim_end()),
     }
+}
+
+/// How many tasks the archive file holds: its `### ` headings outside code blocks.
+///
+/// A `# ` heading inside a task body is shifted to `### ` as well and counts too. Rare enough
+/// for a number in the status line.
+pub fn count(archive: &str) -> usize {
+    let mut fence = Fence::default();
+    archive
+        .split_inclusive('\n')
+        .filter(|line| !fence.update(line) && heading_level(line) == Some(1 + HEADING_SHIFT))
+        .count()
 }
 
 /// The task as it appears in the archive: `### Title`, then the body with shifted headings.
@@ -138,6 +153,20 @@ mod tests {
 
     fn task(content: &str) -> Task {
         Task::parse(PathBuf::from("todo/fix-bug.md"), content)
+    }
+
+    #[test]
+    fn count_tasks() {
+        let one = add(None, "2026-10-14", "work", &task("# A\n\n## Sub\n"));
+        let two = add(
+            Some(&one),
+            "2026-10-14",
+            "inbox",
+            &task("# B\n\n```\n### no\n```\n"),
+        );
+        assert_eq!(count(""), 0);
+        assert_eq!(count(&one), 1);
+        assert_eq!(count(&two), 2);
     }
 
     #[test]

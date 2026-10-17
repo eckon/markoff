@@ -480,7 +480,7 @@ mod tests {
     #[test]
     fn archive_creates_or_updates_then_removes() {
         let s = tree(&[("", &["fix-bug.md", "b.md"])]);
-        let path = Path::new("archive/2026-10-14.md");
+        let path = Path::new(".archive/2026-10-14.md");
         let file = file_for(&s);
 
         let ops = archive(&s, 0, 0, path, None, "2026-10-14", &file);

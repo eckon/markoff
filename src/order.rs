@@ -1,4 +1,4 @@
-//! The order of sections and tasks, kept in `todo/.order`.
+//! The order of sections and tasks, kept in `.order` in the root.
 //!
 //! Not in the filenames: a numbered prefix meant renumbering every file below a change,
 //! which made adding a task at the top show up as renames of the whole section in git.
@@ -21,7 +21,7 @@ use std::path::PathBuf;
 
 use crate::{op::Op, task::Section};
 
-/// File name in `todo/`. Hidden, so it is never taken for a task.
+/// File name in the root. Hidden, so it is never taken for a task.
 pub const FILE: &str = ".order";
 
 /// Sections in order, the inbox first, each with its task names in order.

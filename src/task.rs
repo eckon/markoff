@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-/// One task file, e.g. `todo/work/fix-login-bug.md`.
+/// One task file, e.g. `work/fix-login-bug.md` in the root.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Task {
     pub path: PathBuf,
@@ -41,7 +41,7 @@ impl Task {
     }
 }
 
-/// A directory of tasks. The inbox (`todo/` itself) has an empty path.
+/// A directory of tasks. The inbox (the root itself) has an empty path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section {
     /// Section names, the directory names: `["work"]`. A `Vec` so nesting can be added later.

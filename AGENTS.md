@@ -5,12 +5,12 @@ markoff is a Rust TUI for todos stored as markdown files. This file is the sourc
 ## Design
 
 - Data stays plain markdown, readable and editable without the tool. No database, no hidden metadata.
-- A task is a `.md` file, a section is a directory in `todo/`, files directly in `todo/` are the inbox. One level only, hidden files are ignored.
-- Order lives in `todo/.order`, not in the filenames: renumbering prefixes renamed every file below a change, which cluttered git. The disk decides what exists, the file only orders it: unlisted files go to the end, stale names are dropped.
+- The user picks the root directory, markoff adds no folder of its own. A task is a `.md` file, a section is a directory in the root, files directly in the root are the inbox. One level only, hidden files are ignored.
+- Order lives in `.order` in the root, not in the filenames: renumbering prefixes renamed every file below a change, which cluttered git. The disk decides what exists, the file only orders it: unlisted files go to the end, stale names are dropped.
 - The `# Heading` is the task's title, the filename follows it.
 - Normalize (slug, cleaned `.order`) runs at startup and before every write action, never on watcher reloads: renaming a file another editor has open breaks that editor's next save.
-- Done tasks go to `archive/YYYY-MM-DD.md` under their section heading.
-- `daily.md` is an add-on in its own module (`daily.rs`): a daily checklist, `X` marks a task done for today. Kept apart until recurring tasks get a real design.
+- Done tasks go to `.archive/YYYY-MM-DD.md` in the root under their section heading. The status line counts today's, so archiving is visible.
+- The daily checklist is an add-on in its own module (`daily.rs`), only with `[experimental] daily` in the config: `X` marks a task done for today. Kept apart until recurring tasks get a real design.
 - Writing text happens in `$EDITOR`, the TUI only has quick actions. Keys are vim-like, destructive ones uppercase.
 - Every action is one undo step, undo puts the cursor back where it was.
 
@@ -30,7 +30,7 @@ cargo test
 cargo clippy --all-targets -- -D warnings   # same as CI
 ```
 
-For TUI changes also run the real app in tmux against a scratch `todo/` dir (or a copy of real data, never the real notes): `tmux new-session -d -x 80 -y 20 'cargo run -- --dir <scratch>'`, then `send-keys` and `capture-pane -p`.
+For TUI changes also run the real app in tmux against a scratch root dir (or a copy of real data, never the real notes): `tmux new-session -d -x 80 -y 20 'cargo run -- --dir <scratch>'`, then `send-keys` and `capture-pane -p`.
 
 ## Code
 

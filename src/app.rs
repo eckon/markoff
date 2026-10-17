@@ -16,6 +16,7 @@ use ratatui::{
 };
 
 use crate::{
+    archive,
     daily::{self, DailyTask},
     edit, editor, filter,
     keymap::{self, Action, Keymap},
@@ -78,10 +79,10 @@ struct UndoEntry {
 #[derive(Debug)]
 pub struct App {
     running: bool,
-    /// Directory with `todo/` and `archive/`.
+    /// Directory with the sections, inbox tasks, `.order` and `.archive/`.
     root: PathBuf,
     pub sections: Vec<Section>,
-    /// `todo/.order` as read with `sections`, the base for the order an action writes.
+    /// `.order` as read with `sections`, the base for the order an action writes.
     order_file: OrderFile,
     /// Index into [`App::rows`].
     pub cursor: usize,
@@ -91,7 +92,7 @@ pub struct App {
     pub status: Option<Status>,
     /// Help overlay is open.
     pub show_help: bool,
-    /// Renames done at startup, relative to `todo/`. Shown as a popup until the next key.
+    /// Renames done at startup, relative to the root. Shown as a popup until the next key.
     pub renamed: Vec<(PathBuf, PathBuf)>,
     editor_request: Option<EditorRequest>,
     /// `/` filter, empty for none. Applied in [`App::rows`], so everything that works on rows
@@ -102,15 +103,19 @@ pub struct App {
     /// First list line on screen. Kept between frames so the view only scrolls when the
     /// cursor would leave it, see [`ui::render`].
     pub list_offset: usize,
-    /// The tasks of `daily.md`, `None` if there is no such file.
+    /// The daily checklist file from the config, `None` if not set.
+    daily_path: Option<PathBuf>,
+    /// The tasks of the daily checklist, `None` if it is not set or the file does not exist.
     pub daily: Option<Vec<DailyTask>>,
+    /// Tasks in today's archive file, shown in the status line.
+    pub done_today: usize,
 }
 
 impl App {
     /// Without an order file, [`App::load`] reads the real one.
     pub fn new(root: PathBuf, sections: Vec<Section>) -> Self {
         let order_file = OrderFile {
-            path: root.join("todo").join(order::FILE),
+            path: root.join(order::FILE),
             content: None,
         };
         Self {
@@ -128,22 +133,22 @@ impl App {
             filter: String::new(),
             filter_input: false,
             list_offset: 0,
+            daily_path: None,
             daily: None,
+            done_today: 0,
         }
     }
 
-    /// Loads `todo/` and normalizes it. Renames are listed in a popup, since files changing
-    /// their names on start can be a surprise.
-    pub fn load(root: PathBuf) -> Result<Self> {
-        let todo_dir = root.join("todo");
-        let (sections, order_file) = load::load(&todo_dir)?;
-        let mut app = Self::new(root, sections);
-        app.order_file = order_file;
-        app.daily = load_daily(&app.root)?;
+    /// Loads `root` and normalizes it. Renames are listed in a popup, since files changing
+    /// their names on start can be a surprise. `daily` is the daily checklist file, if set.
+    pub fn load(root: PathBuf, daily: Option<PathBuf>) -> Result<Self> {
+        let mut app = Self::new(root.clone(), Vec::new());
+        app.daily_path = daily;
+        app.reload(None)?;
         match app.normalize() {
             Ok(renames) => {
                 let relative = |path: PathBuf| {
-                    path.strip_prefix(&todo_dir)
+                    path.strip_prefix(&root)
                         .map(Path::to_path_buf)
                         .unwrap_or(path)
                 };
@@ -162,7 +167,7 @@ impl App {
     /// Keys are read on this thread (no background reader), so the TUI can hand the
     /// terminal to `$EDITOR` without the two fighting over stdin.
     pub fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
-        let mut watcher = TodoWatcher::new(&self.root.join("todo"))?;
+        let mut watcher = TodoWatcher::new(&self.root)?;
         // Only redraw after something happened, not on every poll.
         let mut dirty = true;
 
@@ -230,10 +235,10 @@ impl App {
 
     /// Path behind a row: the task file or the section directory.
     ///
-    /// Daily tasks share `daily.md`, so they get `daily.md#<index>`. Never touches the disk,
+    /// Daily tasks share one file, so they get `daily.md#<index>`. Never touches the disk,
     /// only keeps the cursor on the right row, e.g. after undo.
     fn row_path(&self, row: Row) -> PathBuf {
-        let daily_path = || self.root.join(daily::FILE);
+        let daily_path = || self.daily_path.clone().unwrap_or_default();
         match row {
             Row::Section(s) => self.sections[s].dir.clone(),
             Row::Task(s, t) => self.sections[s].tasks[t].path.clone(),
@@ -480,9 +485,9 @@ impl App {
             _ => return Ok(()),
         };
         let date = today();
-        let archive_dir = self.root.join("archive");
+        let archive_dir = self.root.join(archive::DIR);
         let archive_path = archive_dir.join(format!("{date}.md"));
-        // Not an op: an empty `archive/` left behind by undo does no harm.
+        // Not an op: an empty `.archive/` left behind by undo does no harm.
         fs::create_dir_all(&archive_dir)
             .wrap_err_with(|| format!("failed to create {}", archive_dir.display()))?;
         let existing = read_if_exists(&archive_path)?;
@@ -496,12 +501,17 @@ impl App {
             &date,
             &self.order_file,
         );
-        self.apply(ops)
+        let title = self.sections[s].tasks[t].title();
+        self.apply(ops)?;
+        self.status = Some(Status::Info(format!("done {title} (u to undo)")));
+        Ok(())
     }
 
     /// `X` on a daily task: done for today, or open again. The task stays in the list.
     fn toggle_daily(&mut self, i: usize) -> Result<()> {
-        let path = self.root.join(daily::FILE);
+        let Some(path) = self.daily_path.clone() else {
+            return Ok(());
+        };
         let before = fs::read_to_string(&path)
             .wrap_err_with(|| format!("failed to read {}", path.display()))?;
         let after = daily::toggle(&before, i, &today());
@@ -584,7 +594,7 @@ impl App {
         Ok(())
     }
 
-    /// Only empty sections, so `D` never takes tasks with it. The inbox is `todo/` itself.
+    /// Only empty sections, so `D` never takes tasks with it. The inbox is the root itself.
     fn delete_section(&mut self, s: usize) -> Result<()> {
         let section = &self.sections[s];
         let title = section.title();
@@ -628,11 +638,17 @@ impl App {
         self.reload(None)
     }
 
-    /// Reads `todo/` again and puts the cursor on `select` if it still exists, else keeps the
+    /// Reads the root again and puts the cursor on `select` if it still exists, else keeps the
     /// row number, clamped. The disk is the source of truth, `sections` is only a view of it.
     fn reload(&mut self, select: Option<&Path>) -> Result<()> {
-        (self.sections, self.order_file) = load::load(&self.root.join("todo"))?;
-        self.daily = load_daily(&self.root)?;
+        (self.sections, self.order_file) = load::load(&self.root, self.daily_path.as_deref())?;
+        self.daily = match &self.daily_path {
+            Some(path) => read_if_exists(path)?.map(|content| daily::parse(&content)),
+            None => None,
+        };
+        let archive_path = self.root.join(archive::DIR).join(format!("{}.md", today()));
+        self.done_today =
+            read_if_exists(&archive_path)?.map_or(0, |content| archive::count(&content));
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
         if let Some(path) = select {
             self.select_path(path);
@@ -692,16 +708,12 @@ impl App {
     }
 }
 
-/// File content, `None` if the file does not exist.
 /// `YYYY-MM-DD`, for the archive file and the daily marker.
 pub fn today() -> String {
     jiff::Zoned::now().date().to_string()
 }
 
-fn load_daily(root: &Path) -> Result<Option<Vec<DailyTask>>> {
-    Ok(read_if_exists(&root.join(daily::FILE))?.map(|content| daily::parse(&content)))
-}
-
+/// File content, `None` if the file does not exist.
 fn read_if_exists(path: &Path) -> Result<Option<String>> {
     match fs::read_to_string(path) {
         Ok(content) => Ok(Some(content)),
@@ -742,13 +754,12 @@ pub mod tests {
             .collect()
     }
 
-    /// An app on a temp root with the given files in `todo/`. Paths ending in `/` become directories.
+    /// An app on a temp root with the given files. Paths ending in `/` become directories.
     /// Each file gets its name as heading: `a.md` -> `# a`. The order file lists everything
     /// in the given order.
     fn app_with_files(files: &[&str]) -> (TempDir, App) {
         let dir = TempDir::new().unwrap();
-        let todo = dir.path().join("todo");
-        fs::create_dir(&todo).unwrap();
+        let todo = dir.path();
         let mut order = Order::default();
         for file in files {
             let (section, name) = file.rsplit_once('/').unwrap_or(("", file));
@@ -773,12 +784,12 @@ pub mod tests {
             group.unwrap().tasks.push(stem.to_string());
         }
         fs::write(todo.join(order::FILE), order.format()).unwrap();
-        let app = App::load(dir.path().to_path_buf()).unwrap();
+        let app = App::load(dir.path().to_path_buf(), None).unwrap();
         (dir, app)
     }
 
     fn order_file(dir: &TempDir) -> String {
-        fs::read_to_string(dir.path().join("todo").join(order::FILE)).unwrap()
+        fs::read_to_string(dir.path().join(order::FILE)).unwrap()
     }
 
     /// File names on disk in row order, sections as `[name]`.
@@ -844,7 +855,7 @@ pub mod tests {
         app.cursor = 2;
 
         // Changes from outside (a git pull): tasks appear above, one disappears.
-        let todo = dir.path().join("todo");
+        let todo = dir.path();
         fs::write(todo.join("z.md"), "# z").unwrap();
         fs::write(todo.join("y.md"), "# y").unwrap();
         fs::remove_file(todo.join("a.md")).unwrap();
@@ -859,7 +870,7 @@ pub mod tests {
     fn reload_clamps_cursor_if_task_is_gone() {
         let (dir, mut app) = app_with_files(&["a.md"]);
         app.cursor = 1;
-        fs::remove_file(dir.path().join("todo/a.md")).unwrap();
+        fs::remove_file(dir.path().join("a.md")).unwrap();
         app.reload_keep_selection().unwrap();
         assert_eq!(app.cursor, 0);
     }
@@ -897,12 +908,31 @@ pub mod tests {
         );
     }
 
-    /// `app_with_files` plus a `daily.md` with `content`.
+    /// `app_with_files` plus a `daily.md` with `content`, set as the daily checklist.
     fn app_with_daily(files: &[&str], content: &str) -> (TempDir, App) {
         let (dir, mut app) = app_with_files(files);
-        fs::write(dir.path().join(daily::FILE), content).unwrap();
+        let path = dir.path().join("daily.md");
+        fs::write(&path, content).unwrap();
+        app.daily_path = Some(path);
         app.reload(None).unwrap();
         (dir, app)
+    }
+
+    #[test]
+    fn daily_file_is_a_task_unless_set() {
+        let (dir, mut app) = app_with_files(&["a.md"]);
+        fs::write(
+            dir.path().join("daily.md"),
+            "## Jira
+",
+        )
+        .unwrap();
+        app.reload(None).unwrap();
+        assert_eq!(listing(&app), ["[inbox]", "a.md", "daily.md"]);
+
+        app.daily_path = Some(dir.path().join("daily.md"));
+        app.reload(None).unwrap();
+        assert_eq!(listing(&app), ["[inbox]", "a.md", "[daily]", "Jira"]);
     }
 
     #[test]
@@ -936,7 +966,7 @@ pub mod tests {
     fn daily_done_toggles_and_undo_restores() {
         let content = "# Daily\n\n## Jira\n## Menu\n";
         let (dir, mut app) = app_with_daily(&[], content);
-        let path = dir.path().join(daily::FILE);
+        let path = dir.path().join("daily.md");
         app.cursor = 3;
 
         app.update(Action::Done);
@@ -986,7 +1016,7 @@ pub mod tests {
             }
         }
         assert_eq!(
-            fs::read_to_string(dir.path().join(daily::FILE)).unwrap(),
+            fs::read_to_string(dir.path().join("daily.md")).unwrap(),
             content
         );
         assert_eq!(listing(&app), ["[inbox]", "a.md", "[daily]", "Jira"]);
@@ -1014,7 +1044,7 @@ pub mod tests {
         app.cursor = 2;
         app.update(Action::Delete);
         assert_eq!(listing(&app), ["[inbox]", "a.md", "[home]", "b.md"]);
-        assert!(!dir.path().join("todo/work").exists());
+        assert!(!dir.path().join("work").exists());
         assert_eq!(order_file(&dir), "a\n\n# home\nb\n");
         assert_eq!(app.selected(), Some(Row::Section(1)));
         assert_eq!(
@@ -1044,7 +1074,7 @@ pub mod tests {
             "home/garden.md",
         ]);
         fs::write(
-            dir.path().join("todo/home/garden.md"),
+            dir.path().join("home/garden.md"),
             "# garden\n\nFIX the fence",
         )
         .unwrap();
@@ -1162,7 +1192,7 @@ pub mod tests {
         let Some(EditorRequest::Open(path)) = app.editor_request.clone() else {
             panic!("expected an open request");
         };
-        assert!(path.ends_with("todo/a.md"));
+        assert!(path.ends_with("a.md"));
     }
 
     #[test]
@@ -1236,7 +1266,7 @@ pub mod tests {
         let (dir, mut app) = app_with_files(&["a.md", "b.md"]);
         app.cursor = 1;
         // A sync reorders while the editor is open. That order must not be overwritten.
-        let todo = dir.path().join("todo");
+        let todo = dir.path();
         fs::write(todo.join(order::FILE), "b\na\n").unwrap();
 
         let err = app.after_create(0, 1, "# New").unwrap_err();
@@ -1273,7 +1303,7 @@ pub mod tests {
             listing(&app),
             ["[inbox]", "a.md", "[work]", "b.md", "[garden]", "[home]"]
         );
-        assert!(dir.path().join("todo/garden").is_dir());
+        assert!(dir.path().join("garden").is_dir());
         assert_eq!(order_file(&dir), "a\n\n# work\nb\n\n# garden\n\n# home\n");
         assert_eq!(app.cursor, 4, "cursor on the new section");
         assert_eq!(
@@ -1285,7 +1315,7 @@ pub mod tests {
 
         app.update(Action::Undo);
         assert_eq!(listing(&app), before);
-        assert!(!dir.path().join("todo/garden").exists());
+        assert!(!dir.path().join("garden").exists());
         assert_eq!(app.cursor, 3, "back on `b`");
     }
 
@@ -1328,7 +1358,7 @@ pub mod tests {
         app.cursor = 2;
         let renamed = format!("{}\nnotes", draft("# Work Stuff"));
         app.after_rename_section(1, &renamed).unwrap();
-        assert!(dir.path().join("todo/work-stuff/a.md").exists());
+        assert!(dir.path().join("work-stuff/a.md").exists());
         assert_eq!(order_file(&dir), "# work-stuff\na\n\n# home\n");
         assert_eq!(
             app.selected(),
@@ -1367,12 +1397,12 @@ pub mod tests {
     fn startup_normalizes_and_lists_renames() {
         // Old numbered names, no order file yet.
         let dir = TempDir::new().unwrap();
-        let todo = dir.path().join("todo");
+        let todo = dir.path();
         fs::create_dir_all(todo.join("01-work")).unwrap();
         fs::write(todo.join("02-b.md"), "# b").unwrap();
         fs::write(todo.join("01-a.md"), "# a").unwrap();
         fs::write(todo.join("01-work/old.md"), "# Old task").unwrap();
-        let mut app = App::load(dir.path().to_path_buf()).unwrap();
+        let mut app = App::load(dir.path().to_path_buf(), None).unwrap();
 
         assert_eq!(
             listing(&app),
@@ -1397,14 +1427,10 @@ pub mod tests {
     #[test]
     fn startup_cleans_the_order_file() {
         let (dir, _) = app_with_files(&["a.md", "b.md", "work/", "home/"]);
-        fs::write(
-            dir.path().join("todo").join(order::FILE),
-            "gone\nb\n# work\n",
-        )
-        .unwrap();
+        fs::write(dir.path().join(order::FILE), "gone\nb\n# work\n").unwrap();
 
         // Not listed: to the end, by name. Listed but gone: dropped. No rename, no popup.
-        let app = App::load(dir.path().to_path_buf()).unwrap();
+        let app = App::load(dir.path().to_path_buf(), None).unwrap();
         assert_eq!(
             listing(&app),
             ["[inbox]", "b.md", "a.md", "[work]", "[home]"]
@@ -1416,7 +1442,7 @@ pub mod tests {
     #[test]
     fn reload_from_watcher_does_not_write() {
         let (dir, mut app) = app_with_files(&["a.md"]);
-        fs::write(dir.path().join("todo/draft.md"), "# New").unwrap();
+        fs::write(dir.path().join("draft.md"), "# New").unwrap();
         app.reload_keep_selection().unwrap();
         assert_eq!(listing(&app), ["[inbox]", "a.md", "draft.md"]);
         assert_eq!(order_file(&dir), "a\n");
@@ -1425,7 +1451,7 @@ pub mod tests {
     #[test]
     fn action_normalizes_first_and_says_so() {
         let (dir, mut app) = app_with_files(&["a.md", "b.md"]);
-        fs::write(dir.path().join("todo/draft.md"), "# New").unwrap();
+        fs::write(dir.path().join("draft.md"), "# New").unwrap();
         app.reload_keep_selection().unwrap();
         app.cursor = 1;
 
@@ -1455,7 +1481,7 @@ pub mod tests {
 
         app.update(Action::MoveDown);
         assert_eq!(listing(&app), ["[inbox]", "b.md", "[work]", "a.md", "c.md"]);
-        assert!(dir.path().join("todo/work/a.md").exists());
+        assert!(dir.path().join("work/a.md").exists());
         assert_eq!(app.cursor, 3);
 
         // One undo per move, the cursor goes back with the task.
@@ -1528,13 +1554,17 @@ pub mod tests {
     fn done_archives_and_undo_restores() {
         let (dir, mut app) = app_with_files(&["a.md", "work/b.md"]);
         let today = jiff::Zoned::now().date().to_string();
-        let archive_path = dir.path().join("archive").join(format!("{today}.md"));
+        let archive_path = dir.path().join(".archive").join(format!("{today}.md"));
 
         app.cursor = 1;
         app.update(Action::Done);
         app.cursor = 2;
         app.update(Action::Done);
-        assert_eq!(app.status, None);
+        assert_eq!(
+            app.status,
+            Some(Status::Info("done b (u to undo)".to_string()))
+        );
+        assert_eq!(app.done_today, 2);
         assert_eq!(listing(&app), ["[inbox]", "[work]"]);
         assert_eq!(order_file(&dir), "# work\n");
         assert_eq!(
@@ -1544,6 +1574,7 @@ pub mod tests {
 
         app.update(Action::Undo);
         assert_eq!(listing(&app), ["[inbox]", "[work]", "b.md"]);
+        assert_eq!(app.done_today, 1);
         assert_eq!(
             fs::read_to_string(&archive_path).unwrap(),
             format!("# {today}\n\n## inbox\n\n### a\n")

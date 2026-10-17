@@ -1,12 +1,10 @@
-//! `daily.md`: a checklist that starts fresh every day. An add-on kept apart from `todo/`,
-//! until recurring tasks get a real design. Pure string handling.
+//! The daily checklist (`[experimental] daily` in the config, e.g. `daily.md` in the root):
+//! a checklist that starts fresh every day. An add-on kept apart from the tasks, until
+//! recurring tasks get a real design. Pure string handling.
 //!
 //! Each `## ` heading is a task, the lines up to the next one its body. Text before the
 //! first heading (a `# Daily` title) is ignored. Done marks the heading with today's date:
 //! `## Book time in Jira [done 2026-10-17]`. An older date counts as open.
-
-/// In the root directory, next to `todo/` and `archive/`.
-pub const FILE: &str = "daily.md";
 
 const MARKER_START: &str = " [done ";
 

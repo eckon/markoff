@@ -1,4 +1,4 @@
-//! Notices changes in `todo/` made outside markoff (another editor, git, the shell).
+//! Notices changes in the root made outside markoff (another editor, git, the shell).
 
 use std::{
     path::Path,
