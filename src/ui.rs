@@ -61,7 +61,7 @@ pub fn render(app: &App, frame: &mut Frame) -> usize {
 fn render_renamed(app: &App, frame: &mut Frame) {
     let mut lines = vec![
         Line::from("Files were renamed to match"),
-        Line::from("their titles and order:"),
+        Line::from("their titles:"),
         Line::default(),
     ];
 
@@ -533,7 +533,7 @@ mod tests {
     #[test]
     fn renamed_popup_lists_renames() {
         let mut app = App::new(PathBuf::new(), sections(&[(&[], &[])]));
-        app.renamed = vec![("b.md".into(), "02-b.md".into())];
+        app.renamed = vec![("old.md".into(), "new-title.md".into())];
         let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
         terminal
             .draw(|frame| {
@@ -547,7 +547,12 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect();
-        for text in [" renamed ", "b.md", "-> 02-b.md", "any key closes this"] {
+        for text in [
+            " renamed ",
+            "old.md",
+            "-> new-title.md",
+            "any key closes this",
+        ] {
             assert!(screen.contains(text), "missing {text:?}");
         }
     }

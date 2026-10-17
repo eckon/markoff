@@ -6,9 +6,9 @@ markoff is a Rust TUI for todos stored as markdown files. This file is the sourc
 
 - Data stays plain markdown, readable and editable without the tool. No database, no hidden metadata.
 - A task is a `.md` file, a section is a directory in `todo/`, files directly in `todo/` are the inbox. One level only, hidden files are ignored.
-- Order lives in the name, so `ls` shows the same list: `01-slug`. Always dense (`01`, `02`, ...), every action renumbers what it touches.
+- Order lives in `todo/.order`, not in the filenames: renumbering prefixes renamed every file below a change, which cluttered git. The disk decides what exists, the file only orders it: unlisted files go to the end, stale names are dropped.
 - The `# Heading` is the task's title, the filename follows it.
-- Normalize (prefix, slug) runs at startup and before every write action, never on watcher reloads: renaming a file another editor has open breaks that editor's next save.
+- Normalize (slug, cleaned `.order`) runs at startup and before every write action, never on watcher reloads: renaming a file another editor has open breaks that editor's next save.
 - Done tasks go to `archive/YYYY-MM-DD.md` under their section heading.
 - `daily.md` is an add-on in its own module (`daily.rs`): a daily checklist, `X` marks a task done for today. Kept apart until recurring tasks get a real design.
 - Writing text happens in `$EDITOR`, the TUI only has quick actions. Keys are vim-like, destructive ones uppercase.
@@ -34,7 +34,7 @@ For TUI changes also run the real app in tmux against a scratch `todo/` dir (or 
 
 ## Code
 
-- Pure logic (`edit.rs`, `archive.rs`, `name.rs`) never touches the disk. All writes go through ops in `op.rs`, each with an exact inverse for undo.
+- Pure logic (`edit.rs`, `archive.rs`, `name.rs`, `order.rs`) never touches the disk. All writes go through ops in `op.rs`, each with an exact inverse for undo.
 - The disk is the source of truth: after a change, reload instead of patching state.
 - `App::update(Action)` never touches the terminal, so it is testable.
 - All keys live in `BINDINGS` (`keymap.rs`), the help overlay reads the same table. A test checks that the README key table matches.

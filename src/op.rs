@@ -1,7 +1,7 @@
 //! File operations, the only way markoff changes the disk.
 //!
 //! Every [`Op`] has an exact [`Op::inverse`], which is what undo is built on.
-//! A user action (insert, move, renumber, ...) is a list of ops, applied with [`apply_all`].
+//! A user action (insert, move, archive, ...) is a list of ops, applied with [`apply_all`].
 
 use std::{
     fs,
@@ -90,7 +90,7 @@ impl Op {
 }
 
 /// Applies all ops in order. If one fails, the ones already applied are rolled back,
-/// so a multi-file action (e.g. renumbering a section) never stays half done.
+/// so a multi-file action (e.g. archiving a task) never stays half done.
 pub fn apply_all(ops: &[Op]) -> Result<()> {
     for (i, op) in ops.iter().enumerate() {
         if let Err(err) = op.apply() {

@@ -4,7 +4,7 @@
 
 TUI to manage todos in a human readable format (markdown) while allowing the use of any editor.
 
-Every task is a markdown file, every section a directory. The order lives in the filenames, so `ls` shows the same list as the TUI. The TUI covers the quick actions (move, done, undo). Writing and editing happens in your `$EDITOR`.
+Every task is a markdown file, every section a directory. The order lives in `todo/.order`, so reordering never renames files. The TUI covers the quick actions (move, done, undo). Writing and editing happens in your `$EDITOR`.
 
 ## Status
 
@@ -32,19 +32,21 @@ dir = "~/notes"
 
 ```text
 todo/
-  01-fix-typo.md           <- inbox (no section)
-  01-work/                 <- section "work"
-    01-fix-login-bug.md
-    02-review-pr.md
+  .order                    <- order of sections and tasks
+  fix-typo.md               <- inbox (no section)
+  work/                     <- section "work"
+    fix-login-bug.md
+    review-pr.md
 archive/
   2026-10-14.md             <- tasks done that day
 daily.md                    <- optional daily checklist
 ```
 
 - A task file starts with `# Title`. The filename follows the title.
-- The number prefix is the order. markoff picks and renumbers prefixes itself.
+- `todo/.order` lists inbox tasks, then each section as `# name` with its tasks, one name per line (without `.md`). markoff writes it. Files it does not list go to the end of their section, names that no longer exist are dropped.
+- To keep order changes out of git, add `todo/.order` to your `.gitignore`. The order then stays on each machine.
 - Files created or edited by hand are renamed into this shape on start and with the next action. Renames on start are listed in a popup.
-- Sections are created with `N` (or `mkdir todo/03-home`), renamed with `<CR>`, reordered with `J`/`K` and deleted with `D` when empty. A section's name is its directory slug, so `# Work Stuff` becomes `work-stuff`.
+- Sections are created with `N` (or `mkdir todo/home`), renamed with `<CR>`, reordered with `J`/`K` and deleted with `D` when empty. A section's name is its directory name, from `N` and `<CR>` the heading as slug: `# Work Stuff` becomes `work-stuff`.
 - Done tasks are appended to `archive/YYYY-MM-DD.md` under their section, then deleted from `todo/`.
 
 ### Daily checklist

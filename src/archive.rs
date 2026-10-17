@@ -137,7 +137,7 @@ mod tests {
     use super::*;
 
     fn task(content: &str) -> Task {
-        Task::parse(PathBuf::from("todo/01-fix-bug.md"), content)
+        Task::parse(PathBuf::from("todo/fix-bug.md"), content)
     }
 
     #[test]

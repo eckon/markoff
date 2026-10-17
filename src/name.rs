@@ -1,53 +1,12 @@
-//! Names of task files and section directories: `01-fix-login-bug`.
+//! Names of task files and section directories: `fix-login-bug`, derived from the title.
 //!
-//! The numbered prefix sets the order, the slug is derived from the task title.
 //! Everything here is pure string handling, no file system access.
-
-/// Width of the order prefix. `ls` only sorts correctly while all prefixes have the same width.
-const PREFIX_WIDTH: usize = 2;
-
-/// Prefixes of this width are still read, so names from before the switch to 2 digits
-/// (`01-fix`) keep their order until normalizing renames them.
-const OLD_PREFIX_WIDTH: usize = 3;
-
-/// Highest order that fits into [`PREFIX_WIDTH`] digits: entries per section.
-pub const MAX_ORDER: u32 = 99;
 
 /// Max slug length, so filenames stay readable in `ls`.
 const MAX_SLUG_LEN: usize = 50;
 
-/// Slug for titles without any usable characters, so a file is never named `01-.md`.
+/// Slug for titles without any usable characters, so a file is never named `.md`.
 const FALLBACK_SLUG: &str = "untitled";
-
-/// A name split into its parts: `01-fix-login-bug` -> order `1`, slug `fix-login-bug`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Name {
-    pub order: u32,
-    pub slug: String,
-}
-
-impl Name {
-    /// Parses a file stem (without `.md`) or directory name.
-    ///
-    /// Returns `None` if there is no `NN-` (or old `NNN-`) prefix. What to do with such files
-    /// is up to the caller.
-    pub fn parse(stem: &str) -> Option<Self> {
-        let (prefix, slug) = stem.split_once('-')?;
-        let width_ok = prefix.len() == PREFIX_WIDTH || prefix.len() == OLD_PREFIX_WIDTH;
-        if !width_ok || !prefix.bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
-        Some(Self {
-            order: prefix.parse().ok()?,
-            slug: slug.to_string(),
-        })
-    }
-
-    /// Formats back into `01-slug`, without extension.
-    pub fn to_stem(&self) -> String {
-        format!("{:0width$}-{}", self.order, self.slug, width = PREFIX_WIDTH)
-    }
-}
 
 /// Turns a title into a filename-safe slug: `Äpfel kaufen!` -> `aepfel-kaufen`.
 ///
@@ -90,33 +49,6 @@ pub fn slugify(title: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_valid() {
-        assert_eq!(
-            Name::parse("01-fix-login-bug"),
-            Some(Name {
-                order: 1,
-                slug: "fix-login-bug".to_string()
-            })
-        );
-        // Old 3 digit names still parse, normalizing renames them.
-        assert_eq!(Name::parse("010-fix").map(|name| name.order), Some(10));
-    }
-
-    #[test]
-    fn parse_invalid() {
-        assert_eq!(Name::parse("fix-login-bug"), None);
-        assert_eq!(Name::parse("1-fix"), None);
-        assert_eq!(Name::parse("2026-plans"), None);
-        assert_eq!(Name::parse("01"), None);
-    }
-
-    #[test]
-    fn roundtrip() {
-        let name = Name::parse("02-work").unwrap();
-        assert_eq!(name.to_stem(), "02-work");
-    }
 
     #[test]
     fn slugify_basic() {

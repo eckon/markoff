@@ -4,14 +4,10 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::name::Name;
-
-/// One task file, e.g. `todo/01-work/01-fix-login-bug.md`.
+/// One task file, e.g. `todo/work/fix-login-bug.md`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Task {
     pub path: PathBuf,
-    /// `None` if the filename has no `NN-` prefix (created by hand).
-    pub name: Option<Name>,
     /// Text of the `# Heading`, `None` if the file has none.
     pub heading: Option<String>,
     /// Everything after the heading. The whole file if there is no heading.
@@ -22,34 +18,33 @@ pub struct Task {
 
 impl Task {
     pub fn parse(path: PathBuf, content: &str) -> Self {
-        let name = stem(&path).and_then(Name::parse);
         let (heading, body) = split_heading(content);
         Self {
             path,
-            name,
             heading,
             body: body.to_string(),
             content: content.to_string(),
         }
     }
 
-    /// The heading, or the filename without prefix if there is none: `01-call-bob.md` -> `call bob`.
+    /// The heading, or the filename if there is none: `call-bob.md` -> `call bob`.
     pub fn title(&self) -> String {
-        if let Some(heading) = &self.heading {
-            return heading.clone();
+        match &self.heading {
+            Some(heading) => heading.clone(),
+            None => self.stem().replace('-', " "),
         }
-        let fallback = match &self.name {
-            Some(name) => name.slug.as_str(),
-            None => stem(&self.path).unwrap_or_default(),
-        };
-        fallback.replace('-', " ")
+    }
+
+    /// The filename without `.md`, also its name in the order file.
+    pub fn stem(&self) -> &str {
+        stem(&self.path).unwrap_or_default()
     }
 }
 
 /// A directory of tasks. The inbox (`todo/` itself) has an empty path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section {
-    /// Section names without prefix: `["work"]`. A `Vec` so nesting can be added later.
+    /// Section names, the directory names: `["work"]`. A `Vec` so nesting can be added later.
     pub path: Vec<String>,
     pub dir: PathBuf,
     pub tasks: Vec<Task>,
@@ -103,7 +98,7 @@ mod tests {
 
     #[test]
     fn heading_and_body() {
-        let t = task("todo/01-fix.md", "# Fix login bug\n\nsome body\n");
+        let t = task("todo/fix.md", "# Fix login bug\n\nsome body\n");
         assert_eq!(t.heading.as_deref(), Some("Fix login bug"));
         assert_eq!(t.body, "some body\n");
         assert_eq!(t.title(), "Fix login bug");
@@ -111,21 +106,21 @@ mod tests {
 
     #[test]
     fn heading_after_blank_lines() {
-        let t = task("todo/01-fix.md", "\n\n# Fix\r\nbody");
+        let t = task("todo/fix.md", "\n\n# Fix\r\nbody");
         assert_eq!(t.heading.as_deref(), Some("Fix"));
         assert_eq!(t.body, "body");
     }
 
     #[test]
     fn heading_only() {
-        let t = task("todo/01-fix.md", "# Fix");
+        let t = task("todo/fix.md", "# Fix");
         assert_eq!(t.heading.as_deref(), Some("Fix"));
         assert_eq!(t.body, "");
     }
 
     #[test]
     fn no_heading_keeps_whole_content() {
-        let t = task("todo/01-call-bob.md", "just text\n# Not first\n");
+        let t = task("todo/call-bob.md", "just text\n# Not first\n");
         assert_eq!(t.heading, None);
         assert_eq!(t.body, "just text\n# Not first\n");
         assert_eq!(t.title(), "call bob");
@@ -133,21 +128,21 @@ mod tests {
 
     #[test]
     fn level_two_is_not_a_heading() {
-        assert_eq!(task("todo/01-x.md", "## Sub\n").heading, None);
+        assert_eq!(task("todo/x.md", "## Sub\n").heading, None);
     }
 
     #[test]
     fn empty_heading_is_none() {
-        let t = task("todo/01-x.md", "# \n");
+        let t = task("todo/x.md", "# \n");
         assert_eq!(t.heading, None);
         assert_eq!(t.body, "");
     }
 
     #[test]
-    fn title_without_prefix() {
-        let t = task("todo/notes.md", "");
-        assert_eq!(t.name, None);
-        assert_eq!(t.title(), "notes");
+    fn title_and_stem_from_filename() {
+        let t = task("todo/my-notes.md", "");
+        assert_eq!(t.title(), "my notes");
+        assert_eq!(t.stem(), "my-notes");
     }
 
     #[test]

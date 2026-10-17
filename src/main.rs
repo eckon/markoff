@@ -11,6 +11,7 @@ mod keymap;
 mod load;
 mod name;
 mod op;
+mod order;
 mod task;
 mod ui;
 mod watch;
