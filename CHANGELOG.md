@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/eckon/markoff/compare/v0.1.0...v0.2.0) - 2026-10-17
+
+### Added
+
+- add section stats in archive view
+- add daily, monthly and yearly stats for the archive view
+- improve archive view
+- add archive history chart on the bottom
+- add quick jump with 1-9 to sections
+- handle basic cli flags and return readable errors
+
+### Other
+
+- add snapshot test setup
+- add note about release workflow updates
+
 ## [0.1.0](https://github.com/eckon/markoff/releases/tag/v0.1.0) - 2026-10-17
 
 ### Added
