@@ -30,6 +30,24 @@ pub struct Config {
     pub daily: Option<String>,
 }
 
+/// The text for `--help` / `--version`, if one is anywhere in the args. Checked before the
+/// config is read, so both still work with a broken config.
+pub fn info(mut args: impl Iterator<Item = String>) -> Option<String> {
+    args.find_map(|arg| match arg.as_str() {
+        "-h" | "--help" => Some(format!(
+            "markoff: a TUI for todos stored as markdown files\n\
+             \n\
+             Usage: markoff [--dir <path>]\n\
+             \n\
+             \x20 --dir <path>   Root directory, else ${DIR_ENV}, else `dir` in ~/.config/markoff/config.toml\n\
+             \x20 -h, --help     Show this help\n\
+             \x20 -V, --version  Show the version\n"
+        )),
+        "-V" | "--version" => Some(format!("markoff {}\n", env!("CARGO_PKG_VERSION"))),
+        _ => None,
+    })
+}
+
 /// Resolves the root directory, the one with the sections.
 ///
 /// Order: `--dir <path>` / `--dir=<path>`, then [`DIR_ENV`], then `dir` of the config file.
@@ -49,7 +67,7 @@ pub fn root_dir(
         } else if let Some(value) = arg.strip_prefix("--dir=") {
             dir = Some(value.to_string());
         } else {
-            bail!("unknown argument: {arg}");
+            bail!("unknown argument: {arg}, see --help");
         }
     }
 
@@ -176,7 +194,25 @@ mod tests {
     fn errors() {
         assert!(root_dir(args(&[]), None, None).is_err());
         assert!(root_dir(args(&["--dir"]), None, None).is_err());
-        assert!(root_dir(args(&["--nope"]), None, None).is_err());
+        assert_eq!(
+            root_dir(args(&["--nope"]), None, None)
+                .unwrap_err()
+                .to_string(),
+            "unknown argument: --nope, see --help"
+        );
+    }
+
+    #[test]
+    fn info_help_and_version() {
+        let help = info(args(&["--help"])).unwrap();
+        assert!(help.starts_with("markoff: a TUI"));
+        assert!(help.contains("Usage: markoff [--dir <path>]"));
+        assert_eq!(info(args(&["--dir", "/a", "-h"])), Some(help));
+        let version = format!("markoff {}\n", env!("CARGO_PKG_VERSION"));
+        assert_eq!(info(args(&["--version"])), Some(version.clone()));
+        assert_eq!(info(args(&["-V"])), Some(version));
+        assert_eq!(info(args(&["--dir", "/a"])), None);
+        assert_eq!(info(args(&["--nope"])), None, "left to root_dir");
     }
 
     #[test]

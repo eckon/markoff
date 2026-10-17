@@ -41,7 +41,7 @@ MARKOFF_DIR=~/notes/todo markoff
 dir = "~/notes/todo"
 ```
 
-In an empty directory, create a section with `N`, then tasks with `o`. `?` lists all keys.
+In an empty directory, create a section with `N`, then tasks with `o`. `?` lists all keys, `markoff --help` the arguments.
 
 ## Files
 
