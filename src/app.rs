@@ -39,7 +39,7 @@ pub enum Row {
     Section(usize),
     /// Section index, task index within that section.
     Task(usize, usize),
-    /// The `daily` header, right after the inbox, see [`daily`].
+    /// The `daily` header, on top of the sections, see [`daily`].
     Daily,
     /// Task index in `daily.md`.
     DailyTask(usize),
@@ -53,7 +53,7 @@ enum EditorRequest {
     Open(PathBuf),
     /// `n`: write a new task, inserted at `index` in section `section`.
     Create { section: usize, index: usize },
-    /// `N`: write a new section, inserted after section `section`.
+    /// `N`: write a new section, inserted at `index` among the sections.
     CreateSection(usize),
     /// `<CR>` on a section header: rename section `section`.
     RenameSection(usize),
@@ -79,7 +79,7 @@ struct UndoEntry {
 #[derive(Debug)]
 pub struct App {
     running: bool,
-    /// Directory with the sections, inbox tasks, `.order` and `.archive/`.
+    /// Directory with the sections, `.order` and `.archive/`.
     root: PathBuf,
     pub sections: Vec<Section>,
     /// `.order` as read with `sections`, the base for the order an action writes.
@@ -208,14 +208,14 @@ impl App {
                         editor::create(terminal, &self.sections[section].dir, "# \n")
                             .and_then(|content| self.after_create(section, index, &content))
                     }
-                    EditorRequest::CreateSection(section) => {
+                    EditorRequest::CreateSection(index) => {
                         let draft = edit::section_draft("");
-                        editor::create(terminal, &self.sections[0].dir, &draft)
-                            .and_then(|content| self.after_create_section(section, &content))
+                        editor::create(terminal, &self.root, &draft)
+                            .and_then(|content| self.after_create_section(index, &content))
                     }
                     EditorRequest::RenameSection(section) => {
                         let draft = edit::section_draft(&self.sections[section].title());
-                        editor::rename(terminal, &self.sections[0].dir, &draft)
+                        editor::rename(terminal, &self.root, &draft)
                             .and_then(|content| self.after_rename_section(section, &content))
                     }
                 };
@@ -318,7 +318,6 @@ impl App {
                     let path = self.sections[s].tasks[t].path.clone();
                     self.editor_request = Some(EditorRequest::Open(path));
                 }
-                Some(Row::Section(0)) => return Err(eyre!("the inbox can't be renamed")),
                 Some(Row::Section(s)) => {
                     self.editor_request = Some(EditorRequest::RenameSection(s))
                 }
@@ -333,9 +332,13 @@ impl App {
                 }
             }
             Action::NewSection => {
-                if let Some(Row::Section(section) | Row::Task(section, _)) = self.selected() {
-                    self.editor_request = Some(EditorRequest::CreateSection(section));
-                }
+                // After the cursor's section. On top from the daily checklist, or if there
+                // are no rows at all, so the first section can always be created.
+                let index = match self.selected() {
+                    Some(Row::Section(section) | Row::Task(section, _)) => section + 1,
+                    Some(Row::Daily | Row::DailyTask(_)) | None => 0,
+                };
+                self.editor_request = Some(EditorRequest::CreateSection(index));
             }
             Action::Done => self.done()?,
             Action::Delete => self.delete()?,
@@ -431,14 +434,15 @@ impl App {
             .map_err(|err| eyre!("task not added: {err}"))
     }
 
-    /// Creates a section named by the heading written in the editor, after section `s`.
-    fn after_create_section(&mut self, s: usize, content: &str) -> Result<()> {
+    /// Creates a section named by the heading written in the editor, at `index`.
+    fn after_create_section(&mut self, index: usize, content: &str) -> Result<()> {
         let (slug, more) =
             edit::section_name(content).ok_or_else(|| eyre!("aborted, empty title"))?;
         self.ensure_no_section(&slug)?;
-        // Normalizing keeps the order of sections, so `s` stays valid.
+        // Normalizing keeps the order of sections, so `index` stays valid.
         self.normalize_before_action();
-        let (ops, created) = edit::insert_section(&self.sections, s, &slug, &self.order_file);
+        let (ops, created) =
+            edit::insert_section(&self.sections, &self.root, index, &slug, &self.order_file);
         self.apply(ops)?;
         self.select_path(&created);
         if more {
@@ -594,13 +598,10 @@ impl App {
         Ok(())
     }
 
-    /// Only empty sections, so `D` never takes tasks with it. The inbox is the root itself.
+    /// Only empty sections, so `D` never takes tasks with it.
     fn delete_section(&mut self, s: usize) -> Result<()> {
         let section = &self.sections[s];
         let title = section.title();
-        if s == 0 {
-            return Err(eyre!("the inbox can't be deleted"));
-        }
         if !section.tasks.is_empty() {
             return Err(eyre!("{title} is not empty"));
         }
@@ -641,7 +642,7 @@ impl App {
     /// Reads the root again and puts the cursor on `select` if it still exists, else keeps the
     /// row number, clamped. The disk is the source of truth, `sections` is only a view of it.
     fn reload(&mut self, select: Option<&Path>) -> Result<()> {
-        (self.sections, self.order_file) = load::load(&self.root, self.daily_path.as_deref())?;
+        (self.sections, self.order_file) = load::load(&self.root)?;
         self.daily = match &self.daily_path {
             Some(path) => read_if_exists(path)?.map(|content| daily::parse(&content)),
             None => None,
@@ -673,11 +674,17 @@ impl App {
     /// Section names don't match: a section is shown for its tasks only, empty ones without a
     /// filter.
     ///
-    /// The daily checklist comes right after the inbox, hidden while a filter is set.
+    /// The daily checklist comes first, hidden while a filter is set.
     ///
     /// Computed on demand instead of stored, so it can never be out of sync with `sections`.
     pub fn rows(&self) -> Vec<Row> {
         let mut rows = Vec::new();
+        if self.filter.is_empty()
+            && let Some(daily) = &self.daily
+        {
+            rows.push(Row::Daily);
+            rows.extend((0..daily.len()).map(Row::DailyTask));
+        }
         for (s, section) in self.sections.iter().enumerate() {
             let tasks: Vec<Row> = (0..section.tasks.len())
                 .filter(|&t| {
@@ -690,13 +697,6 @@ impl App {
             if self.filter.is_empty() || !tasks.is_empty() {
                 rows.push(Row::Section(s));
                 rows.extend(tasks);
-            }
-            if s == 0
-                && self.filter.is_empty()
-                && let Some(daily) = &self.daily
-            {
-                rows.push(Row::Daily);
-                rows.extend((0..daily.len()).map(Row::DailyTask));
             }
         }
         rows
@@ -740,7 +740,7 @@ pub mod tests {
     use super::*;
     use crate::order::{Group, Order};
 
-    /// Sections with the given names (empty = inbox) and task titles. Nothing on disk.
+    /// Sections with the given names and task titles. Nothing on disk.
     pub fn sections(spec: &[(&[&str], &[&str])]) -> Vec<Section> {
         spec.iter()
             .map(|(path, tasks)| Section {
@@ -754,22 +754,22 @@ pub mod tests {
             .collect()
     }
 
-    /// An app on a temp root with the given files. Paths ending in `/` become directories.
-    /// Each file gets its name as heading: `a.md` -> `# a`. The order file lists everything
-    /// in the given order.
+    /// An app on a temp root with the given files, each in a section: `work/a.md`. Paths
+    /// ending in `/` become empty sections. Each file gets its name as heading: `a.md` ->
+    /// `# a`. The order file lists everything in the given order.
     fn app_with_files(files: &[&str]) -> (TempDir, App) {
         let dir = TempDir::new().unwrap();
-        let todo = dir.path();
+        let root = dir.path();
         let mut order = Order::default();
         for file in files {
-            let (section, name) = file.rsplit_once('/').unwrap_or(("", file));
-            if !section.is_empty() && order.section_position(section).is_none() {
+            let (section, name) = file.split_once('/').expect("tasks live in a section");
+            if order.section_position(section).is_none() {
                 order.sections.push(Group {
                     name: section.to_string(),
                     tasks: Vec::new(),
                 });
             }
-            let path = todo.join(file);
+            let path = root.join(file);
             if name.is_empty() {
                 fs::create_dir_all(path).unwrap();
                 continue;
@@ -780,11 +780,11 @@ pub mod tests {
             let group = order
                 .sections
                 .iter_mut()
-                .rfind(|group| group.name == section);
+                .find(|group| group.name == section);
             group.unwrap().tasks.push(stem.to_string());
         }
-        fs::write(todo.join(order::FILE), order.format()).unwrap();
-        let app = App::load(dir.path().to_path_buf(), None).unwrap();
+        fs::write(root.join(order::FILE), order.format()).unwrap();
+        let app = App::load(root.to_path_buf(), None).unwrap();
         (dir, app)
     }
 
@@ -812,7 +812,7 @@ pub mod tests {
     fn rows_include_section_headers() {
         let app = App::new(
             PathBuf::new(),
-            sections(&[(&[], &["a"]), (&["work"], &[]), (&["x"], &["b", "c"])]),
+            sections(&[(&["work"], &["a"]), (&["home"], &[]), (&["x"], &["b", "c"])]),
         );
         assert_eq!(
             app.rows(),
@@ -829,7 +829,7 @@ pub mod tests {
 
     #[test]
     fn cursor_stays_in_bounds() {
-        let mut app = App::new(PathBuf::new(), sections(&[(&[], &["a"])]));
+        let mut app = App::new(PathBuf::new(), sections(&[(&["work"], &["a"])]));
         app.update(Action::Up);
         assert_eq!(app.cursor, 0);
         app.update(Action::Down);
@@ -839,38 +839,50 @@ pub mod tests {
 
     #[test]
     fn any_key_closes_help_without_acting() {
-        let (_dir, mut app) = app_with_files(&["a.md"]);
+        let (_dir, mut app) = app_with_files(&["work/a.md"]);
         app.cursor = 1;
         app.update(Action::Help);
         assert!(app.show_help);
 
         app.handle_event(Event::Key(KeyCode::Char('x').into()));
         assert!(!app.show_help);
-        assert_eq!(listing(&app), ["[inbox]", "a.md"], "x did not archive");
+        assert_eq!(listing(&app), ["[work]", "a.md"], "x did not archive");
+    }
+
+    #[test]
+    fn root_files_are_no_tasks() {
+        let (dir, mut app) = app_with_files(&["work/a.md"]);
+        fs::write(dir.path().join("notes.md"), "# Notes").unwrap();
+        app.reload(None).unwrap();
+        app.update(Action::MoveDown);
+
+        assert_eq!(listing(&app), ["[work]", "a.md"]);
+        assert!(dir.path().join("notes.md").exists(), "never renamed");
+        assert_eq!(order_file(&dir), "# work\na\n");
     }
 
     #[test]
     fn reload_keeps_cursor_on_the_same_task() {
-        let (dir, mut app) = app_with_files(&["a.md", "b.md"]);
+        let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
         app.cursor = 2;
 
         // Changes from outside (a git pull): tasks appear above, one disappears.
-        let todo = dir.path();
-        fs::write(todo.join("z.md"), "# z").unwrap();
-        fs::write(todo.join("y.md"), "# y").unwrap();
-        fs::remove_file(todo.join("a.md")).unwrap();
-        fs::write(todo.join(order::FILE), "y\nz\nb\n").unwrap();
+        let work = dir.path().join("work");
+        fs::write(work.join("z.md"), "# z").unwrap();
+        fs::write(work.join("y.md"), "# y").unwrap();
+        fs::remove_file(work.join("a.md")).unwrap();
+        fs::write(dir.path().join(order::FILE), "# work\ny\nz\nb\n").unwrap();
         app.reload_keep_selection().unwrap();
 
-        assert_eq!(listing(&app), ["[inbox]", "y.md", "z.md", "b.md"]);
+        assert_eq!(listing(&app), ["[work]", "y.md", "z.md", "b.md"]);
         assert_eq!(app.cursor, 3, "still on b.md");
     }
 
     #[test]
     fn reload_clamps_cursor_if_task_is_gone() {
-        let (dir, mut app) = app_with_files(&["a.md"]);
+        let (dir, mut app) = app_with_files(&["work/a.md"]);
         app.cursor = 1;
-        fs::remove_file(dir.path().join("a.md")).unwrap();
+        fs::remove_file(dir.path().join("work/a.md")).unwrap();
         app.reload_keep_selection().unwrap();
         assert_eq!(app.cursor, 0);
     }
@@ -884,12 +896,12 @@ pub mod tests {
 
     #[test]
     fn delete_and_undo() {
-        let (dir, mut app) = app_with_files(&["a.md", "b.md"]);
+        let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
         app.cursor = 1;
 
         app.update(Action::Delete);
-        assert_eq!(listing(&app), ["[inbox]", "b.md"]);
-        assert_eq!(order_file(&dir), "b\n");
+        assert_eq!(listing(&app), ["[work]", "b.md"]);
+        assert_eq!(order_file(&dir), "# work\nb\n");
         assert_eq!(app.cursor, 1, "cursor moves onto the next task");
         assert_eq!(
             app.status,
@@ -897,8 +909,8 @@ pub mod tests {
         );
 
         app.update(Action::Undo);
-        assert_eq!(listing(&app), ["[inbox]", "a.md", "b.md"]);
-        assert_eq!(order_file(&dir), "a\nb\n");
+        assert_eq!(listing(&app), ["[work]", "a.md", "b.md"]);
+        assert_eq!(order_file(&dir), "# work\na\nb\n");
         assert_eq!(app.cursor, 1, "cursor is on the restored task");
 
         app.update(Action::Undo);
@@ -919,42 +931,27 @@ pub mod tests {
     }
 
     #[test]
-    fn daily_file_is_a_task_unless_set() {
-        let (dir, mut app) = app_with_files(&["a.md"]);
-        fs::write(
-            dir.path().join("daily.md"),
-            "## Jira
-",
-        )
-        .unwrap();
-        app.reload(None).unwrap();
-        assert_eq!(listing(&app), ["[inbox]", "a.md", "daily.md"]);
-
-        app.daily_path = Some(dir.path().join("daily.md"));
-        app.reload(None).unwrap();
-        assert_eq!(listing(&app), ["[inbox]", "a.md", "[daily]", "Jira"]);
-    }
-
-    #[test]
-    fn daily_rows_after_inbox_hidden_by_filter() {
-        let (_dir, mut app) = app_with_daily(&["a.md", "work/b.md"], "## Jira\n## Menu\n");
+    fn daily_rows_first_hidden_by_filter() {
+        let (_dir, mut app) = app_with_daily(&["work/a.md", "home/b.md"], "## Jira\n## Menu\n");
         assert_eq!(
             app.rows(),
             [
-                Row::Section(0),
-                Row::Task(0, 0),
                 Row::Daily,
                 Row::DailyTask(0),
                 Row::DailyTask(1),
+                Row::Section(0),
+                Row::Task(0, 0),
                 Row::Section(1),
                 Row::Task(1, 0),
             ]
         );
-        app.update(Action::NextSection);
+        app.cursor = 4;
+        app.update(Action::PrevSection);
+        app.update(Action::PrevSection);
         assert_eq!(
             app.selected(),
             Some(Row::Daily),
-            "`}}` stops at the daily header"
+            "`{{` stops at the daily header"
         );
 
         // Even when a daily task would match.
@@ -967,7 +964,7 @@ pub mod tests {
         let content = "# Daily\n\n## Jira\n## Menu\n";
         let (dir, mut app) = app_with_daily(&[], content);
         let path = dir.path().join("daily.md");
-        app.cursor = 3;
+        app.cursor = 2;
 
         app.update(Action::Done);
         let today = today();
@@ -999,8 +996,8 @@ pub mod tests {
     #[test]
     fn daily_rows_ignore_other_keys() {
         let content = "## Jira\n";
-        let (dir, mut app) = app_with_daily(&["a.md"], content);
-        for cursor in [2, 3] {
+        let (dir, mut app) = app_with_daily(&["work/a.md"], content);
+        for cursor in [0, 1] {
             app.cursor = cursor;
             for action in [
                 Action::MoveDown,
@@ -1008,7 +1005,6 @@ pub mod tests {
                 Action::Delete,
                 Action::Open,
                 Action::New,
-                Action::NewSection,
             ] {
                 app.update(action);
                 assert_eq!(app.status, None, "{action:?}");
@@ -1019,42 +1015,36 @@ pub mod tests {
             fs::read_to_string(dir.path().join("daily.md")).unwrap(),
             content
         );
-        assert_eq!(listing(&app), ["[inbox]", "a.md", "[daily]", "Jira"]);
+        assert_eq!(listing(&app), ["[daily]", "Jira", "[work]", "a.md"]);
     }
 
     #[test]
-    fn delete_section_only_if_empty_and_not_inbox() {
-        let (dir, mut app) = app_with_files(&["a.md", "work/", "home/b.md"]);
+    fn delete_section_only_if_empty() {
+        let (dir, mut app) = app_with_files(&["work/a.md", "home/", "x/b.md"]);
         let before = listing(&app);
 
         app.update(Action::Delete);
         assert_eq!(
             app.status,
-            Some(Status::Error("the inbox can't be deleted".to_string()))
-        );
-        app.cursor = 3;
-        app.update(Action::Delete);
-        assert_eq!(
-            app.status,
-            Some(Status::Error("home is not empty".to_string()))
+            Some(Status::Error("work is not empty".to_string()))
         );
         assert_eq!(listing(&app), before);
 
-        // The empty `work` goes, `home` moves up into its place, under the cursor.
+        // The empty `home` goes, `x` moves up into its place, under the cursor.
         app.cursor = 2;
         app.update(Action::Delete);
-        assert_eq!(listing(&app), ["[inbox]", "a.md", "[home]", "b.md"]);
-        assert!(!dir.path().join("work").exists());
-        assert_eq!(order_file(&dir), "a\n\n# home\nb\n");
+        assert_eq!(listing(&app), ["[work]", "a.md", "[x]", "b.md"]);
+        assert!(!dir.path().join("home").exists());
+        assert_eq!(order_file(&dir), "# work\na\n\n# x\nb\n");
         assert_eq!(app.selected(), Some(Row::Section(1)));
         assert_eq!(
             app.status,
-            Some(Status::Info("deleted work (u to undo)".to_string()))
+            Some(Status::Info("deleted home (u to undo)".to_string()))
         );
 
         app.update(Action::Undo);
         assert_eq!(listing(&app), before);
-        assert_eq!(app.cursor, 2, "back on `work`");
+        assert_eq!(app.cursor, 2, "back on `home`");
     }
 
     /// Types `text` into the filter input, like `/` followed by the keys.
@@ -1068,9 +1058,9 @@ pub mod tests {
     #[test]
     fn filter_shows_matching_tasks_under_their_section() {
         let (dir, mut app) = app_with_files(&[
-            "fix-login.md",
-            "buy-milk.md",
-            "work/review.md",
+            "work/fix-login.md",
+            "work/buy-milk.md",
+            "x/review.md",
             "home/garden.md",
         ]);
         fs::write(
@@ -1084,7 +1074,7 @@ pub mod tests {
         type_filter(&mut app, "fix");
         assert_eq!(
             listing(&app),
-            ["[inbox]", "fix-login.md", "[home]", "garden.md"]
+            ["[work]", "fix-login.md", "[home]", "garden.md"]
         );
 
         // A section name alone matches nothing.
@@ -1098,7 +1088,7 @@ pub mod tests {
 
     #[test]
     fn filter_keeps_cursor_on_a_matching_task() {
-        let (_dir, mut app) = app_with_files(&["a-fix.md", "b.md", "c-fix.md"]);
+        let (_dir, mut app) = app_with_files(&["work/a-fix.md", "work/b.md", "work/c-fix.md"]);
         app.cursor = 3;
         type_filter(&mut app, "fix");
         assert_eq!(app.selected(), Some(Row::Task(0, 2)), "still on `c-fix`");
@@ -1120,7 +1110,7 @@ pub mod tests {
 
     #[test]
     fn filter_input_takes_keys_until_accepted() {
-        let (_dir, mut app) = app_with_files(&["a.md", "b.md"]);
+        let (_dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
         let key = |code| Event::Key(KeyEvent::from(code));
         app.handle_event(key(KeyCode::Char('/')));
         assert!(app.filter_input);
@@ -1143,7 +1133,7 @@ pub mod tests {
 
     #[test]
     fn filter_blocks_move_and_new() {
-        let (_dir, mut app) = app_with_files(&["a.md", "b.md"]);
+        let (_dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
         type_filter(&mut app, "a");
         app.update(Action::FilterAccept);
         app.cursor = 1;
@@ -1163,7 +1153,7 @@ pub mod tests {
         }
         assert_eq!(app.editor_request, None);
         app.update(Action::FilterClear);
-        assert_eq!(listing(&app), ["[inbox]", "a.md", "b.md"]);
+        assert_eq!(listing(&app), ["[work]", "a.md", "b.md"]);
     }
 
     #[test]
@@ -1175,13 +1165,9 @@ pub mod tests {
 
     #[test]
     fn open_requests_editor_for_task_and_section() {
-        let (_dir, mut app) = app_with_files(&["a.md", "work/"]);
+        let (dir, mut app) = app_with_files(&["work/a.md", "home/"]);
         app.update(Action::Open);
-        assert_eq!(app.editor_request, None);
-        assert_eq!(
-            app.status,
-            Some(Status::Error("the inbox can't be renamed".to_string()))
-        );
+        assert_eq!(app.editor_request, Some(EditorRequest::RenameSection(0)));
 
         app.cursor = 2;
         app.update(Action::Open);
@@ -1189,15 +1175,15 @@ pub mod tests {
 
         app.cursor = 1;
         app.update(Action::Open);
-        let Some(EditorRequest::Open(path)) = app.editor_request.clone() else {
-            panic!("expected an open request");
-        };
-        assert!(path.ends_with("a.md"));
+        assert_eq!(
+            app.editor_request,
+            Some(EditorRequest::Open(dir.path().join("work/a.md")))
+        );
     }
 
     #[test]
     fn new_requests_create_at_section_end() {
-        let (_dir, mut app) = app_with_files(&["a.md", "b.md", "work/c.md"]);
+        let (_dir, mut app) = app_with_files(&["work/a.md", "work/b.md", "home/c.md"]);
         let at_end = |section| Some(EditorRequest::Create { section, index: 2 });
 
         // On a task and on the header of the same section.
@@ -1219,17 +1205,25 @@ pub mod tests {
     }
 
     #[test]
+    fn new_does_nothing_without_a_section() {
+        let (_dir, mut app) = app_with_files(&[]);
+        app.update(Action::New);
+        assert_eq!(app.editor_request, None);
+        assert_eq!(app.status, None);
+    }
+
+    #[test]
     fn after_create_inserts_and_undo_removes() {
-        let (dir, mut app) = app_with_files(&["a.md", "b.md"]);
+        let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
         // `n` was pressed on `a`.
         app.cursor = 1;
         app.after_create(0, 2, "# New task\n\nnotes\n").unwrap();
-        assert_eq!(listing(&app), ["[inbox]", "a.md", "b.md", "new-task.md"]);
-        assert_eq!(order_file(&dir), "a\nb\nnew-task\n");
+        assert_eq!(listing(&app), ["[work]", "a.md", "b.md", "new-task.md"]);
+        assert_eq!(order_file(&dir), "# work\na\nb\nnew-task\n");
         assert_eq!(app.cursor, 3, "cursor is on the new task");
 
         app.update(Action::Undo);
-        assert_eq!(listing(&app), ["[inbox]", "a.md", "b.md"]);
+        assert_eq!(listing(&app), ["[work]", "a.md", "b.md"]);
         assert_eq!(
             app.cursor, 1,
             "cursor is back on `a`, where `n` was pressed"
@@ -1238,46 +1232,45 @@ pub mod tests {
 
     #[test]
     fn insert_at_the_top_touches_no_other_file() {
-        let (dir, mut app) = app_with_files(&["a.md", "b.md", "c.md"]);
+        let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md", "work/c.md"]);
         app.cursor = 1;
         app.after_create(0, 0, "# New").unwrap();
-        assert_eq!(listing(&app), ["[inbox]", "new.md", "a.md", "b.md", "c.md"]);
-        assert_eq!(order_file(&dir), "new\na\nb\nc\n");
+        assert_eq!(listing(&app), ["[work]", "new.md", "a.md", "b.md", "c.md"]);
+        assert_eq!(order_file(&dir), "# work\nnew\na\nb\nc\n");
         assert_eq!(app.cursor, 1, "cursor is on the new task");
 
         // One undo reverts the file and the order.
         app.update(Action::Undo);
-        assert_eq!(listing(&app), ["[inbox]", "a.md", "b.md", "c.md"]);
-        assert_eq!(order_file(&dir), "a\nb\nc\n");
+        assert_eq!(listing(&app), ["[work]", "a.md", "b.md", "c.md"]);
+        assert_eq!(order_file(&dir), "# work\na\nb\nc\n");
     }
 
     #[test]
     fn after_create_aborts_without_title() {
-        let (_dir, mut app) = app_with_files(&["a.md"]);
+        let (_dir, mut app) = app_with_files(&["work/a.md"]);
         for content in ["# \n", "", "text but no heading\n"] {
             let err = app.after_create(0, 1, content).unwrap_err();
             assert_eq!(err.to_string(), "aborted, empty title");
         }
-        assert_eq!(listing(&app), ["[inbox]", "a.md"]);
+        assert_eq!(listing(&app), ["[work]", "a.md"]);
     }
 
     #[test]
     fn after_create_fails_on_changes_made_while_editing() {
-        let (dir, mut app) = app_with_files(&["a.md", "b.md"]);
+        let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
         app.cursor = 1;
         // A sync reorders while the editor is open. That order must not be overwritten.
-        let todo = dir.path();
-        fs::write(todo.join(order::FILE), "b\na\n").unwrap();
+        fs::write(dir.path().join(order::FILE), "# work\nb\na\n").unwrap();
 
         let err = app.after_create(0, 1, "# New").unwrap_err();
         assert!(err.to_string().starts_with("task not added: "), "{err}");
-        assert!(!todo.join("new.md").exists(), "nothing written");
-        assert_eq!(order_file(&dir), "b\na\n");
+        assert!(!dir.path().join("work/new.md").exists(), "nothing written");
+        assert_eq!(order_file(&dir), "# work\nb\na\n");
     }
 
     #[test]
     fn after_create_section_inserts_and_undo_removes() {
-        let (dir, mut app) = app_with_files(&["a.md", "work/b.md", "home/"]);
+        let (dir, mut app) = app_with_files(&["work/a.md", "home/"]);
         let before = listing(&app);
         let draft = edit::section_draft;
 
@@ -1295,17 +1288,14 @@ pub mod tests {
         );
         assert_eq!(listing(&app), before);
 
-        // `N` was pressed on `b`: after `work`, before `home`.
-        app.cursor = 3;
+        // `N` was pressed on `a`: after `work`, before `home`.
+        app.cursor = 1;
         let content = format!("{}\nnotes", draft("Garden"));
         app.after_create_section(1, &content).unwrap();
-        assert_eq!(
-            listing(&app),
-            ["[inbox]", "a.md", "[work]", "b.md", "[garden]", "[home]"]
-        );
+        assert_eq!(listing(&app), ["[work]", "a.md", "[garden]", "[home]"]);
         assert!(dir.path().join("garden").is_dir());
-        assert_eq!(order_file(&dir), "a\n\n# work\nb\n\n# garden\n\n# home\n");
-        assert_eq!(app.cursor, 4, "cursor on the new section");
+        assert_eq!(order_file(&dir), "# work\na\n\n# garden\n\n# home\n");
+        assert_eq!(app.cursor, 2, "cursor on the new section");
         assert_eq!(
             app.status,
             Some(Status::Info(
@@ -1316,18 +1306,32 @@ pub mod tests {
         app.update(Action::Undo);
         assert_eq!(listing(&app), before);
         assert!(!dir.path().join("garden").exists());
-        assert_eq!(app.cursor, 3, "back on `b`");
+        assert_eq!(app.cursor, 1, "back on `a`");
+    }
+
+    #[test]
+    fn first_section_in_an_empty_root() {
+        let (dir, mut app) = app_with_files(&[]);
+        app.update(Action::NewSection);
+        assert_eq!(app.editor_request, Some(EditorRequest::CreateSection(0)));
+
+        app.after_create_section(0, &edit::section_draft("Work"))
+            .unwrap();
+        assert_eq!(listing(&app), ["[work]"]);
+        assert_eq!(order_file(&dir), "# work\n");
+        assert_eq!(app.cursor, 0);
     }
 
     #[test]
     fn new_section_requests_create_after_cursor_section() {
-        let (_dir, mut app) = app_with_files(&["a.md", "work/b.md"]);
-        for (cursor, section) in [(0, 0), (1, 0), (2, 1), (3, 1)] {
+        let (_dir, mut app) = app_with_daily(&["work/a.md", "home/b.md"], "## Jira\n");
+        // Rows: daily, Jira, work, a, home, b. From the daily checklist on top.
+        for (cursor, index) in [(0, 0), (1, 0), (2, 1), (3, 1), (4, 2), (5, 2)] {
             app.cursor = cursor;
             app.update(Action::NewSection);
             assert_eq!(
                 app.editor_request,
-                Some(EditorRequest::CreateSection(section)),
+                Some(EditorRequest::CreateSection(index)),
                 "cursor {cursor}"
             );
         }
@@ -1343,26 +1347,26 @@ pub mod tests {
         // Empty title, unchanged name and a clash change nothing.
         let (empty, same, clash) = (draft("# "), draft("# work"), draft("# Home"));
         assert_eq!(
-            app.after_rename_section(1, &empty).unwrap_err().to_string(),
+            app.after_rename_section(0, &empty).unwrap_err().to_string(),
             "aborted, empty title"
         );
-        app.after_rename_section(1, &same).unwrap();
+        app.after_rename_section(0, &same).unwrap();
         assert_eq!(
-            app.after_rename_section(1, &clash).unwrap_err().to_string(),
+            app.after_rename_section(0, &clash).unwrap_err().to_string(),
             "a section named home already exists"
         );
         assert_eq!(listing(&app), before);
         assert!(app.undo.is_empty());
 
         // Text below the heading is dropped, the status says so.
-        app.cursor = 2;
+        app.cursor = 1;
         let renamed = format!("{}\nnotes", draft("# Work Stuff"));
-        app.after_rename_section(1, &renamed).unwrap();
+        app.after_rename_section(0, &renamed).unwrap();
         assert!(dir.path().join("work-stuff/a.md").exists());
         assert_eq!(order_file(&dir), "# work-stuff\na\n\n# home\n");
         assert_eq!(
             app.selected(),
-            Some(Row::Section(1)),
+            Some(Row::Section(0)),
             "cursor on the section"
         );
         assert_eq!(
@@ -1374,12 +1378,12 @@ pub mod tests {
 
         app.update(Action::Undo);
         assert_eq!(listing(&app), before);
-        assert_eq!(app.cursor, 2, "back on the task");
+        assert_eq!(app.cursor, 1, "back on the task");
     }
 
     #[test]
     fn after_edit_renames_to_new_heading() {
-        let (dir, mut app) = app_with_files(&["a.md", "b.md"]);
+        let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
         app.cursor = 1;
         let path = app.sections[0].tasks[0].path.clone();
 
@@ -1387,8 +1391,12 @@ pub mod tests {
         fs::write(&path, "# Renamed task\n\nnotes").unwrap();
         app.after_edit().unwrap();
 
-        assert_eq!(listing(&app), ["[inbox]", "renamed-task.md", "b.md"]);
-        assert_eq!(order_file(&dir), "renamed-task\nb\n", "keeps its place");
+        assert_eq!(listing(&app), ["[work]", "renamed-task.md", "b.md"]);
+        assert_eq!(
+            order_file(&dir),
+            "# work\nrenamed-task\nb\n",
+            "keeps its place"
+        );
         assert_eq!(app.cursor, 1, "cursor follows the renamed file");
         assert_eq!(app.sections[0].tasks[0].body, "notes");
     }
@@ -1397,26 +1405,27 @@ pub mod tests {
     fn startup_normalizes_and_lists_renames() {
         // Old numbered names, no order file yet.
         let dir = TempDir::new().unwrap();
-        let todo = dir.path();
-        fs::create_dir_all(todo.join("01-work")).unwrap();
-        fs::write(todo.join("02-b.md"), "# b").unwrap();
-        fs::write(todo.join("01-a.md"), "# a").unwrap();
-        fs::write(todo.join("01-work/old.md"), "# Old task").unwrap();
+        let work = dir.path().join("work");
+        fs::create_dir_all(dir.path().join("01-home")).unwrap();
+        fs::create_dir_all(&work).unwrap();
+        fs::write(work.join("02-b.md"), "# b").unwrap();
+        fs::write(work.join("01-a.md"), "# a").unwrap();
+        fs::write(dir.path().join("01-home/old.md"), "# Old task").unwrap();
         let mut app = App::load(dir.path().to_path_buf(), None).unwrap();
 
         assert_eq!(
             listing(&app),
-            ["[inbox]", "a.md", "b.md", "[01-work]", "old-task.md"]
+            ["[01-home]", "old-task.md", "[work]", "a.md", "b.md"]
         );
         assert_eq!(
             app.renamed,
             [
-                ("01-a.md".into(), "a.md".into()),
-                ("02-b.md".into(), "b.md".into()),
-                ("01-work/old.md".into(), "01-work/old-task.md".into()),
+                ("01-home/old.md".into(), "01-home/old-task.md".into()),
+                ("work/01-a.md".into(), "work/a.md".into()),
+                ("work/02-b.md".into(), "work/b.md".into()),
             ]
         );
-        assert_eq!(order_file(&dir), "a\nb\n\n# 01-work\nold-task\n");
+        assert_eq!(order_file(&dir), "# 01-home\nold-task\n\n# work\na\nb\n");
 
         // Any key closes the popup and does nothing else.
         app.handle_event(Event::Key(KeyCode::Char('j').into()));
@@ -1426,37 +1435,38 @@ pub mod tests {
 
     #[test]
     fn startup_cleans_the_order_file() {
-        let (dir, _) = app_with_files(&["a.md", "b.md", "work/", "home/"]);
-        fs::write(dir.path().join(order::FILE), "gone\nb\n# work\n").unwrap();
+        let (dir, _) = app_with_files(&["work/a.md", "work/b.md", "home/", "x/"]);
+        fs::write(
+            dir.path().join(order::FILE),
+            "# x\n# work\ngone\nb\n# gone\n",
+        )
+        .unwrap();
 
         // Not listed: to the end, by name. Listed but gone: dropped. No rename, no popup.
         let app = App::load(dir.path().to_path_buf(), None).unwrap();
-        assert_eq!(
-            listing(&app),
-            ["[inbox]", "b.md", "a.md", "[work]", "[home]"]
-        );
-        assert_eq!(order_file(&dir), "b\na\n\n# work\n\n# home\n");
+        assert_eq!(listing(&app), ["[x]", "[work]", "b.md", "a.md", "[home]"]);
+        assert_eq!(order_file(&dir), "# x\n\n# work\nb\na\n\n# home\n");
         assert!(app.renamed.is_empty());
     }
 
     #[test]
     fn reload_from_watcher_does_not_write() {
-        let (dir, mut app) = app_with_files(&["a.md"]);
-        fs::write(dir.path().join("draft.md"), "# New").unwrap();
+        let (dir, mut app) = app_with_files(&["work/a.md"]);
+        fs::write(dir.path().join("work/draft.md"), "# New").unwrap();
         app.reload_keep_selection().unwrap();
-        assert_eq!(listing(&app), ["[inbox]", "a.md", "draft.md"]);
-        assert_eq!(order_file(&dir), "a\n");
+        assert_eq!(listing(&app), ["[work]", "a.md", "draft.md"]);
+        assert_eq!(order_file(&dir), "# work\na\n");
     }
 
     #[test]
     fn action_normalizes_first_and_says_so() {
-        let (dir, mut app) = app_with_files(&["a.md", "b.md"]);
-        fs::write(dir.path().join("draft.md"), "# New").unwrap();
+        let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
+        fs::write(dir.path().join("work/draft.md"), "# New").unwrap();
         app.reload_keep_selection().unwrap();
         app.cursor = 1;
 
         app.update(Action::MoveDown);
-        assert_eq!(listing(&app), ["[inbox]", "b.md", "a.md", "new.md"]);
+        assert_eq!(listing(&app), ["[work]", "b.md", "a.md", "new.md"]);
         assert_eq!(
             app.status,
             Some(Status::Info(
@@ -1466,27 +1476,27 @@ pub mod tests {
 
         // Undo only reverts the move, the rename stays.
         app.update(Action::Undo);
-        assert_eq!(listing(&app), ["[inbox]", "a.md", "b.md", "new.md"]);
+        assert_eq!(listing(&app), ["[work]", "a.md", "b.md", "new.md"]);
     }
 
     #[test]
     fn move_task_within_and_across_sections() {
-        let (dir, mut app) = app_with_files(&["a.md", "b.md", "work/c.md"]);
+        let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md", "home/c.md"]);
         app.cursor = 1;
 
         app.update(Action::MoveDown);
-        assert_eq!(listing(&app), ["[inbox]", "b.md", "a.md", "[work]", "c.md"]);
-        assert_eq!(order_file(&dir), "b\na\n\n# work\nc\n");
+        assert_eq!(listing(&app), ["[work]", "b.md", "a.md", "[home]", "c.md"]);
+        assert_eq!(order_file(&dir), "# work\nb\na\n\n# home\nc\n");
         assert_eq!(app.cursor, 2, "cursor follows the task");
 
         app.update(Action::MoveDown);
-        assert_eq!(listing(&app), ["[inbox]", "b.md", "[work]", "a.md", "c.md"]);
-        assert!(dir.path().join("work/a.md").exists());
+        assert_eq!(listing(&app), ["[work]", "b.md", "[home]", "a.md", "c.md"]);
+        assert!(dir.path().join("home/a.md").exists());
         assert_eq!(app.cursor, 3);
 
         // One undo per move, the cursor goes back with the task.
         app.update(Action::Undo);
-        assert_eq!(listing(&app), ["[inbox]", "b.md", "a.md", "[work]", "c.md"]);
+        assert_eq!(listing(&app), ["[work]", "b.md", "a.md", "[home]", "c.md"]);
         assert_eq!(app.cursor, 2);
         app.update(Action::Undo);
         assert_eq!(app.cursor, 1);
@@ -1497,9 +1507,13 @@ pub mod tests {
     fn jumps() {
         let mut app = App::new(
             PathBuf::new(),
-            sections(&[(&[], &["a"]), (&["work"], &["b", "c"]), (&["x"], &["d"])]),
+            sections(&[
+                (&["work"], &["a"]),
+                (&["home"], &["b", "c"]),
+                (&["x"], &["d"]),
+            ]),
         );
-        // Rows: inbox, a, work, b, c, x, d
+        // Rows: work, a, home, b, c, x, d
         app.update(Action::Bottom);
         assert_eq!(app.cursor, 6);
         app.update(Action::PrevSection);
@@ -1518,41 +1532,37 @@ pub mod tests {
 
     #[test]
     fn move_task_stops_at_the_ends() {
-        let (_dir, mut app) = app_with_files(&["a.md", "work/b.md"]);
+        let (_dir, mut app) = app_with_files(&["work/a.md", "home/b.md"]);
         app.cursor = 1;
         app.update(Action::MoveUp);
         app.cursor = 3;
         app.update(Action::MoveDown);
-        assert_eq!(listing(&app), ["[inbox]", "a.md", "[work]", "b.md"]);
+        assert_eq!(listing(&app), ["[work]", "a.md", "[home]", "b.md"]);
         assert_eq!(app.status, None);
     }
 
     #[test]
     fn move_section_with_its_tasks() {
         let (dir, mut app) = app_with_files(&["work/a.md", "home/b.md", "x/"]);
-        app.cursor = 1;
 
         app.update(Action::MoveDown);
-        assert_eq!(
-            listing(&app),
-            ["[inbox]", "[home]", "b.md", "[work]", "a.md", "[x]"]
-        );
-        assert_eq!(app.cursor, 3, "cursor follows the section");
+        assert_eq!(listing(&app), ["[home]", "b.md", "[work]", "a.md", "[x]"]);
+        assert_eq!(app.cursor, 2, "cursor follows the section");
         assert_eq!(order_file(&dir), "# home\nb\n\n# work\na\n\n# x\n");
 
         app.update(Action::Undo);
-        assert_eq!(app.sections[1].title(), "work");
-        assert_eq!(app.cursor, 1, "cursor goes back with the section");
+        assert_eq!(app.sections[0].title(), "work");
+        assert_eq!(app.cursor, 0, "cursor goes back with the section");
 
-        // The inbox never moves.
-        app.cursor = 0;
-        app.update(Action::MoveDown);
-        assert_eq!(app.sections[1].title(), "work");
+        // Nothing above the first one.
+        app.update(Action::MoveUp);
+        assert_eq!(app.sections[0].title(), "work");
+        assert_eq!(app.status, None);
     }
 
     #[test]
     fn done_archives_and_undo_restores() {
-        let (dir, mut app) = app_with_files(&["a.md", "work/b.md"]);
+        let (dir, mut app) = app_with_files(&["work/a.md", "home/b.md"]);
         let today = jiff::Zoned::now().date().to_string();
         let archive_path = dir.path().join(".archive").join(format!("{today}.md"));
 
@@ -1565,23 +1575,23 @@ pub mod tests {
             Some(Status::Info("done b (u to undo)".to_string()))
         );
         assert_eq!(app.done_today, 2);
-        assert_eq!(listing(&app), ["[inbox]", "[work]"]);
-        assert_eq!(order_file(&dir), "# work\n");
+        assert_eq!(listing(&app), ["[work]", "[home]"]);
+        assert_eq!(order_file(&dir), "# work\n\n# home\n");
         assert_eq!(
             fs::read_to_string(&archive_path).unwrap(),
-            format!("# {today}\n\n## inbox\n\n### a\n\n## work\n\n### b\n")
+            format!("# {today}\n\n## work\n\n### a\n\n## home\n\n### b\n")
         );
 
         app.update(Action::Undo);
-        assert_eq!(listing(&app), ["[inbox]", "[work]", "b.md"]);
+        assert_eq!(listing(&app), ["[work]", "[home]", "b.md"]);
         assert_eq!(app.done_today, 1);
         assert_eq!(
             fs::read_to_string(&archive_path).unwrap(),
-            format!("# {today}\n\n## inbox\n\n### a\n")
+            format!("# {today}\n\n## work\n\n### a\n")
         );
 
         app.update(Action::Undo);
-        assert_eq!(listing(&app), ["[inbox]", "a.md", "[work]", "b.md"]);
+        assert_eq!(listing(&app), ["[work]", "a.md", "[home]", "b.md"]);
         assert!(!archive_path.exists());
     }
 }

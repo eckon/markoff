@@ -31,7 +31,7 @@ pub struct Config {
     pub daily: Option<String>,
 }
 
-/// Resolves the root directory, the one with the sections and inbox tasks.
+/// Resolves the root directory, the one with the sections.
 ///
 /// Order: `--dir <path>` / `--dir=<path>`, then [`DIR_ENV`], then `dir` of the config file.
 /// Args, env and config are parameters so this can be tested without the real process.

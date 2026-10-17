@@ -41,7 +41,7 @@ impl Task {
     }
 }
 
-/// A directory of tasks. The inbox (the root itself) has an empty path.
+/// A directory of tasks in the root.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section {
     /// Section names, the directory names: `["work"]`. A `Vec` so nesting can be added later.
@@ -53,11 +53,7 @@ pub struct Section {
 impl Section {
     /// Display name, also used as the archive heading: `work`, later `private/garden`.
     pub fn title(&self) -> String {
-        if self.path.is_empty() {
-            "inbox".to_string()
-        } else {
-            self.path.join("/")
-        }
+        self.path.join("/")
     }
 }
 
@@ -152,7 +148,6 @@ mod tests {
             dir: PathBuf::new(),
             tasks: vec![],
         };
-        assert_eq!(section(&[]).title(), "inbox");
         assert_eq!(section(&["work"]).title(), "work");
         assert_eq!(section(&["private", "garden"]).title(), "private/garden");
     }

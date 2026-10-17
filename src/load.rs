@@ -12,17 +12,15 @@ use crate::{
     task::{Section, Task},
 };
 
-/// Loads all sections, inbox first, then the section directories, both in the order file's
-/// order. What it does not list goes last, sorted by name.
+/// Loads the section directories with their tasks, both in the order file's order. What it
+/// does not list goes last, sorted by name.
 ///
-/// `skip` is a file that is not a task (the daily checklist).
+/// Files directly in the root are not tasks, so notes or the daily checklist can live there.
+/// Only one level of sections is read, deeper directories are ignored for now.
 ///
 /// Also returns the order file as read. Actions write it based on that content, so it is
 /// never overwritten with an order from before a change made outside markoff.
-///
-/// The inbox is always present, even if empty, so there is always somewhere to add a task.
-/// Only one level of sections is read, deeper directories are ignored for now.
-pub fn load(root: &Path, skip: Option<&Path>) -> Result<(Vec<Section>, OrderFile)> {
+pub fn load(root: &Path) -> Result<(Vec<Section>, OrderFile)> {
     let file = read_order_file(root)?;
     // A missing order file is an empty order: everything sorted by name.
     let order = file
@@ -30,32 +28,22 @@ pub fn load(root: &Path, skip: Option<&Path>) -> Result<(Vec<Section>, OrderFile
         .as_deref()
         .map(Order::parse)
         .unwrap_or_default();
-    let is_task =
-        |path: &PathBuf| path.is_file() && is_markdown(path) && Some(path.as_path()) != skip;
-    let entries = visible_entries(root)?;
 
-    let mut inbox_tasks = Vec::new();
-    let mut section_dirs = Vec::new();
-    for path in entries {
-        if path.is_dir() {
-            section_dirs.push(path);
-        } else if is_task(&path) {
-            inbox_tasks.push(path);
-        }
-    }
-
-    let mut sections = vec![Section {
-        path: vec![],
-        dir: root.to_path_buf(),
-        tasks: load_tasks(inbox_tasks, &order, "")?,
-    }];
-
+    let mut section_dirs: Vec<PathBuf> = visible_entries(root)?
+        .into_iter()
+        .filter(|path| path.is_dir())
+        .collect();
     sort_by_order(&mut section_dirs, |dir| {
         order.section_position(file_name(dir))
     });
+
+    let mut sections = Vec::new();
     for dir in section_dirs {
         let name = file_name(&dir).to_string();
-        let task_paths = visible_entries(&dir)?.into_iter().filter(is_task).collect();
+        let task_paths = visible_entries(&dir)?
+            .into_iter()
+            .filter(|path| path.is_file() && is_markdown(path))
+            .collect();
         sections.push(Section {
             tasks: load_tasks(task_paths, &order, &name)?,
             path: vec![name],
@@ -153,39 +141,33 @@ mod tests {
         section.tasks.iter().map(Task::title).collect()
     }
 
-    #[test]
-    fn empty_dir_has_inbox() {
-        let dir = fixture(&[]);
-        let (sections, _) = load(dir.path(), None).unwrap();
-        assert_eq!(sections.len(), 1);
-        assert_eq!(sections[0].title(), "inbox");
-        assert!(sections[0].tasks.is_empty());
-    }
-
     fn section_titles(sections: &[Section]) -> Vec<String> {
         sections.iter().map(Section::title).collect()
     }
 
     #[test]
+    fn empty_dir_has_no_sections() {
+        let dir = fixture(&[]);
+        let (sections, _) = load(dir.path()).unwrap();
+        assert!(sections.is_empty());
+    }
+
+    #[test]
     fn sections_and_tasks_in_order_file_order() {
         let dir = fixture(&[
-            (
-                ".order",
-                "fix-typo\n\n# work\nreview-pr\nfix-login-bug\n\n# private\n",
-            ),
-            ("fix-typo.md", "# Fix typo"),
+            (".order", "# work\nreview-pr\nfix-login-bug\n\n# private\n"),
             ("private/call-bob.md", "# Call Bob"),
             ("work/fix-login-bug.md", "# Fix login bug"),
             ("work/review-pr.md", "# Review PR"),
+            ("home/water.md", "# Water plants"),
         ]);
-        let (sections, _) = load(dir.path(), None).unwrap();
+        let (sections, _) = load(dir.path()).unwrap();
 
-        assert_eq!(section_titles(&sections), ["inbox", "work", "private"]);
-        assert_eq!(titles(&sections[0]), ["Fix typo"]);
-        assert_eq!(titles(&sections[1]), ["Review PR", "Fix login bug"]);
+        assert_eq!(section_titles(&sections), ["work", "private", "home"]);
+        assert_eq!(titles(&sections[0]), ["Review PR", "Fix login bug"]);
         assert_eq!(
             titles(&sections[2]),
-            ["Call Bob"],
+            ["Water plants"],
             "not listed, still loaded"
         );
     }
@@ -193,62 +175,50 @@ mod tests {
     #[test]
     fn unlisted_go_last_by_name_stale_are_ignored() {
         let dir = fixture(&[
-            (".order", "b\ngone\n# work\n# gone\n"),
-            ("c.md", ""),
-            ("a.md", ""),
-            ("b.md", ""),
+            (".order", "# work\nb\ngone\n# gone\n"),
+            ("work/c.md", ""),
+            ("work/a.md", ""),
+            ("work/b.md", ""),
             ("misc/", ""),
             ("home/", ""),
-            ("work/", ""),
         ]);
-        let (sections, _) = load(dir.path(), None).unwrap();
+        let (sections, _) = load(dir.path()).unwrap();
 
+        assert_eq!(section_titles(&sections), ["work", "home", "misc"]);
         assert_eq!(titles(&sections[0]), ["b", "a", "c"]);
-        assert_eq!(section_titles(&sections), ["inbox", "work", "home", "misc"]);
     }
 
     #[test]
     fn without_order_file_by_name() {
         // Old numbered names keep their order this way until they are renamed.
-        let dir = fixture(&[("02-b.md", ""), ("01-a.md", ""), ("01-work/", "")]);
-        let (sections, _) = load(dir.path(), None).unwrap();
-        assert_eq!(titles(&sections[0]), ["01 a", "02 b"]);
-        assert_eq!(section_titles(&sections), ["inbox", "01-work"]);
+        let dir = fixture(&[("work/02-b.md", ""), ("work/01-a.md", ""), ("01-home/", "")]);
+        let (sections, _) = load(dir.path()).unwrap();
+        assert_eq!(section_titles(&sections), ["01-home", "work"]);
+        assert_eq!(titles(&sections[1]), ["01 a", "02 b"]);
     }
 
     #[test]
-    fn ignores_hidden_non_markdown_and_nested() {
+    fn ignores_root_files_hidden_non_markdown_and_nested() {
         let dir = fixture(&[
+            ("daily.md", "## Jira"),
+            ("readme.md", "# Notes"),
             (".git/config", ""),
             (".archive/2026-10-14.md", ""),
-            (".hidden.md", ""),
-            ("readme.txt", ""),
             ("work/.swap.md", ""),
+            ("work/readme.txt", ""),
             ("work/nested/deep.md", ""),
             ("work/task.md", "# Task"),
         ]);
-        let (sections, _) = load(dir.path(), None).unwrap();
+        let (sections, _) = load(dir.path()).unwrap();
 
-        assert_eq!(sections.len(), 2);
-        assert!(sections[0].tasks.is_empty());
-        assert_eq!(titles(&sections[1]), ["Task"]);
-    }
-
-    #[test]
-    fn skips_the_given_file() {
-        let dir = fixture(&[("daily.md", "## Jira"), ("a.md", "# A")]);
-        let (sections, _) = load(dir.path(), Some(&dir.path().join("daily.md"))).unwrap();
-        assert_eq!(titles(&sections[0]), ["A"]);
-
-        // Without it, `daily.md` is a task like any other.
-        let (sections, _) = load(dir.path(), None).unwrap();
-        assert_eq!(titles(&sections[0]), ["A", "daily"]);
+        assert_eq!(section_titles(&sections), ["work"]);
+        assert_eq!(titles(&sections[0]), ["Task"]);
     }
 
     #[test]
     fn missing_dir_is_an_error() {
         let dir = fixture(&[]);
-        let err = load(&dir.path().join("nope"), None).unwrap_err();
+        let err = load(&dir.path().join("nope")).unwrap_err();
         assert!(err.to_string().contains("failed to read"));
     }
 }

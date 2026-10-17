@@ -28,8 +28,8 @@ pub fn delete(sections: &[Section], s: usize, t: usize, file: &OrderFile) -> Vec
     ops
 }
 
-/// `D` on a section header: removes the directory of section `s`. Only for an empty section
-/// that is not the inbox, the caller checks.
+/// `D` on a section header: removes the directory of section `s`. Only for an empty section,
+/// the caller checks.
 pub fn delete_section(sections: &[Section], s: usize, file: &OrderFile) -> Vec<Op> {
     let mut order = Order::of(sections);
     order.sections.remove(s);
@@ -187,18 +187,19 @@ pub fn insert(
     (ops, path)
 }
 
-/// `N`: creates section `slug` right after section `s` (first if `s` is the inbox).
-/// Returns the ops and the new directory.
+/// `N`: creates section `slug` in `root` at position `index`. Returns the ops and the new
+/// directory.
 pub fn insert_section(
     sections: &[Section],
-    s: usize,
+    root: &Path,
+    index: usize,
     slug: &str,
     file: &OrderFile,
 ) -> (Vec<Op>, PathBuf) {
-    let path = sections[0].dir.join(slug);
+    let path = root.join(slug);
     let mut order = Order::of(sections);
     order.sections.insert(
-        s + 1,
+        index,
         Group {
             name: slug.to_string(),
             tasks: Vec::new(),
@@ -252,18 +253,15 @@ pub fn move_task(
 /// `J` / `K` on a section header: moves section `s` one place down or up. Returns the ops and
 /// its directory, which stays the same.
 ///
-/// `None` at the edge: the inbox never moves and nothing moves above it.
+/// `None` at the first or last place.
 pub fn move_section(
     sections: &[Section],
     s: usize,
     down: bool,
     file: &OrderFile,
 ) -> Option<(Vec<Op>, PathBuf)> {
-    if s == 0 {
-        return None;
-    }
-    let other = if down { s + 1 } else { s - 1 };
-    if other == 0 || other >= sections.len() {
+    let other = if down { s + 1 } else { s.checked_sub(1)? };
+    if other >= sections.len() {
         return None;
     }
     let mut order = Order::of(sections);
@@ -346,17 +344,13 @@ mod tests {
 
     use super::*;
 
-    /// Inbox in `todo/` plus section dirs, each with task files from `(file, content)` pairs.
+    /// Section dirs in `root/`, each with task files from `(file, content)` pairs.
     fn tree_with(spec: &[(&str, &[(&str, &str)])]) -> Vec<Section> {
         spec.iter()
             .map(|(dir, files)| {
-                let path = Path::new("todo").join(dir);
+                let path = Path::new("root").join(dir);
                 Section {
-                    path: if dir.is_empty() {
-                        vec![]
-                    } else {
-                        vec![dir.to_string()]
-                    },
+                    path: vec![dir.to_string()],
                     tasks: files
                         .iter()
                         .map(|(file, content)| Task::parse(path.join(file), content))
@@ -383,17 +377,17 @@ mod tests {
     /// The order file holding exactly the order of `sections`, as after a normalize.
     fn file_for(sections: &[Section]) -> OrderFile {
         OrderFile {
-            path: PathBuf::from("todo/.order"),
+            path: PathBuf::from("root/.order"),
             content: Some(Order::of(sections).format()),
         }
     }
 
     fn task(title: &str) -> Task {
-        Task::parse(PathBuf::from("todo/old.md"), &format!("# {title}\n\nbody"))
+        Task::parse(PathBuf::from("old.md"), &format!("# {title}\n\nbody"))
     }
 
     /// Ops as short strings with file names only: `rename a.md -> b.md`. An order file
-    /// write shows the new content on one line: `order a b | # work c`.
+    /// write shows the new content on one line: `order # work a b | # home c`.
     fn describe(ops: &[Op]) -> Vec<String> {
         let file = |path: &Path| path.file_name().unwrap().to_str().unwrap().to_string();
         let order = |content: &str| {
@@ -416,23 +410,23 @@ mod tests {
 
     #[test]
     fn delete_removes_with_content() {
-        let s = tree_with(&[("", &[("fix-bug.md", "# Fix bug\n\nbody"), ("b.md", "")])]);
+        let s = tree_with(&[("work", &[("fix-bug.md", "# Fix bug\n\nbody"), ("b.md", "")])]);
         let ops = delete(&s, 0, 0, &file_for(&s));
         assert_eq!(
             ops[0],
             Op::Remove {
-                path: "todo/fix-bug.md".into(),
+                path: "root/work/fix-bug.md".into(),
                 content: "# Fix bug\n\nbody".to_string()
             }
         );
-        assert_eq!(describe(&ops[1..]), ["order b"]);
+        assert_eq!(describe(&ops[1..]), ["order # work b"]);
     }
 
     #[test]
     fn delete_section_drops_it_from_the_order() {
-        let s = tree(&[("", &[]), ("a", &[]), ("b", &[]), ("c", &[])]);
+        let s = tree(&[("a", &[]), ("b", &[]), ("c", &[])]);
         assert_eq!(
-            describe(&delete_section(&s, 2, &file_for(&s))),
+            describe(&delete_section(&s, 1, &file_for(&s))),
             ["rmdir b", "order # a | # c"]
         );
     }
@@ -455,38 +449,50 @@ mod tests {
     }
 
     #[test]
-    fn insert_section_after_the_given_one() {
-        let s = tree(&[("", &[]), ("a", &[]), ("b", &[])]);
-        let (ops, path) = insert_section(&s, 1, "new", &file_for(&s));
+    fn insert_section_at_the_given_place() {
+        let s = tree(&[("a", &[]), ("b", &[])]);
+        let root = Path::new("root");
+        let (ops, path) = insert_section(&s, root, 1, "new", &file_for(&s));
         assert_eq!(describe(&ops), ["mkdir new", "order # a | # new | # b"]);
-        assert_eq!(path, Path::new("todo/new"));
+        assert_eq!(path, Path::new("root/new"));
 
-        // From the inbox: first section.
-        let (ops, _) = insert_section(&s, 0, "new", &file_for(&s));
+        let (ops, _) = insert_section(&s, root, 0, "new", &file_for(&s));
         assert_eq!(describe(&ops), ["mkdir new", "order # new | # a | # b"]);
+
+        // The very first section creates the order file.
+        let none = OrderFile {
+            path: PathBuf::from("root/.order"),
+            content: None,
+        };
+        let (ops, _) = insert_section(&[], root, 0, "new", &none);
+        assert_eq!(describe(&ops), ["mkdir new", "order # new"]);
     }
 
     #[test]
     fn rename_section_keeps_its_place() {
-        let s = tree(&[("", &[]), ("a", &[]), ("work", &["x.md"])]);
-        let (ops, to) = rename_section(&s, 2, "home", &file_for(&s));
+        let s = tree(&[("a", &[]), ("work", &["x.md"])]);
+        let (ops, to) = rename_section(&s, 1, "home", &file_for(&s));
         assert_eq!(
             describe(&ops),
             ["rename work -> home", "order # a | # home x"]
         );
-        assert_eq!(to, Path::new("todo/home"));
+        assert_eq!(to, Path::new("root/home"));
     }
 
     #[test]
     fn archive_creates_or_updates_then_removes() {
-        let s = tree(&[("", &["fix-bug.md", "b.md"])]);
+        let s = tree(&[("work", &["fix-bug.md", "b.md"])]);
         let path = Path::new(".archive/2026-10-14.md");
         let file = file_for(&s);
 
         let ops = archive(&s, 0, 0, path, None, "2026-10-14", &file);
         assert_eq!(
             describe(&ops),
-            ["create 2026-10-14.md", "remove fix-bug.md", "order b"]
+            [
+                "create 2026-10-14.md",
+                "remove fix-bug.md",
+                "order # work b"
+            ]
         );
 
         let ops = archive(&s, 0, 0, path, Some("# 2026-10-14\n"), "2026-10-14", &file);
@@ -495,150 +501,158 @@ mod tests {
 
     #[test]
     fn normalize_leaves_clean_tree_alone() {
-        let s = tree_with(&[("", &[("a.md", "# A"), ("notes.md", "no heading")])]);
+        let s = tree_with(&[("work", &[("a.md", "# A"), ("notes.md", "no heading")])]);
         assert_eq!(normalize(&s, &file_for(&s)), []);
     }
 
     #[test]
     fn normalize_syncs_name_to_heading_and_order() {
         let s = tree_with(&[
-            ("", &[("01-a.md", "# A"), ("old.md", "# New title")]),
-            ("work", &[("Call Bob.md", "no heading")]),
+            ("work", &[("01-a.md", "# A"), ("old.md", "# New title")]),
+            ("home", &[("Call Bob.md", "no heading")]),
         ]);
         assert_eq!(
             describe(&normalize(&s, &file_for(&s))),
             [
                 "rename 01-a.md -> a.md",
                 "rename old.md -> new-title.md",
-                "order a new-title | # work Call Bob",
+                "order # work a new-title | # home Call Bob",
             ]
         );
     }
 
     #[test]
     fn normalize_writes_a_missing_or_stale_order_file() {
-        let s = tree(&[("", &["a.md"]), ("work", &[])]);
+        let s = tree(&[("work", &["a.md"]), ("home", &[])]);
         let ops = |content: Option<&str>| {
             let file = OrderFile {
-                path: PathBuf::from("todo/.order"),
+                path: PathBuf::from("root/.order"),
                 content: content.map(str::to_string),
             };
             describe(&normalize(&s, &file))
         };
-        assert_eq!(ops(None), ["order a | # work"]);
-        assert_eq!(ops(Some("gone\na\n# work\n# old\n")), ["order a | # work"]);
+        assert_eq!(ops(None), ["order # work a | # home"]);
+        assert_eq!(
+            ops(Some("x\n# work\ngone\na\n# old\n")),
+            ["order # work a | # home"]
+        );
     }
 
     #[test]
     fn normalize_never_takes_a_used_name() {
         // `x-2` keeps its `-2` because `x` already has `x`.
-        let s = tree_with(&[("", &[("x-2.md", "# X"), ("x.md", "# X"), ("old.md", "# X")])]);
+        let s = tree_with(&[(
+            "work",
+            &[("x-2.md", "# X"), ("x.md", "# X"), ("old.md", "# X")],
+        )]);
         assert_eq!(
             describe(&normalize(&s, &file_for(&s))),
-            ["rename old.md -> x-3.md", "order x-2 x x-3"]
+            ["rename old.md -> x-3.md", "order # work x-2 x x-3"]
         );
     }
 
     #[test]
     fn renames_are_ordered_to_avoid_clashes() {
         // `b` is renamed to `c`, so `a` can take `b` only after that.
-        let s = tree_with(&[("", &[("a.md", "# B"), ("b.md", "# C")])]);
+        let s = tree_with(&[("work", &[("a.md", "# B"), ("b.md", "# C")])]);
         assert_eq!(
             describe(&normalize(&s, &file_for(&s))),
-            ["rename b.md -> c.md", "rename a.md -> b.md", "order b c"]
+            [
+                "rename b.md -> c.md",
+                "rename a.md -> b.md",
+                "order # work b c"
+            ]
         );
     }
 
     #[test]
     fn insert_keeps_content() {
-        let s = tree(&[("", &[])]);
+        let s = tree(&[("work", &[])]);
         let (ops, path) = insert(&s, 0, 0, &task("Fix bug"), &file_for(&s));
         let Op::Create { content, .. } = &ops[0] else {
             panic!("expected a create first");
         };
         assert_eq!(content, "# Fix bug\n\nbody");
-        assert_eq!(path, Path::new("todo/fix-bug.md"));
+        assert_eq!(path, Path::new("root/work/fix-bug.md"));
     }
 
     #[test]
     fn insert_only_writes_the_order() {
-        let s = tree(&[("", &["a.md", "b.md"])]);
+        let s = tree(&[("work", &["a.md", "b.md"])]);
         let insert_at = |index| describe(&insert(&s, 0, index, &task("New"), &file_for(&s)).0);
 
-        assert_eq!(insert_at(0), ["create new.md", "order new a b"]);
-        assert_eq!(insert_at(1), ["create new.md", "order a new b"]);
-        assert_eq!(insert_at(2), ["create new.md", "order a b new"]);
+        assert_eq!(insert_at(0), ["create new.md", "order # work new a b"]);
+        assert_eq!(insert_at(1), ["create new.md", "order # work a new b"]);
+        assert_eq!(insert_at(2), ["create new.md", "order # work a b new"]);
     }
 
     #[test]
     fn insert_name_collision() {
         let s = tree(&[("work", &["new.md", "new-2.md"])]);
         let (ops, path) = insert(&s, 0, 2, &task("New"), &file_for(&s));
-        assert_eq!(describe(&ops), ["create new-3.md", "order new new-2 new-3"]);
-        assert_eq!(path, Path::new("todo/work/new-3.md"));
+        assert_eq!(
+            describe(&ops),
+            ["create new-3.md", "order # work new new-2 new-3"]
+        );
+        assert_eq!(path, Path::new("root/work/new-3.md"));
     }
 
     #[test]
     fn move_task_within_section_only_writes_the_order() {
-        let s = tree(&[("", &["a.md", "b.md", "c.md"])]);
+        let s = tree(&[("work", &["a.md", "b.md", "c.md"])]);
 
         // `a` down, after `b`.
         let (ops, path) = move_task(&s, 0, 0, 0, 1, &file_for(&s));
-        assert_eq!(describe(&ops), ["order b a c"]);
-        assert_eq!(path, Path::new("todo/a.md"));
+        assert_eq!(describe(&ops), ["order # work b a c"]);
+        assert_eq!(path, Path::new("root/work/a.md"));
 
         // `c` up, before `b`.
         let (ops, _) = move_task(&s, 0, 2, 0, 1, &file_for(&s));
-        assert_eq!(describe(&ops), ["order a c b"]);
+        assert_eq!(describe(&ops), ["order # work a c b"]);
     }
 
     #[test]
     fn move_task_into_other_section_renames_it() {
-        let s = tree(&[("", &["a.md", "b.md"]), ("work", &["c.md"])]);
+        let s = tree(&[("work", &["a.md", "b.md"]), ("home", &["c.md"])]);
         let (ops, path) = move_task(&s, 0, 0, 1, 0, &file_for(&s));
         assert_eq!(
             ops[0],
             Op::Rename {
-                from: "todo/a.md".into(),
-                to: "todo/work/a.md".into()
+                from: "root/work/a.md".into(),
+                to: "root/home/a.md".into()
             }
         );
-        assert_eq!(describe(&ops[1..]), ["order b | # work a c"]);
-        assert_eq!(path, Path::new("todo/work/a.md"));
+        assert_eq!(describe(&ops[1..]), ["order # work b | # home a c"]);
+        assert_eq!(path, Path::new("root/home/a.md"));
     }
 
     #[test]
     fn move_task_keeps_name_unique_in_target() {
-        let s = tree(&[("", &["a.md"]), ("work", &["a.md"])]);
+        let s = tree(&[("work", &["a.md"]), ("home", &["a.md"])]);
         let (ops, _) = move_task(&s, 0, 0, 1, 1, &file_for(&s));
         assert_eq!(
             describe(&ops),
-            ["rename a.md -> a-2.md", "order # work a a-2"]
+            ["rename a.md -> a-2.md", "order # work | # home a a-2"]
         );
     }
 
     #[test]
     fn move_section_only_writes_the_order() {
-        let s = tree(&[("", &[]), ("work", &[]), ("home", &[]), ("x", &[])]);
+        let s = tree(&[("work", &[]), ("home", &[]), ("x", &[])]);
 
-        let (ops, path) = move_section(&s, 1, true, &file_for(&s)).unwrap();
+        let (ops, path) = move_section(&s, 0, true, &file_for(&s)).unwrap();
         assert_eq!(describe(&ops), ["order # home | # work | # x"]);
-        assert_eq!(path, Path::new("todo/work"));
+        assert_eq!(path, Path::new("root/work"));
 
-        let (ops, _) = move_section(&s, 3, false, &file_for(&s)).unwrap();
+        let (ops, _) = move_section(&s, 2, false, &file_for(&s)).unwrap();
         assert_eq!(describe(&ops), ["order # work | # x | # home"]);
     }
 
     #[test]
     fn move_section_stops_at_edges() {
-        let s = tree(&[("", &[]), ("work", &[]), ("home", &[])]);
+        let s = tree(&[("work", &[]), ("home", &[])]);
         let file = file_for(&s);
-        assert_eq!(move_section(&s, 0, true, &file), None, "inbox never moves");
-        assert_eq!(
-            move_section(&s, 1, false, &file),
-            None,
-            "nothing moves above the inbox"
-        );
-        assert_eq!(move_section(&s, 2, true, &file), None, "already last");
+        assert_eq!(move_section(&s, 0, false, &file), None, "already first");
+        assert_eq!(move_section(&s, 1, true, &file), None, "already last");
     }
 }

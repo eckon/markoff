@@ -7,15 +7,15 @@
 //! (by name), names it lists that no longer exist are dropped the next time it is written.
 //!
 //! ```text
-//! fix-typo
-//!
 //! # work
 //! fix-login-bug
 //! review-pr
+//!
+//! # home
 //! ```
 //!
-//! Inbox tasks first, then each section as `# name` with its tasks. Names are file stems
-//! (without `.md`) and directory names. Pure logic, reading and writing is up to the caller.
+//! Each section as `# name` with its tasks. Names are file stems (without `.md`) and
+//! directory names. Pure logic, reading and writing is up to the caller.
 
 use std::path::PathBuf;
 
@@ -24,30 +24,22 @@ use crate::{op::Op, task::Section};
 /// File name in the root. Hidden, so it is never taken for a task.
 pub const FILE: &str = ".order";
 
-/// Sections in order, the inbox first, each with its task names in order.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Sections in order, each with its task names in order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Order {
     pub sections: Vec<Group>,
 }
 
-/// One section in [`Order`]. The inbox has an empty name.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// One section in [`Order`].
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Group {
     pub name: String,
     pub tasks: Vec<String>,
 }
 
-impl Default for Order {
-    fn default() -> Self {
-        Self {
-            sections: vec![Group::default()],
-        }
-    }
-}
-
 impl Order {
     /// Reads the file content. Never fails: lines that name nothing (typos, git conflict
-    /// markers) simply match no file.
+    /// markers, names before the first heading) simply match no file.
     pub fn parse(content: &str) -> Self {
         let mut order = Self::default();
         for line in content.lines().map(str::trim) {
@@ -60,8 +52,9 @@ impl Order {
                     tasks: Vec::new(),
                 }),
                 None => {
-                    let group = order.sections.last_mut().expect("starts with the inbox");
-                    group.tasks.push(line.to_string());
+                    if let Some(group) = order.sections.last_mut() {
+                        group.tasks.push(line.to_string());
+                    }
                 }
             }
         }
@@ -85,46 +78,32 @@ impl Order {
         }
     }
 
-    /// Position of section `name` among the sections after the inbox, first match.
+    /// Position of section `name`, first match.
     pub fn section_position(&self, name: &str) -> Option<usize> {
-        self.sections[1..]
-            .iter()
-            .position(|group| group.name == name)
+        self.sections.iter().position(|group| group.name == name)
     }
 
-    /// Position of task `stem` in section `section` (empty for the inbox), first match.
+    /// Position of task `stem` in section `section`, first match of both.
     pub fn task_position(&self, section: &str, stem: &str) -> Option<usize> {
-        // The inbox is always the first group, even if a heading has an empty name.
-        let group = if section.is_empty() {
-            self.sections.first()
-        } else {
-            self.sections[1..]
-                .iter()
-                .find(|group| group.name == section)
-        }?;
+        let group = self.sections.iter().find(|group| group.name == section)?;
         group.tasks.iter().position(|task| task == stem)
     }
 
     /// The file content. Empty if there is nothing to order.
     pub fn format(&self) -> String {
+        if self.sections.is_empty() {
+            return String::new();
+        }
         let blocks: Vec<String> = self
             .sections
             .iter()
-            .enumerate()
-            .filter_map(|(s, group)| {
-                let mut lines = Vec::new();
-                if s > 0 {
-                    lines.push(format!("# {}", group.name));
-                }
+            .map(|group| {
+                let mut lines = vec![format!("# {}", group.name)];
                 lines.extend(group.tasks.iter().cloned());
-                (!lines.is_empty()).then(|| lines.join("\n"))
+                lines.join("\n")
             })
             .collect();
-        if blocks.is_empty() {
-            String::new()
-        } else {
-            format!("{}\n", blocks.join("\n\n"))
-        }
+        format!("{}\n", blocks.join("\n\n"))
     }
 }
 
@@ -168,7 +147,7 @@ mod tests {
         }
     }
 
-    const CONTENT: &str = "fix-typo\n\n# work\nfix-login-bug\nreview-pr\n\n# home\n";
+    const CONTENT: &str = "# work\nfix-login-bug\nreview-pr\n\n# home\n";
 
     #[test]
     fn parse_and_format_round_trip() {
@@ -176,7 +155,6 @@ mod tests {
         assert_eq!(
             order.sections,
             [
-                group("", &["fix-typo"]),
                 group("work", &["fix-login-bug", "review-pr"]),
                 group("home", &[]),
             ]
@@ -186,14 +164,11 @@ mod tests {
 
     #[test]
     fn parse_is_forgiving() {
-        // No inbox tasks, extra blank lines and spaces, a git conflict.
-        let order = Order::parse("\n  # work  \n\n a \n<<<<<<< HEAD\nb\n=======\n");
+        // Names before the first heading, extra blank lines and spaces, a git conflict.
+        let order = Order::parse("x\n\n  # work  \n\n a \n<<<<<<< HEAD\nb\n=======\n");
         assert_eq!(
             order.sections,
-            [
-                group("", &[]),
-                group("work", &["a", "<<<<<<< HEAD", "b", "======="]),
-            ]
+            [group("work", &["a", "<<<<<<< HEAD", "b", "======="])]
         );
     }
 
@@ -203,7 +178,7 @@ mod tests {
         assert_eq!(order.section_position("work"), Some(0));
         assert_eq!(order.section_position("home"), Some(1));
         assert_eq!(order.section_position("nope"), None);
-        assert_eq!(order.task_position("", "a"), Some(0));
+        assert_eq!(order.task_position("", "a"), None, "before any heading");
         assert_eq!(order.task_position("work", "b"), Some(0));
         assert_eq!(order.task_position("work", "c"), Some(1));
         assert_eq!(
@@ -222,7 +197,7 @@ mod tests {
     fn format_empty() {
         assert_eq!(Order::default().format(), "");
         let only_section = Order {
-            sections: vec![group("", &[]), group("work", &[])],
+            sections: vec![group("work", &[])],
         };
         assert_eq!(only_section.format(), "# work\n");
     }
@@ -231,21 +206,21 @@ mod tests {
     fn write_creates_updates_or_skips() {
         let order = Order::parse(CONTENT);
         let file = |content: Option<&str>| OrderFile {
-            path: PathBuf::from("todo/.order"),
+            path: PathBuf::from(".order"),
             content: content.map(str::to_string),
         };
 
         assert_eq!(
             file(None).write(&order),
             Some(Op::Create {
-                path: "todo/.order".into(),
+                path: ".order".into(),
                 content: CONTENT.to_string()
             })
         );
         assert_eq!(
             file(Some("old\n")).write(&order),
             Some(Op::Update {
-                path: "todo/.order".into(),
+                path: ".order".into(),
                 before: "old\n".to_string(),
                 after: CONTENT.to_string()
             })

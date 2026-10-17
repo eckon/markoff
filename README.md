@@ -32,7 +32,7 @@ dir = "~/notes/todo"
 daily = "daily.md"   # daily checklist in the root, see below
 ```
 
-Use a directory just for markoff: every `.md` in it is a task (and gets renamed to match its heading), every directory a section.
+Every directory in the root is a section, every `.md` in a section a task (renamed to match its heading). Files directly in the root are ignored, so notes can live there.
 
 ## Data layout
 
@@ -42,22 +42,22 @@ Use a directory just for markoff: every `.md` in it is a task (and gets renamed 
   .archive/
     2026-10-14.md           <- tasks done that day
   daily.md                  <- daily checklist, if set in the config
-  fix-typo.md               <- inbox (no section)
+  notes.md                  <- ignored, not in a section
   work/                     <- section "work"
     fix-login-bug.md
     review-pr.md
 ```
 
 - A task file starts with `# Title`. The filename follows the title.
-- `.order` lists inbox tasks, then each section as `# name` with its tasks, one name per line (without `.md`). markoff writes it. Files it does not list go to the end of their section, names that no longer exist are dropped.
+- `.order` lists each section as `# name` with its tasks, one name per line (without `.md`). markoff writes it. Files it does not list go to the end of their section, names that no longer exist are dropped.
 - To keep order changes out of git, add `.order` to your `.gitignore`. The order then stays on each machine.
 - Files created or edited by hand are renamed into this shape on start and with the next action. Renames on start are listed in a popup.
-- Sections are created with `N` (or `mkdir home`), renamed with `<CR>`, reordered with `J`/`K` and deleted with `D` when empty. A section's name is its directory name, from `N` and `<CR>` the heading as slug: `# Work Stuff` becomes `work-stuff`.
+- Every task lives in a section, so start with `N` in an empty root. Sections are created with `N` (or `mkdir home`), renamed with `<CR>`, reordered with `J`/`K` and deleted with `D` when empty. A section's name is its directory name, from `N` and `<CR>` the heading as slug: `# Work Stuff` becomes `work-stuff`.
 - Done tasks are appended to `.archive/YYYY-MM-DD.md` under their section, then deleted. The status line shows how many tasks are done today.
 
 ### Daily checklist
 
-Experimental. If `[experimental] daily` is set in the config and the file exists, its tasks show as section `daily` right below the inbox. Without the setting, `daily.md` is a normal inbox task. It starts fresh every day:
+Experimental. If `[experimental] daily` is set in the config and the file exists, its tasks show as section `daily` above the other sections. Without the setting the file is ignored like any file in the root. It starts fresh every day:
 
 ```markdown
 # Daily

@@ -161,7 +161,7 @@ mod tests {
         let two = add(
             Some(&one),
             "2026-10-14",
-            "inbox",
+            "home",
             &task("# B\n\n```\n### no\n```\n"),
         );
         assert_eq!(count(""), 0);
@@ -177,17 +177,14 @@ mod tests {
 
     #[test]
     fn task_without_body() {
-        let out = add(None, "2026-10-14", "inbox", &task("# Fix bug\n"));
-        assert_eq!(out, "# 2026-10-14\n\n## inbox\n\n### Fix bug\n");
+        let out = add(None, "2026-10-14", "home", &task("# Fix bug\n"));
+        assert_eq!(out, "# 2026-10-14\n\n## home\n\n### Fix bug\n");
     }
 
     #[test]
     fn task_without_heading_uses_filename() {
-        let out = add(None, "2026-10-14", "inbox", &task("just text\n"));
-        assert_eq!(
-            out,
-            "# 2026-10-14\n\n## inbox\n\n### fix bug\n\njust text\n"
-        );
+        let out = add(None, "2026-10-14", "home", &task("just text\n"));
+        assert_eq!(out, "# 2026-10-14\n\n## home\n\n### fix bug\n\njust text\n");
     }
 
     #[test]
