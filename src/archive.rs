@@ -54,7 +54,7 @@ pub fn add(archive: Option<&str>, date: &str, section: &str, task: &Task) -> Str
 /// How many tasks the archive file holds: its `### ` headings outside code blocks.
 ///
 /// A `# ` heading inside a task body is shifted to `### ` as well and counts too. Rare enough
-/// for a number in the status line.
+/// for a number in the header.
 pub fn count(archive: &str) -> usize {
     let mut fence = Fence::default();
     archive

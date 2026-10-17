@@ -1,10 +1,5 @@
-//! The order of sections and tasks, kept in `.order` in the root.
-//!
-//! Not in the filenames: a numbered prefix meant renumbering every file below a change,
-//! which made adding a task at the top show up as renames of the whole section in git.
-//!
-//! The disk decides what exists, the file only orders it: names it does not list go to the end
-//! (by name), names it lists that no longer exist are dropped the next time it is written.
+//! The order of sections and tasks, kept in `.order` in the root. Unlisted names go to the
+//! end, stale ones are dropped on the next write.
 //!
 //! ```text
 //! # work
@@ -14,8 +9,7 @@
 //! # home
 //! ```
 //!
-//! Each section as `# name` with its tasks. Names are file stems (without `.md`) and
-//! directory names. Pure logic, reading and writing is up to the caller.
+//! Names are directory names and file stems. Pure logic, reading and writing is up to the caller.
 
 use std::path::PathBuf;
 

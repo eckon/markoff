@@ -121,10 +121,8 @@ fn ensure_content(path: &Path, expected: &str) -> Result<()> {
     Ok(())
 }
 
-/// `fs::rename` silently replaces an existing file on Unix, so check first.
-///
-/// There is a small race if another process creates the file in between. Acceptable for
-/// a single-user todo list.
+/// `fs::rename` silently replaces an existing file on Unix, so check first. Racy, fine for
+/// a single user.
 fn ensure_free(path: &Path) -> Result<()> {
     if path.exists() {
         bail!("{} already exists", path.display());

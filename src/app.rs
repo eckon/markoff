@@ -107,7 +107,7 @@ pub struct App {
     daily_path: Option<PathBuf>,
     /// The tasks of the daily checklist, `None` if it is not set or the file does not exist.
     pub daily: Option<Vec<DailyTask>>,
-    /// Tasks in today's archive file, shown in the status line.
+    /// Tasks in today's archive file, shown in the header.
     pub done_today: usize,
 }
 
@@ -663,15 +663,9 @@ impl App {
         }
     }
 
-    /// All rows in display order: each section header followed by its tasks.
-    ///
-    /// With a filter only the tasks whose title or body matches, under their section header.
-    /// Section names don't match: a section is shown for its tasks only, empty ones without a
-    /// filter.
-    ///
-    /// The daily checklist comes first, hidden while a filter is set.
-    ///
-    /// Computed on demand instead of stored, so it can never be out of sync with `sections`.
+    /// All rows in display order: the daily checklist, then each section header with its tasks.
+    /// A filter keeps matching tasks under their header and hides the rest, daily included.
+    /// Computed on demand, so it never gets out of sync with `sections`.
     pub fn rows(&self) -> Vec<Row> {
         let mut rows = Vec::new();
         if self.filter.is_empty()

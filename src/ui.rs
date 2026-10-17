@@ -1,4 +1,4 @@
-//! Rendering: list, preview, status line and popups. Reads the app, never changes it.
+//! Rendering: header, list, preview, status line and popups. Reads the app, never changes it.
 
 use ratatui::{
     Frame,
@@ -174,9 +174,7 @@ fn render_header(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_widget(Line::from(spans), area);
 }
 
-/// Left the open filter input with the terminal cursor at its end, otherwise the last error
-/// or message, the pending key of an unfinished sequence (`g`), or the filter that is set
-/// with its number of matching tasks. Right the key hints for the current mode.
+/// Left the filter input or what just happened, right the key hints.
 fn render_status(app: &App, frame: &mut Frame, area: Rect) {
     let left = if app.filter_input {
         let filter = format!("/{}", app.filter);

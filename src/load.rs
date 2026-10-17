@@ -12,14 +12,8 @@ use crate::{
     task::{Section, Task},
 };
 
-/// Loads the section directories with their tasks, both in the order file's order. What it
-/// does not list goes last, sorted by name.
-///
-/// Files directly in the root are not tasks, so notes or the daily checklist can live there.
-/// Only one level of sections is read, deeper directories are ignored for now.
-///
-/// Also returns the order file as read. Actions write it based on that content, so it is
-/// never overwritten with an order from before a change made outside markoff.
+/// Loads the sections and their tasks in the order file's order. Also returns the order file
+/// as read, so actions never write over a change made outside markoff.
 pub fn load(root: &Path) -> Result<(Vec<Section>, OrderFile)> {
     let path = root.join(order::FILE);
     let file = OrderFile {
