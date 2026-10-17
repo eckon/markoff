@@ -135,7 +135,7 @@ pub fn normalize_sections(sections: &[Section]) -> Vec<Op> {
     renames(&section_entries(sections), &sections[0].dir)
 }
 
-/// `o` / `O`: writes `task` into `section` so it ends up at position `index`.
+/// `n`: writes `task` into `section` so it ends up at position `index`.
 ///
 /// The section is renumbered with the new task in it (same op list, so one undo reverts
 /// both). Returns the ops and the new path, `None` only if the section is full.

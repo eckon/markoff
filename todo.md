@@ -6,7 +6,6 @@ Next steps for markoff. Remove a task once it is done, delete the file when noth
 
 - [ ] Key hints in the status line. Left: message, filter input or kept filter (drops its `Esc clears`). Right: dim hints for the current mode (normal / filter input / filter set), cut from the end when the left needs the room. Hint texts come from a short field in `BINDINGS`. Always on. Exact hints per mode still to pick.
 - [ ] Sections feel like tasks:
-  - `n` new task at the end of the cursor's section, cursor on it. Replaces `o`/`O` (removed).
   - `N` new section below the cursor's section, via `$EDITOR` like a task.
   - `<CR>` on a header renames it via `$EDITOR`. Draft is `# name` plus a git style comment that only the heading is used. Text below is ignored, the status says so.
   - Name clash with an existing section is an error.

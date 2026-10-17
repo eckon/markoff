@@ -45,7 +45,7 @@ pub enum Row {
 enum EditorRequest {
     /// `<CR>`: edit an existing task.
     Open(PathBuf),
-    /// `o` / `O`: write a new task, inserted at `index` in section `section`.
+    /// `n`: write a new task, inserted at `index` in section `section`.
     Create { section: usize, index: usize },
 }
 
@@ -243,10 +243,7 @@ impl App {
     fn try_update(&mut self, action: Action) -> Result<()> {
         // Where a task goes is unclear while tasks in between are hidden.
         if !self.filter.is_empty()
-            && matches!(
-                action,
-                Action::MoveDown | Action::MoveUp | Action::NewBelow | Action::NewAbove
-            )
+            && matches!(action, Action::MoveDown | Action::MoveUp | Action::New)
         {
             self.status = Some(Status::Info("clear the filter first (Esc)".to_string()));
             return Ok(());
@@ -275,8 +272,10 @@ impl App {
                     self.editor_request = Some(EditorRequest::Open(path));
                 }
             }
-            Action::NewBelow | Action::NewAbove => {
-                if let Some((section, index)) = self.insert_position(action == Action::NewAbove) {
+            Action::New => {
+                // At the end of the cursor's section, from its header or any of its tasks.
+                if let Some(Row::Section(section) | Row::Task(section, _)) = self.selected() {
+                    let index = self.sections[section].tasks.len();
                     self.editor_request = Some(EditorRequest::Create { section, index });
                 }
             }
@@ -364,7 +363,7 @@ impl App {
         }
     }
 
-    /// Inserts what was written in the editor for `o` / `O`.
+    /// Inserts what was written in the editor for `n`.
     fn after_create(&mut self, section: usize, index: usize, content: &str) -> Result<()> {
         let task = Task::parse(PathBuf::from("new.md"), content);
         if task.heading.is_none() {
@@ -470,16 +469,6 @@ impl App {
         self.apply(edit::delete(&self.sections[s], t))?;
         self.status = Some(Status::Info(format!("deleted {title} (u to undo)")));
         Ok(())
-    }
-
-    /// Section and index where `o` (below) or `O` (above) put a new task.
-    /// On a section header both put it first in that section.
-    fn insert_position(&self, above: bool) -> Option<(usize, usize)> {
-        match self.selected()? {
-            Row::Task(s, t) if above => Some((s, t)),
-            Row::Task(s, t) => Some((s, t + 1)),
-            Row::Section(s) => Some((s, 0)),
-        }
     }
 
     /// Writes `task` into section `s` at `index` and puts the cursor on it.
@@ -842,12 +831,7 @@ pub mod tests {
         type_filter(&mut app, "a");
         app.update(Action::FilterAccept);
         app.cursor = 1;
-        for action in [
-            Action::MoveDown,
-            Action::MoveUp,
-            Action::NewBelow,
-            Action::NewAbove,
-        ] {
+        for action in [Action::MoveDown, Action::MoveUp, Action::New] {
             app.status = None;
             app.update(action);
             assert_eq!(
@@ -883,23 +867,24 @@ pub mod tests {
     }
 
     #[test]
-    fn new_requests_create_at_insert_position() {
-        let (_dir, mut app) = app_with_files(&["01-a.md", "02-b.md"]);
-        app.cursor = 1;
-        app.update(Action::NewBelow);
+    fn new_requests_create_at_section_end() {
+        let (_dir, mut app) = app_with_files(&["01-a.md", "02-b.md", "01-work/01-c.md"]);
+        let at_end = |section| Some(EditorRequest::Create { section, index: 2 });
+
+        // On a task and on the header of the same section.
+        for cursor in [1, 0] {
+            app.cursor = cursor;
+            app.update(Action::New);
+            assert_eq!(app.editor_request, at_end(0), "cursor {cursor}");
+        }
+
+        app.cursor = 3;
+        app.update(Action::New);
         assert_eq!(
             app.editor_request,
             Some(EditorRequest::Create {
-                section: 0,
+                section: 1,
                 index: 1
-            })
-        );
-        app.update(Action::NewAbove);
-        assert_eq!(
-            app.editor_request,
-            Some(EditorRequest::Create {
-                section: 0,
-                index: 0
             })
         );
     }
@@ -907,20 +892,20 @@ pub mod tests {
     #[test]
     fn after_create_inserts_and_undo_removes() {
         let (_dir, mut app) = app_with_files(&["01-a.md", "02-b.md"]);
-        // `o` was pressed on `a`.
+        // `n` was pressed on `a`.
         app.cursor = 1;
-        app.after_create(0, 1, "# New task\n\nnotes\n").unwrap();
+        app.after_create(0, 2, "# New task\n\nnotes\n").unwrap();
         assert_eq!(
             listing(&app),
-            ["[inbox]", "01-a.md", "02-new-task.md", "03-b.md"]
+            ["[inbox]", "01-a.md", "02-b.md", "03-new-task.md"]
         );
-        assert_eq!(app.cursor, 2, "cursor is on the new task");
+        assert_eq!(app.cursor, 3, "cursor is on the new task");
 
         app.update(Action::Undo);
         assert_eq!(listing(&app), ["[inbox]", "01-a.md", "02-b.md"]);
         assert_eq!(
             app.cursor, 1,
-            "cursor is back on `a`, where `o` was pressed"
+            "cursor is back on `a`, where `n` was pressed"
         );
     }
 
@@ -1167,21 +1152,21 @@ pub mod tests {
         let (_dir, mut app) = app_with_files(&["01-a.md", "011-b.md", "012-c.md"]);
         let before = listing(&app);
 
-        // `o` on `a`: no gap before `b`, so the section is renumbered.
+        // Prefixes with gaps are made dense along with the insert.
         app.cursor = 1;
-        app.after_create(0, 1, "# New").unwrap();
+        app.after_create(0, 3, "# New").unwrap();
         assert_eq!(
             listing(&app),
-            ["[inbox]", "01-a.md", "02-new.md", "03-b.md", "04-c.md"]
+            ["[inbox]", "01-a.md", "02-b.md", "03-c.md", "04-new.md"]
         );
-        assert_eq!(app.cursor, 2, "cursor is on the new task");
+        assert_eq!(app.cursor, 4, "cursor is on the new task");
 
         // One undo reverts the insert including the renumbering.
         app.update(Action::Undo);
         assert_eq!(listing(&app), before);
         assert_eq!(
             app.cursor, 1,
-            "cursor is back on `a`, where `o` was pressed"
+            "cursor is back on `a`, where `n` was pressed"
         );
     }
 }

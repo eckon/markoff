@@ -60,7 +60,7 @@ archive/
 | `J` / `S-↓`   | Move task or section down             |
 | `K` / `S-↑`   | Move task or section up               |
 | `<CR>`        | Open task in `$EDITOR`                |
-| `o` / `O`     | New task below / above, via `$EDITOR` |
+| `n`           | New task, via `$EDITOR`               |
 | `X`           | Done: move to archive                 |
 | `D`           | Delete task, without archiving        |
 | `u`           | Undo                                  |
