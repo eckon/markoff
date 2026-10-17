@@ -1,7 +1,7 @@
 //! App state, the run loop, and what each [`Action`] does to it and to the disk.
 
 use std::{
-    fs, io,
+    fs,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -497,7 +497,7 @@ impl App {
         // Not an op: an empty `.archive/` left behind by undo does no harm.
         fs::create_dir_all(&archive_dir)
             .wrap_err_with(|| format!("failed to create {}", archive_dir.display()))?;
-        let existing = read_if_exists(&archive_path)?;
+        let existing = load::read_if_exists(&archive_path)?;
 
         let ops = edit::archive(
             &self.sections,
@@ -639,12 +639,12 @@ impl App {
     fn reload(&mut self, select: Option<&Path>) -> Result<()> {
         (self.sections, self.order_file) = load::load(&self.root)?;
         self.daily = match &self.daily_path {
-            Some(path) => read_if_exists(path)?.map(|content| daily::parse(&content)),
+            Some(path) => load::read_if_exists(path)?.map(|content| daily::parse(&content)),
             None => None,
         };
         let archive_path = self.root.join(archive::DIR).join(format!("{}.md", today()));
         self.done_today =
-            read_if_exists(&archive_path)?.map_or(0, |content| archive::count(&content));
+            load::read_if_exists(&archive_path)?.map_or(0, |content| archive::count(&content));
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
         if let Some(path) = select {
             self.select_path(path);
@@ -706,15 +706,6 @@ impl App {
 /// `YYYY-MM-DD`, for the archive file and the daily marker.
 pub fn today() -> String {
     jiff::Zoned::now().date().to_string()
-}
-
-/// File content, `None` if the file does not exist.
-fn read_if_exists(path: &Path) -> Result<Option<String>> {
-    match fs::read_to_string(path) {
-        Ok(content) => Ok(Some(content)),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(err) => Err(err).wrap_err_with(|| format!("failed to read {}", path.display())),
-    }
 }
 
 fn renamed_message(count: usize) -> String {

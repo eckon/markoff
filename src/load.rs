@@ -21,7 +21,11 @@ use crate::{
 /// Also returns the order file as read. Actions write it based on that content, so it is
 /// never overwritten with an order from before a change made outside markoff.
 pub fn load(root: &Path) -> Result<(Vec<Section>, OrderFile)> {
-    let file = read_order_file(root)?;
+    let path = root.join(order::FILE);
+    let file = OrderFile {
+        content: read_if_exists(&path)?,
+        path,
+    };
     // A missing order file is an empty order: everything sorted by name.
     let order = file
         .content
@@ -54,16 +58,13 @@ pub fn load(root: &Path) -> Result<(Vec<Section>, OrderFile)> {
     Ok((sections, file))
 }
 
-fn read_order_file(root: &Path) -> Result<OrderFile> {
-    let path = root.join(order::FILE);
-    let content = match fs::read_to_string(&path) {
-        Ok(content) => Some(content),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => None,
-        Err(err) => {
-            return Err(err).wrap_err_with(|| format!("failed to read {}", path.display()));
-        }
-    };
-    Ok(OrderFile { path, content })
+/// File content, `None` if the file does not exist.
+pub fn read_if_exists(path: &Path) -> Result<Option<String>> {
+    match fs::read_to_string(path) {
+        Ok(content) => Ok(Some(content)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err).wrap_err_with(|| format!("failed to read {}", path.display())),
+    }
 }
 
 fn load_tasks(mut paths: Vec<PathBuf>, order: &Order, section: &str) -> Result<Vec<Task>> {

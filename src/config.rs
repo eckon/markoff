@@ -8,15 +8,14 @@
 //! daily = "daily.md"
 //! ```
 
-use std::{
-    fs, io,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use color_eyre::{
     Result,
     eyre::{WrapErr, bail},
 };
+
+use crate::load;
 
 /// Env var with the root directory, used when no `--dir` is given.
 const DIR_ENV: &str = "MARKOFF_DIR";
@@ -89,10 +88,8 @@ fn config_path(xdg_config_home: Option<String>, home: Option<String>) -> Option<
 
 /// Reads the config file. A missing file is an empty config.
 fn read_config(path: &Path, home: Option<&str>) -> Result<Config> {
-    let content = match fs::read_to_string(path) {
-        Ok(content) => content,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(Config::default()),
-        Err(err) => return Err(err).wrap_err_with(|| format!("failed to read {}", path.display())),
+    let Some(content) = load::read_if_exists(path)? else {
+        return Ok(Config::default());
     };
     let table: toml::Table = content
         .parse()
@@ -137,6 +134,8 @@ fn resolve(dir: &str, config_dir: &Path, home: Option<&str>) -> Result<PathBuf> 
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use tempfile::TempDir;
 
     use super::*;
