@@ -19,6 +19,7 @@ markoff is a Rust TUI for todos stored as markdown files. This file is the sourc
 - Work in small steps (one concern at a time). Before each change, say what will change and wait for an ok.
 - Discuss every key mapping, user-visible text and behavior choice first. Add nothing that was not agreed (no extra flags, options, keys or helpers).
 - Keep it simple. Remove code that becomes unused, unless there is a stated reason to keep it.
+- Keep files focused: when a feature grows its own part of a general file (like the archive view in `ui/archive.rs`), move it into its own module. Bring it up yourself when you notice it, don't wait to be asked.
 - Do not commit, the user reviews and commits.
 - Try-outs and prototypes go straight into the working tree of this repo, the user resets them with git. Only if that clashes with uncommitted changes, use a branch. A git worktree is the last resort. Never in copies outside the repo.
 
