@@ -1,22 +1,21 @@
-//! Rendering: header, list, preview, status line and the help, the archive in [`archive`].
-//! Reads the app, never changes it.
+//! Rendering: header, list, preview and status line, the help in [`help`] and the archive in
+//! [`archive`]. Reads the app, never changes it.
 
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span, Text},
-    widgets::{
-        Block, BorderType, Borders, Clear, List, ListItem, ListState, Padding, Paragraph, Wrap,
-    },
+    widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph, Wrap},
 };
 
 mod archive;
+mod help;
 
 use crate::{
     app::{self, App, Row, Status},
     filter,
-    keymap::{Action, BINDINGS, Binding, FILTER_INPUT_HINTS},
+    keymap::{Action, BINDINGS, FILTER_INPUT_HINTS},
 };
 
 /// Draws the whole screen from the current state. Rendering never mutates the app, it
@@ -66,77 +65,12 @@ pub fn render(app: &App, frame: &mut Frame) -> usize {
     };
     render_status(app, frame, status_area);
     if app.show_help {
-        render_help(frame);
+        help::render(frame);
     }
     if app.show_archive {
         archive::render(app, frame, main_area.union(rule_area));
     }
     offset
-}
-
-/// A panel on the right listing [`BINDINGS`], so it always matches the real keys. Groups as
-/// rules like the sections in the list, dots lead from the keys to what they do. The rest is
-/// dimmed behind it, the status line stays as it is.
-fn render_help(frame: &mut Frame) {
-    let label = |binding: &Binding| binding.labels().join(" / ");
-    let label_width = BINDINGS
-        .iter()
-        .map(|binding| label(binding).chars().count())
-        .max()
-        .unwrap_or(0);
-    // Rules as wide as the widest line: keys, the dots with a space on each side, the text.
-    let help_width = BINDINGS
-        .iter()
-        .map(|binding| binding.help.chars().count())
-        .max()
-        .unwrap_or(0);
-    let rule_width = label_width + 4 + help_width;
-
-    let mut lines = vec![Line::from("help".bold())];
-    let mut groups = 0;
-    for (i, binding) in BINDINGS.iter().enumerate() {
-        if i == 0 || BINDINGS[i - 1].group != binding.group {
-            lines.push(Line::default());
-            lines.push(Line::from(rule(
-                binding.group,
-                None,
-                section_color(groups),
-                rule_width,
-            )));
-            groups += 1;
-        }
-        // Only the keys are bold, so the `/` between them is not taken for the filter key.
-        let mut line = Vec::new();
-        for key in binding.labels() {
-            if !line.is_empty() {
-                line.push(" / ".dim());
-            }
-            line.push(key.bold());
-        }
-        let dots = "·".repeat(label_width + 2 - label(binding).chars().count());
-        line.push(format!(" {dots} ").fg(LINE_COLOR));
-        line.push(binding.help.into());
-        lines.push(Line::from(line));
-    }
-
-    let area = frame.area();
-    let height = area.height.saturating_sub(1);
-    let behind = Rect { height, ..area };
-    frame.buffer_mut().set_style(behind, Modifier::DIM);
-    // Border and padding take 4 columns.
-    let width = (lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4).min(area.width);
-    let panel = Rect::new(area.right() - width, area.y, width, height);
-    frame.render_widget(Clear, panel);
-    frame.render_widget(
-        Paragraph::new(lines).block(
-            Block::new()
-                .borders(Borders::LEFT)
-                .border_type(BorderType::Double)
-                .border_style(LINE_COLOR)
-                .padding(Padding::new(2, 1, 1, 0)),
-        ),
-        panel,
-    );
 }
 
 /// Joins the preview divider at column `x` to the header: `┬` in the header rule, `│` in the
@@ -672,49 +606,6 @@ mod tests {
             screen.contains("nothing to undo"),
             "missing status in\n{screen}"
         );
-    }
-
-    #[test]
-    fn help_lists_bindings() {
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
-        app.update(Action::Help);
-        let mut terminal = Terminal::new(TestBackend::new(60, 30)).unwrap();
-        terminal
-            .draw(|frame| {
-                render(&app, frame);
-            })
-            .unwrap();
-        let screen: String = terminal
-            .backend()
-            .buffer()
-            .content()
-            .iter()
-            .map(|c| c.symbol())
-            .collect();
-        for text in [
-            "── move ──",
-            "j / k ···· down / up",
-            "o / O ···· new task below / above",
-            "D ········ delete",
-            "q / C-c ·· quit",
-            "── other ──",
-        ] {
-            assert!(screen.contains(text), "missing {text:?}");
-        }
-
-        // Keys are bold, the `/` between them is dim. The filter key `/` is bold.
-        let content = terminal.backend().buffer().content();
-        let modifier = |text: &str, offset: usize| {
-            let start = screen.find(text).unwrap();
-            content[screen[..start + offset].chars().count()].modifier
-        };
-        assert_eq!(modifier("j / k ·", 0), Modifier::BOLD);
-        assert_eq!(modifier("j / k ·", 2), Modifier::DIM);
-        assert_eq!(modifier("/ ····", 0), Modifier::BOLD);
-
-        // The list behind the panel is dimmed, the status line is not.
-        assert!(modifier("home", 0).contains(Modifier::DIM));
-        assert_eq!(modifier("? toggle help", 0), Modifier::BOLD);
     }
 
     #[test]

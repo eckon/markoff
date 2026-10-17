@@ -1,0 +1,133 @@
+//! The help (`?`): a panel on the right with all keys, the rest dimmed behind it.
+
+use ratatui::{
+    Frame,
+    layout::Rect,
+    style::{Modifier, Stylize},
+    text::Line,
+    widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph},
+};
+
+use super::{LINE_COLOR, rule, section_color};
+use crate::keymap::{BINDINGS, Binding};
+
+/// A panel on the right listing [`BINDINGS`], so it always matches the real keys. Groups as
+/// rules like the sections in the list, dots lead from the keys to what they do. The rest is
+/// dimmed behind it, the status line stays as it is.
+pub fn render(frame: &mut Frame) {
+    let label = |binding: &Binding| binding.labels().join(" / ");
+    let label_width = BINDINGS
+        .iter()
+        .map(|binding| label(binding).chars().count())
+        .max()
+        .unwrap_or(0);
+    // Rules as wide as the widest line: keys, the dots with a space on each side, the text.
+    let help_width = BINDINGS
+        .iter()
+        .map(|binding| binding.help.chars().count())
+        .max()
+        .unwrap_or(0);
+    let rule_width = label_width + 4 + help_width;
+
+    let mut lines = vec![Line::from("help".bold())];
+    let mut groups = 0;
+    for (i, binding) in BINDINGS.iter().enumerate() {
+        if i == 0 || BINDINGS[i - 1].group != binding.group {
+            lines.push(Line::default());
+            lines.push(Line::from(rule(
+                binding.group,
+                None,
+                section_color(groups),
+                rule_width,
+            )));
+            groups += 1;
+        }
+        // Only the keys are bold, so the `/` between them is not taken for the filter key.
+        let mut line = Vec::new();
+        for key in binding.labels() {
+            if !line.is_empty() {
+                line.push(" / ".dim());
+            }
+            line.push(key.bold());
+        }
+        let dots = "·".repeat(label_width + 2 - label(binding).chars().count());
+        line.push(format!(" {dots} ").fg(LINE_COLOR));
+        line.push(binding.help.into());
+        lines.push(Line::from(line));
+    }
+
+    let area = frame.area();
+    let height = area.height.saturating_sub(1);
+    let behind = Rect { height, ..area };
+    frame.buffer_mut().set_style(behind, Modifier::DIM);
+    // Border and padding take 4 columns.
+    let width = (lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4).min(area.width);
+    let panel = Rect::new(area.right() - width, area.y, width, height);
+    frame.render_widget(Clear, panel);
+    frame.render_widget(
+        Paragraph::new(lines).block(
+            Block::new()
+                .borders(Borders::LEFT)
+                .border_type(BorderType::Double)
+                .border_style(LINE_COLOR)
+                .padding(Padding::new(2, 1, 1, 0)),
+        ),
+        panel,
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use ratatui::{Terminal, backend::TestBackend, style::Modifier};
+
+    use crate::{
+        app::{App, tests::sections},
+        keymap::Action,
+        ui::render,
+    };
+
+    #[test]
+    fn help_lists_bindings() {
+        let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
+        app.update(Action::Help);
+        let mut terminal = Terminal::new(TestBackend::new(60, 30)).unwrap();
+        terminal
+            .draw(|frame| {
+                render(&app, frame);
+            })
+            .unwrap();
+        let screen: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        for text in [
+            "── move ──",
+            "j / k ···· down / up",
+            "o / O ···· new task below / above",
+            "D ········ delete",
+            "q / C-c ·· quit",
+            "── other ──",
+        ] {
+            assert!(screen.contains(text), "missing {text:?}");
+        }
+
+        // Keys are bold, the `/` between them is dim. The filter key `/` is bold.
+        let content = terminal.backend().buffer().content();
+        let modifier = |text: &str, offset: usize| {
+            let start = screen.find(text).unwrap();
+            content[screen[..start + offset].chars().count()].modifier
+        };
+        assert_eq!(modifier("j / k ·", 0), Modifier::BOLD);
+        assert_eq!(modifier("j / k ·", 2), Modifier::DIM);
+        assert_eq!(modifier("/ ····", 0), Modifier::BOLD);
+
+        // The list behind the panel is dimmed, the status line is not.
+        assert!(modifier("home", 0).contains(Modifier::DIM));
+        assert_eq!(modifier("? toggle help", 0), Modifier::BOLD);
+    }
+}
