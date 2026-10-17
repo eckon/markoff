@@ -253,27 +253,29 @@ impl App {
             && key.kind == KeyEventKind::Press
         {
             self.status = None;
-            // Only `?`, `Esc` and the quit keys close the help. Other keys do nothing, so a stray
-            // key cannot change tasks that are dimmed behind it.
-            if self.show_help {
-                if matches!(
-                    self.keymap.handle(key),
-                    Some(Action::Help | Action::FilterClear | Action::Quit)
-                ) {
-                    self.show_help = false;
-                }
-                return;
-            }
-            // Any key closes the renames popup and does nothing else.
-            if !self.renamed.is_empty() {
-                self.renamed.clear();
-                return;
-            }
             let action = if self.filter_input {
                 keymap::filter_input(key)
             } else {
                 self.keymap.handle(key)
             };
+            // The quit keys quit everywhere, also from the popups.
+            if action == Some(Action::Quit) {
+                self.running = false;
+                return;
+            }
+            // Only `?` and `Esc` close the help, other keys do nothing, so a stray key cannot
+            // change tasks that are dimmed behind it.
+            if self.show_help {
+                if matches!(action, Some(Action::Help | Action::FilterClear)) {
+                    self.show_help = false;
+                }
+                return;
+            }
+            // Any other key closes the renames popup and does nothing else.
+            if !self.renamed.is_empty() {
+                self.renamed.clear();
+                return;
+            }
             if let Some(action) = action {
                 self.update(action);
             }
@@ -836,7 +838,7 @@ pub mod tests {
     }
 
     #[test]
-    fn only_help_and_quit_keys_close_help() {
+    fn only_help_and_esc_close_help() {
         let (_dir, mut app) = app_with_files(&["work/a.md"]);
         app.cursor = 1;
         app.update(Action::Help);
@@ -846,16 +848,27 @@ pub mod tests {
         assert!(app.show_help, "other keys keep the help open");
         assert_eq!(listing(&app), ["[work]", "a.md"], "X did not archive");
 
-        for key in [
-            KeyEvent::from(KeyCode::Char('?')),
-            KeyEvent::from(KeyCode::Esc),
-            KeyEvent::from(KeyCode::Char('q')),
-            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-        ] {
+        for code in [KeyCode::Char('?'), KeyCode::Esc] {
+            app.update(Action::Help);
+            app.handle_event(Event::Key(code.into()));
+            assert!(!app.show_help, "{code:?} closes the help");
+            assert!(app.running, "{code:?} does not quit");
+        }
+    }
+
+    #[test]
+    fn quit_keys_quit_from_popups() {
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        for key in [KeyEvent::from(KeyCode::Char('q')), ctrl_c] {
+            let (_dir, mut app) = app_with_files(&["work/a.md"]);
             app.update(Action::Help);
             app.handle_event(Event::Key(key));
-            assert!(!app.show_help, "{key:?} closes the help");
-            assert!(app.running, "{key:?} does not quit");
+            assert!(!app.running, "{key:?} quits from the help");
+
+            let (_dir, mut app) = app_with_files(&["work/a.md"]);
+            app.renamed = vec![("old.md".into(), "new.md".into())];
+            app.handle_event(Event::Key(key));
+            assert!(!app.running, "{key:?} quits from the renames popup");
         }
     }
 
