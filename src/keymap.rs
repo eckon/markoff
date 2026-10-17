@@ -51,11 +51,11 @@ pub enum Trigger {
     Seq(char, char),
 }
 
+/// One line in the help overlay.
 pub struct Binding {
-    /// All triggers for this action, e.g. `j` and `Down`.
-    pub triggers: &'static [Trigger],
-    pub action: Action,
-    /// One line for the help overlay, fitting tasks and sections alike.
+    /// Each action with the keys that trigger it. Two for pairs like `j` / `k`.
+    pub keys: &'static [(&'static [Trigger], Action)],
+    /// Fitting tasks and sections alike.
     pub help: &'static str,
     /// Heading in the help overlay. Bindings of a group stay together in [`BINDINGS`].
     pub group: &'static str,
@@ -69,25 +69,20 @@ use Trigger::{Ctrl, Key, Seq, Shift};
 /// overlay, so the two can never disagree. One line per binding, hence no rustfmt.
 #[rustfmt::skip]
 pub const BINDINGS: &[Binding] = &[
-    Binding { triggers: &[Key(Char('j')), Key(Down)], action: A::Down, help: "down", group: "move" },
-    Binding { triggers: &[Key(Char('k')), Key(Up)], action: A::Up, help: "up", group: "move" },
-    Binding { triggers: &[Seq('g', 'g'), Key(Home)], action: A::Top, help: "top", group: "move" },
-    Binding { triggers: &[Key(Char('G')), Key(End)], action: A::Bottom, help: "bottom", group: "move" },
-    Binding { triggers: &[Key(Char('{'))], action: A::PrevSection, help: "previous section", group: "move" },
-    Binding { triggers: &[Key(Char('}'))], action: A::NextSection, help: "next section", group: "move" },
-    Binding { triggers: &[Key(Char('J')), Shift(Down)], action: A::MoveDown, help: "move down", group: "change" },
-    Binding { triggers: &[Key(Char('K')), Shift(Up)], action: A::MoveUp, help: "move up", group: "change" },
-    Binding { triggers: &[Key(Enter)], action: A::Open, help: "open in $EDITOR", group: "change" },
-    Binding { triggers: &[Key(Char('o'))], action: A::NewBelow, help: "new task below", group: "change" },
-    Binding { triggers: &[Key(Char('O'))], action: A::NewAbove, help: "new task above", group: "change" },
-    Binding { triggers: &[Key(Char('N'))], action: A::NewSection, help: "new section", group: "change" },
-    Binding { triggers: &[Key(Char('X'))], action: A::Done, help: "done (archive)", group: "change" },
-    Binding { triggers: &[Key(Char('D'))], action: A::Delete, help: "delete", group: "change" },
-    Binding { triggers: &[Key(Char('u'))], action: A::Undo, help: "undo", group: "change" },
-    Binding { triggers: &[Key(Char('/'))], action: A::Filter, help: "filter", group: "other" },
-    Binding { triggers: &[Key(Esc)], action: A::FilterClear, help: "clear filter", group: "other" },
-    Binding { triggers: &[Key(Char('?'))], action: A::Help, help: "help", group: "other" },
-    Binding { triggers: &[Key(Char('q')), Ctrl('c')], action: A::Quit, help: "quit", group: "other" },
+    Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "move" },
+    Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "move" },
+    Binding { keys: &[(&[Key(Char('{'))], A::PrevSection), (&[Key(Char('}'))], A::NextSection)], help: "previous / next section", group: "move" },
+    Binding { keys: &[(&[Key(Char('J')), Shift(Down)], A::MoveDown), (&[Key(Char('K')), Shift(Up)], A::MoveUp)], help: "move down / up", group: "change" },
+    Binding { keys: &[(&[Key(Enter)], A::Open)], help: "open in $EDITOR", group: "change" },
+    Binding { keys: &[(&[Key(Char('o'))], A::NewBelow), (&[Key(Char('O'))], A::NewAbove)], help: "new task below / above", group: "change" },
+    Binding { keys: &[(&[Key(Char('N'))], A::NewSection)], help: "new section", group: "change" },
+    Binding { keys: &[(&[Key(Char('X'))], A::Done)], help: "done (archive)", group: "change" },
+    Binding { keys: &[(&[Key(Char('D'))], A::Delete)], help: "delete", group: "change" },
+    Binding { keys: &[(&[Key(Char('u'))], A::Undo)], help: "undo", group: "change" },
+    Binding { keys: &[(&[Key(Char('/'))], A::Filter)], help: "filter", group: "other" },
+    Binding { keys: &[(&[Key(Esc)], A::FilterClear)], help: "clear filter", group: "other" },
+    Binding { keys: &[(&[Key(Char('?'))], A::Help)], help: "help", group: "other" },
+    Binding { keys: &[(&[Key(Char('q')), Ctrl('c')], A::Quit)], help: "quit", group: "other" },
 ];
 
 /// Lowercase keys left unmapped on purpose: the destructive actions are uppercase so they are
@@ -98,9 +93,26 @@ const HINTS: &[(char, &str)] = &[
 ];
 
 impl Binding {
-    /// Display form of all triggers: `j / ↓`, `gg`, `q / C-c`.
-    pub fn label(&self) -> String {
-        let label = |trigger: &Trigger| match *trigger {
+    /// Display form of the triggers: `j` and `k`, `gg`, `q` and `C-c`. Arrows, `Home` / `End`
+    /// and shifted arrows only clutter the help, the README lists them.
+    pub fn labels(&self) -> Vec<String> {
+        self.triggers()
+            .map(|(trigger, _)| trigger)
+            .filter(|trigger| !matches!(trigger, Key(Up | Down | Home | End) | Shift(_)))
+            .map(|trigger| trigger.label())
+            .collect()
+    }
+
+    fn triggers(&self) -> impl Iterator<Item = (Trigger, Action)> {
+        self.keys
+            .iter()
+            .flat_map(|(triggers, action)| triggers.iter().map(|t| (*t, *action)))
+    }
+}
+
+impl Trigger {
+    fn label(&self) -> String {
+        match *self {
             Key(Char(c)) => c.to_string(),
             Key(Down) => "↓".to_string(),
             Key(Up) => "↑".to_string(),
@@ -111,12 +123,7 @@ impl Binding {
             Shift(Up) => "S-↑".to_string(),
             Shift(other) => format!("S-{other:?}"),
             Seq(a, b) => format!("{a}{b}"),
-        };
-        self.triggers
-            .iter()
-            .map(label)
-            .collect::<Vec<_>>()
-            .join(" / ")
+        }
     }
 }
 
@@ -131,9 +138,7 @@ impl Keymap {
     /// Returns `None` while a sequence is incomplete and for unmapped keys. `Esc` during a
     /// sequence only cancels it.
     pub fn handle(&mut self, key: KeyEvent) -> Option<Action> {
-        let triggers = BINDINGS
-            .iter()
-            .flat_map(|binding| binding.triggers.iter().map(|t| (*t, binding.action)));
+        let triggers = BINDINGS.iter().flat_map(Binding::triggers);
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
 
         if ctrl {
@@ -245,36 +250,29 @@ mod tests {
 
     #[test]
     fn every_binding_is_reachable() {
-        for binding in BINDINGS {
-            for trigger in binding.triggers {
-                let mut keymap = Keymap::default();
-                let action = match *trigger {
-                    Key(code) => press(&mut keymap, code),
-                    Ctrl(c) => keymap.handle(KeyEvent::new(Char(c), KeyModifiers::CONTROL)),
-                    Shift(code) => keymap.handle(KeyEvent::new(code, KeyModifiers::SHIFT)),
-                    Seq(a, b) => {
-                        press(&mut keymap, Char(a));
-                        press(&mut keymap, Char(b))
-                    }
-                };
-                assert_eq!(action, Some(binding.action), "trigger {trigger:?}");
-            }
+        for (trigger, expected) in BINDINGS.iter().flat_map(Binding::triggers) {
+            let mut keymap = Keymap::default();
+            let action = match trigger {
+                Key(code) => press(&mut keymap, code),
+                Ctrl(c) => keymap.handle(KeyEvent::new(Char(c), KeyModifiers::CONTROL)),
+                Shift(code) => keymap.handle(KeyEvent::new(code, KeyModifiers::SHIFT)),
+                Seq(a, b) => {
+                    press(&mut keymap, Char(a));
+                    press(&mut keymap, Char(b))
+                }
+            };
+            assert_eq!(action, Some(expected), "trigger {trigger:?}");
         }
     }
 
     #[test]
     fn labels() {
-        let label = |action| {
-            BINDINGS
-                .iter()
-                .find(|b| b.action == action)
-                .unwrap()
-                .label()
-        };
-        assert_eq!(label(Action::Down), "j / ↓");
-        assert_eq!(label(Action::Delete), "D");
-        assert_eq!(label(Action::Top), "gg / Home");
-        assert_eq!(label(Action::Quit), "q / C-c");
+        let labels = |help| BINDINGS.iter().find(|b| b.help == help).unwrap().labels();
+        assert_eq!(labels("down / up"), ["j", "k"]);
+        assert_eq!(labels("delete"), ["D"]);
+        assert_eq!(labels("top / bottom"), ["gg", "G"]);
+        assert_eq!(labels("move down / up"), ["J", "K"]);
+        assert_eq!(labels("quit"), ["q", "C-c"]);
     }
 
     /// AGENTS.md: a key change updates `BINDINGS` and the README table together. Only the keys
@@ -298,12 +296,8 @@ mod tests {
             .collect();
         let bindings: BTreeSet<String> = BINDINGS
             .iter()
-            .flat_map(|b| {
-                b.label()
-                    .split(" / ")
-                    .map(str::to_string)
-                    .collect::<Vec<_>>()
-            })
+            .flat_map(Binding::triggers)
+            .map(|(trigger, _)| trigger.label())
             .collect();
         assert_eq!(readme_keys, bindings);
     }

@@ -109,12 +109,16 @@ const HELP_RULE_WIDTH: usize = 40;
 /// The whole screen listing [`BINDINGS`], so it always matches the real keys. Groups as
 /// rules like the sections in the list, dots lead from the keys to what they do.
 fn render_help(frame: &mut Frame) {
-    let labels: Vec<String> = BINDINGS.iter().map(Binding::label).collect();
-    let label_width = labels.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+    let label = |binding: &Binding| binding.labels().join(" / ");
+    let label_width = BINDINGS
+        .iter()
+        .map(|binding| label(binding).chars().count())
+        .max()
+        .unwrap_or(0);
 
     let mut lines = vec![Line::from("help".bold())];
     let mut groups = 0;
-    for (i, (binding, label)) in BINDINGS.iter().zip(&labels).enumerate() {
+    for (i, binding) in BINDINGS.iter().enumerate() {
         if i == 0 || BINDINGS[i - 1].group != binding.group {
             lines.push(Line::default());
             lines.push(Line::from(rule(
@@ -125,12 +129,18 @@ fn render_help(frame: &mut Frame) {
             )));
             groups += 1;
         }
-        let dots = "·".repeat(label_width + 2 - label.chars().count());
-        lines.push(Line::from(vec![
-            label.clone().bold(),
-            format!(" {dots} ").fg(LINE_COLOR),
-            binding.help.into(),
-        ]));
+        // Only the keys are bold, so the `/` between them is not taken for the filter key.
+        let mut line = Vec::new();
+        for key in binding.labels() {
+            if !line.is_empty() {
+                line.push(" / ".dim());
+            }
+            line.push(key.bold());
+        }
+        let dots = "·".repeat(label_width + 2 - label(binding).chars().count());
+        line.push(format!(" {dots} ").fg(LINE_COLOR));
+        line.push(binding.help.into());
+        lines.push(Line::from(line));
     }
     lines.push(Line::default());
     lines.push(Line::from("any key closes this help".dim()));
@@ -226,8 +236,12 @@ fn hints(app: &App) -> Vec<(String, &'static str)> {
     };
     actions
         .iter()
-        .filter_map(|action| BINDINGS.iter().find(|b| b.action == *action))
-        .map(|b| (b.label(), b.help))
+        .filter_map(|action| {
+            BINDINGS
+                .iter()
+                .find(|b| b.keys.iter().any(|(_, a)| a == action))
+        })
+        .map(|b| (b.labels().join(" / "), b.help))
         .collect()
 }
 
@@ -661,13 +675,24 @@ mod tests {
             .collect();
         for text in [
             "── move ──",
-            "j / ↓ ······ down",
-            "D ·········· delete",
-            "q / C-c ···· quit",
+            "j / k ···· down / up",
+            "o / O ···· new task below / above",
+            "D ········ delete",
+            "q / C-c ·· quit",
             "── other ──",
         ] {
             assert!(screen.contains(text), "missing {text:?}");
         }
+
+        // Keys are bold, the `/` between them is dim. The filter key `/` is bold.
+        let content = terminal.backend().buffer().content();
+        let modifier = |text: &str, offset: usize| {
+            let start = screen.find(text).unwrap();
+            content[screen[..start + offset].chars().count()].modifier
+        };
+        assert_eq!(modifier("j / k ·", 0), Modifier::BOLD);
+        assert_eq!(modifier("j / k ·", 2), Modifier::DIM);
+        assert_eq!(modifier("/ ····", 0), Modifier::BOLD);
     }
 
     #[test]
