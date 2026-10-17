@@ -55,7 +55,7 @@ pub fn section_name(content: &str) -> Option<(String, bool)> {
     let draft = Task::parse(PathBuf::from("section.md"), content);
     let slug = slugify(&draft.heading?);
     let more = !draft.body.replace(SECTION_NOTE, "").trim().is_empty();
-    (!slug.is_empty()).then_some((slug, more))
+    Some((slug, more))
 }
 
 /// Renames section `s` to `slug`, keeping its place. Returns the ops and the new directory.
