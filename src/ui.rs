@@ -84,32 +84,43 @@ fn render_renamed(app: &App, frame: &mut Frame) {
     );
 }
 
-/// Centered popup listing [`BINDINGS`], so it always matches the real keys.
+/// Width of the group rules in the help.
+const HELP_RULE_WIDTH: usize = 40;
+
+/// The whole screen listing [`BINDINGS`], so it always matches the real keys. Groups as
+/// rules like the sections in the list, dots lead from the keys to what they do.
 fn render_help(frame: &mut Frame) {
     let labels: Vec<String> = BINDINGS.iter().map(Binding::label).collect();
     let label_width = labels.iter().map(|l| l.chars().count()).max().unwrap_or(0);
 
-    let mut lines: Vec<Line> = BINDINGS
-        .iter()
-        .zip(&labels)
-        .map(|(binding, label)| {
-            Line::from(vec![
-                format!("{label:>label_width$}  ").bold(),
-                binding.help.into(),
-            ])
-        })
-        .collect();
+    let mut lines = vec![Line::from("help".bold())];
+    let mut groups = 0;
+    for (i, (binding, label)) in BINDINGS.iter().zip(&labels).enumerate() {
+        if i == 0 || BINDINGS[i - 1].group != binding.group {
+            lines.push(Line::default());
+            let color = SECTION_COLORS[groups % SECTION_COLORS.len()];
+            lines.push(Line::from(rule(
+                binding.group,
+                None,
+                color,
+                HELP_RULE_WIDTH,
+            )));
+            groups += 1;
+        }
+        let dots = "·".repeat(label_width + 2 - label.chars().count());
+        lines.push(Line::from(vec![
+            label.clone().bold(),
+            format!(" {dots} ").fg(LINE_COLOR),
+            binding.help.into(),
+        ]));
+    }
     lines.push(Line::default());
-    lines.push(Line::from("any key closes this help").dim().centered());
+    lines.push(Line::from("any key closes this help".dim()));
 
-    let width = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4;
-    let height = lines.len() as u16 + 2;
-    let area = frame
-        .area()
-        .centered(Constraint::Length(width), Constraint::Length(height));
+    let area = frame.area();
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Paragraph::new(lines).block(block(" help ".to_string()).padding(Padding::horizontal(1))),
+        Paragraph::new(lines).block(Block::new().padding(Padding::new(2, 2, 1, 0))),
         area,
     );
 }
@@ -411,7 +422,7 @@ mod tests {
     fn help_lists_bindings() {
         let mut app = App::new(PathBuf::new(), sections(&[(&[], &[])]));
         app.update(Action::Help);
-        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(60, 30)).unwrap();
         terminal
             .draw(|frame| {
                 render(&app, frame);
@@ -425,9 +436,11 @@ mod tests {
             .map(|c| c.symbol())
             .collect();
         for text in [
-            "j / ↓  cursor down",
-            "D  delete task (no archive)",
-            "q / C-c  quit",
+            "── move ──",
+            "j / ↓ ······ down",
+            "D ·········· delete",
+            "q / C-c ···· quit",
+            "── other ──",
         ] {
             assert!(screen.contains(text), "missing {text:?}");
         }

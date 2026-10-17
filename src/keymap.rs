@@ -54,8 +54,10 @@ pub struct Binding {
     /// All triggers for this action, e.g. `j` and `Down`.
     pub triggers: &'static [Trigger],
     pub action: Action,
-    /// One line for the help overlay.
+    /// One line for the help overlay, fitting tasks and sections alike.
     pub help: &'static str,
+    /// Heading in the help overlay. Bindings of a group stay together in [`BINDINGS`].
+    pub group: &'static str,
 }
 
 use Action as A;
@@ -66,24 +68,24 @@ use Trigger::{Ctrl, Key, Seq, Shift};
 /// overlay, so the two can never disagree. One line per binding, hence no rustfmt.
 #[rustfmt::skip]
 pub const BINDINGS: &[Binding] = &[
-    Binding { triggers: &[Key(Char('j')), Key(Down)], action: A::Down, help: "cursor down" },
-    Binding { triggers: &[Key(Char('k')), Key(Up)], action: A::Up, help: "cursor up" },
-    Binding { triggers: &[Seq('g', 'g'), Key(Home)], action: A::Top, help: "go to top" },
-    Binding { triggers: &[Key(Char('G')), Key(End)], action: A::Bottom, help: "go to bottom" },
-    Binding { triggers: &[Key(Char('{'))], action: A::PrevSection, help: "previous section" },
-    Binding { triggers: &[Key(Char('}'))], action: A::NextSection, help: "next section" },
-    Binding { triggers: &[Key(Char('/'))], action: A::Filter, help: "filter" },
-    Binding { triggers: &[Key(Esc)], action: A::FilterClear, help: "clear filter" },
-    Binding { triggers: &[Key(Char('J')), Shift(Down)], action: A::MoveDown, help: "move task or section down" },
-    Binding { triggers: &[Key(Char('K')), Shift(Up)], action: A::MoveUp, help: "move task or section up" },
-    Binding { triggers: &[Key(Enter)], action: A::Open, help: "open task in $EDITOR" },
-    Binding { triggers: &[Key(Char('n'))], action: A::New, help: "new task" },
-    Binding { triggers: &[Key(Char('N'))], action: A::NewSection, help: "new section" },
-    Binding { triggers: &[Key(Char('X'))], action: A::Done, help: "done, move to archive" },
-    Binding { triggers: &[Key(Char('D'))], action: A::Delete, help: "delete task (no archive)" },
-    Binding { triggers: &[Key(Char('u'))], action: A::Undo, help: "undo" },
-    Binding { triggers: &[Key(Char('?'))], action: A::Help, help: "toggle this help" },
-    Binding { triggers: &[Key(Char('q')), Ctrl('c')], action: A::Quit, help: "quit" },
+    Binding { triggers: &[Key(Char('j')), Key(Down)], action: A::Down, help: "down", group: "move" },
+    Binding { triggers: &[Key(Char('k')), Key(Up)], action: A::Up, help: "up", group: "move" },
+    Binding { triggers: &[Seq('g', 'g'), Key(Home)], action: A::Top, help: "top", group: "move" },
+    Binding { triggers: &[Key(Char('G')), Key(End)], action: A::Bottom, help: "bottom", group: "move" },
+    Binding { triggers: &[Key(Char('{'))], action: A::PrevSection, help: "previous section", group: "move" },
+    Binding { triggers: &[Key(Char('}'))], action: A::NextSection, help: "next section", group: "move" },
+    Binding { triggers: &[Key(Char('J')), Shift(Down)], action: A::MoveDown, help: "move down", group: "change" },
+    Binding { triggers: &[Key(Char('K')), Shift(Up)], action: A::MoveUp, help: "move up", group: "change" },
+    Binding { triggers: &[Key(Enter)], action: A::Open, help: "open in $EDITOR", group: "change" },
+    Binding { triggers: &[Key(Char('n'))], action: A::New, help: "new task", group: "change" },
+    Binding { triggers: &[Key(Char('N'))], action: A::NewSection, help: "new section", group: "change" },
+    Binding { triggers: &[Key(Char('X'))], action: A::Done, help: "done (archive)", group: "change" },
+    Binding { triggers: &[Key(Char('D'))], action: A::Delete, help: "delete", group: "change" },
+    Binding { triggers: &[Key(Char('u'))], action: A::Undo, help: "undo", group: "change" },
+    Binding { triggers: &[Key(Char('/'))], action: A::Filter, help: "filter", group: "other" },
+    Binding { triggers: &[Key(Esc)], action: A::FilterClear, help: "clear filter", group: "other" },
+    Binding { triggers: &[Key(Char('?'))], action: A::Help, help: "help", group: "other" },
+    Binding { triggers: &[Key(Char('q')), Ctrl('c')], action: A::Quit, help: "quit", group: "other" },
 ];
 
 /// Lowercase keys left unmapped on purpose: the destructive actions are uppercase so they are

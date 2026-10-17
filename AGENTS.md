@@ -19,7 +19,7 @@ markoff is a Rust TUI for todos stored as markdown files. This file is the sourc
 - Discuss every key mapping, user-visible text and behavior choice first. Add nothing that was not agreed (no extra flags, options, keys or helpers).
 - Keep it simple. Remove code that becomes unused, unless there is a stated reason to keep it.
 - Do not commit, the user reviews and commits.
-- Try-outs and prototypes go on a git branch, or in a git worktree if they would clash with local changes. Never in copies outside the repo.
+- Try-outs and prototypes go straight into the working tree of this repo, the user resets them with git. Only if that clashes with uncommitted changes, use a branch. A git worktree is the last resort. Never in copies outside the repo.
 
 ## Checks after every change
 
