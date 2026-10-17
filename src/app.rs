@@ -111,6 +111,8 @@ pub struct App {
     pub done_today: usize,
     /// Tasks done per day, for the heatmap below the list.
     pub days: history::Days,
+    /// The same per section.
+    pub section_days: history::Sections,
 }
 
 impl App {
@@ -139,6 +141,7 @@ impl App {
             daily: None,
             done_today: 0,
             days: history::Days::new(),
+            section_days: history::Sections::new(),
         }
     }
 
@@ -663,7 +666,7 @@ impl App {
             Some(path) => load::read_if_exists(path)?.map(|content| daily::parse(&content)),
             None => None,
         };
-        self.days = load::archive(&self.root)?;
+        (self.days, self.section_days) = history::split(&load::archive(&self.root)?);
         let today = jiff::Zoned::now().date();
         self.done_today = self.days.get(&today).copied().unwrap_or(0);
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
