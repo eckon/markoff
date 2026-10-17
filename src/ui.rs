@@ -324,7 +324,7 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                     .count();
                 let mut spans = vec![gutter()];
                 spans.extend(rule(
-                    &section.title(),
+                    &section.name,
                     Some(count.to_string()),
                     color,
                     width.saturating_sub(1),
@@ -551,7 +551,7 @@ mod tests {
     fn list_scrolls_only_when_the_cursor_leaves_the_screen() {
         let titles: Vec<String> = (1..=20).map(|i| format!("Task {i}")).collect();
         let titles: Vec<&str> = titles.iter().map(String::as_str).collect();
-        let mut app = App::new(PathBuf::new(), sections(&[(&["home"], &titles)]));
+        let mut app = App::new(PathBuf::new(), sections(&[("home", &titles)]));
 
         app.update(Action::Bottom);
         let lines = draw(&mut app);
@@ -569,7 +569,7 @@ mod tests {
     #[test]
     fn long_titles_cut_and_wrap_at_the_cursor() {
         let long = "Write the long report about every open question";
-        let mut app = App::new(PathBuf::new(), sections(&[(&["home"], &[long, long])]));
+        let mut app = App::new(PathBuf::new(), sections(&[("home", &[long, long])]));
 
         app.update(Action::Down);
         let lines = draw(&mut app);
@@ -589,7 +589,7 @@ mod tests {
     fn renders_sections_and_tasks() {
         let app = App::new(
             PathBuf::new(),
-            sections(&[(&["home"], &["Fix typo"]), (&["work"], &["Review PR"])]),
+            sections(&[("home", &["Fix typo"]), ("work", &["Review PR"])]),
         );
         let screen = screen(&app);
         for text in ["home", "• Fix typo", "work", "• Review PR"] {
@@ -599,7 +599,7 @@ mod tests {
 
     #[test]
     fn preview_shows_task_body() {
-        let mut app = App::new(PathBuf::new(), sections(&[(&["home"], &["Fix typo"])]));
+        let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
         app.sections[0].tasks[0].body = "line one\n## Notes\nline two".to_string();
         app.update(Action::Down);
 
@@ -615,7 +615,7 @@ mod tests {
     fn preview_divider_joins_the_header() {
         let mut app = App::new(
             PathBuf::new(),
-            sections(&[(&["home"], &["Fix typo", "Empty"])]),
+            sections(&[("home", &["Fix typo", "Empty"])]),
         );
         app.sections[0].tasks[0].body = "line one".to_string();
         let column = |line: &str, c: char| line.chars().position(|x| x == c);
@@ -635,7 +635,7 @@ mod tests {
 
     #[test]
     fn status_line_shows_errors() {
-        let mut app = App::new(PathBuf::new(), sections(&[(&["home"], &[])]));
+        let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
         app.update(Action::Undo);
         let screen = screen(&app);
         assert!(
@@ -646,7 +646,7 @@ mod tests {
 
     #[test]
     fn help_lists_bindings() {
-        let mut app = App::new(PathBuf::new(), sections(&[(&["home"], &[])]));
+        let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
         app.update(Action::Help);
         let mut terminal = Terminal::new(TestBackend::new(60, 30)).unwrap();
         terminal
@@ -674,7 +674,7 @@ mod tests {
 
     #[test]
     fn renamed_popup_lists_renames() {
-        let mut app = App::new(PathBuf::new(), sections(&[(&["home"], &[])]));
+        let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
         app.renamed = vec![("old.md".into(), "new-title.md".into())];
         let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
         terminal
@@ -703,7 +703,7 @@ mod tests {
     fn filter_input_and_filtered_list() {
         let mut app = App::new(
             PathBuf::new(),
-            sections(&[(&["home"], &["Fix typo"]), (&["work"], &["Review"])]),
+            sections(&[("home", &["Fix typo"]), ("work", &["Review"])]),
         );
         app.update(Action::Filter);
         for c in "rev".chars() {
@@ -727,7 +727,7 @@ mod tests {
 
     #[test]
     fn status_hints_give_way_to_messages() {
-        let mut app = App::new(PathBuf::new(), sections(&[(&["home"], &[])]));
+        let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
         assert!(screen(&app).lines().last().unwrap().ends_with("? help"));
 
         // 50 columns: no room for the hint next to this message.
@@ -740,10 +740,7 @@ mod tests {
     fn header_shows_date_open_and_done() {
         let mut app = App::new(
             PathBuf::new(),
-            sections(&[
-                (&["home"], &["Fix typo"]),
-                (&["work"], &["Review", "Deploy"]),
-            ]),
+            sections(&[("home", &["Fix typo"]), ("work", &["Review", "Deploy"])]),
         );
         app.done_today = 2;
         let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
@@ -767,7 +764,7 @@ mod tests {
 
     #[test]
     fn filter_without_matches_says_so() {
-        let mut app = App::new(PathBuf::new(), sections(&[(&["home"], &["Fix typo"])]));
+        let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
         assert!(!screen(&app).contains("no matches"), "not without a filter");
 
         app.update(Action::Filter);
@@ -778,7 +775,7 @@ mod tests {
 
     #[test]
     fn daily_shows_open_count_and_strikes_done() {
-        let mut app = App::new(PathBuf::new(), sections(&[(&["home"], &[])]));
+        let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
         let today = app::today();
         app.daily = Some(crate::daily::parse(&format!(
             "## Jira [done {today}]\n## Menu [done 2000-01-01]\n\nhttps://menu\n"
@@ -824,7 +821,7 @@ mod tests {
         assert!(lines[3].contains("• Jira"), "{lines:#?}");
         assert!(lines[5].contains("no sections yet"), "{lines:#?}");
 
-        app.sections = sections(&[(&["work"], &[])]);
+        app.sections = sections(&[("work", &[])]);
         assert!(!screen(&app).contains("no sections yet"));
     }
 
@@ -832,10 +829,7 @@ mod tests {
     fn list_highlights_filter_matches() {
         let mut app = App::new(
             PathBuf::new(),
-            sections(&[
-                (&["home"], &["Fix typo", "Buy milk"]),
-                (&["work"], &["Review"]),
-            ]),
+            sections(&[("home", &["Fix typo", "Buy milk"]), ("work", &["Review"])]),
         );
         app.sections[1].tasks[0].body = "fix it".to_string();
         app.update(Action::Filter);
@@ -881,7 +875,7 @@ mod tests {
 
     #[test]
     fn preview_hidden_for_empty_task_and_section() {
-        let mut app = App::new(PathBuf::new(), sections(&[(&["home"], &["Fix typo"])]));
+        let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
         app.sections[0].tasks[0].body = "\n  \n".to_string();
 
         // On the section header, then on the task with a blank body.

@@ -50,7 +50,7 @@ pub fn load(root: &Path) -> Result<(Vec<Section>, OrderFile)> {
             .collect();
         sections.push(Section {
             tasks: load_tasks(task_paths, &order, &name)?,
-            path: vec![name],
+            name,
             dir,
         });
     }
@@ -143,7 +143,10 @@ mod tests {
     }
 
     fn section_titles(sections: &[Section]) -> Vec<String> {
-        sections.iter().map(Section::title).collect()
+        sections
+            .iter()
+            .map(|section| section.name.clone())
+            .collect()
     }
 
     #[test]

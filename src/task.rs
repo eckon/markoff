@@ -44,17 +44,10 @@ impl Task {
 /// A directory of tasks in the root.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section {
-    /// Section names, the directory names: `["work"]`. A `Vec` so nesting can be added later.
-    pub path: Vec<String>,
+    /// The directory name, also the display name and the archive heading: `work`.
+    pub name: String,
     pub dir: PathBuf,
     pub tasks: Vec<Task>,
-}
-
-impl Section {
-    /// Display name, also used as the archive heading: `work`, later `private/garden`.
-    pub fn title(&self) -> String {
-        self.path.join("/")
-    }
 }
 
 fn stem(path: &Path) -> Option<&str> {
@@ -139,16 +132,5 @@ mod tests {
         let t = task("todo/my-notes.md", "");
         assert_eq!(t.title(), "my notes");
         assert_eq!(t.stem(), "my-notes");
-    }
-
-    #[test]
-    fn section_titles() {
-        let section = |path: &[&str]| Section {
-            path: path.iter().map(|s| s.to_string()).collect(),
-            dir: PathBuf::new(),
-            tasks: vec![],
-        };
-        assert_eq!(section(&["work"]).title(), "work");
-        assert_eq!(section(&["private", "garden"]).title(), "private/garden");
     }
 }

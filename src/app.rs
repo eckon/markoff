@@ -214,7 +214,7 @@ impl App {
                             .and_then(|content| self.after_create_section(index, &content))
                     }
                     EditorRequest::RenameSection(section) => {
-                        let draft = edit::section_draft(&self.sections[section].title());
+                        let draft = edit::section_draft(&self.sections[section].name);
                         editor::rename(terminal, &self.root, &draft)
                             .and_then(|content| self.after_rename_section(section, &content))
                     }
@@ -458,7 +458,7 @@ impl App {
 
     /// Two sections with the same name would look the same in the list and the archive.
     fn ensure_no_section(&self, slug: &str) -> Result<()> {
-        if self.sections.iter().any(|section| section.title() == slug) {
+        if self.sections.iter().any(|section| section.name == slug) {
             return Err(eyre!("a section named {slug} already exists"));
         }
         Ok(())
@@ -468,7 +468,7 @@ impl App {
     fn after_rename_section(&mut self, s: usize, content: &str) -> Result<()> {
         let (slug, more) =
             edit::section_name(content).ok_or_else(|| eyre!("aborted, empty title"))?;
-        if slug == self.sections[s].title() {
+        if slug == self.sections[s].name {
             return Ok(());
         }
         self.ensure_no_section(&slug)?;
@@ -604,7 +604,7 @@ impl App {
     /// Only empty sections, so `D` never takes tasks with it.
     fn delete_section(&mut self, s: usize) -> Result<()> {
         let section = &self.sections[s];
-        let title = section.title();
+        let title = section.name.clone();
         if !section.tasks.is_empty() {
             return Err(eyre!("{title} is not empty"));
         }
@@ -727,10 +727,10 @@ pub mod tests {
     use crate::order::{Group, Order};
 
     /// Sections with the given names and task titles. Nothing on disk.
-    pub fn sections(spec: &[(&[&str], &[&str])]) -> Vec<Section> {
+    pub fn sections(spec: &[(&str, &[&str])]) -> Vec<Section> {
         spec.iter()
-            .map(|(path, tasks)| Section {
-                path: path.iter().map(|s| s.to_string()).collect(),
+            .map(|(name, tasks)| Section {
+                name: name.to_string(),
                 dir: PathBuf::new(),
                 tasks: tasks
                     .iter()
@@ -783,7 +783,7 @@ pub mod tests {
         app.rows()
             .into_iter()
             .map(|row| match row {
-                Row::Section(s) => format!("[{}]", app.sections[s].title()),
+                Row::Section(s) => format!("[{}]", app.sections[s].name),
                 Row::Daily => "[daily]".to_string(),
                 Row::DailyTask(i) => app.daily.as_ref().unwrap()[i].title.clone(),
                 Row::Task(s, t) => {
@@ -798,7 +798,7 @@ pub mod tests {
     fn rows_include_section_headers() {
         let app = App::new(
             PathBuf::new(),
-            sections(&[(&["work"], &["a"]), (&["home"], &[]), (&["x"], &["b", "c"])]),
+            sections(&[("work", &["a"]), ("home", &[]), ("x", &["b", "c"])]),
         );
         assert_eq!(
             app.rows(),
@@ -815,7 +815,7 @@ pub mod tests {
 
     #[test]
     fn cursor_stays_in_bounds() {
-        let mut app = App::new(PathBuf::new(), sections(&[(&["work"], &["a"])]));
+        let mut app = App::new(PathBuf::new(), sections(&[("work", &["a"])]));
         app.update(Action::Up);
         assert_eq!(app.cursor, 0);
         app.update(Action::Down);
@@ -1493,11 +1493,7 @@ pub mod tests {
     fn jumps() {
         let mut app = App::new(
             PathBuf::new(),
-            sections(&[
-                (&["work"], &["a"]),
-                (&["home"], &["b", "c"]),
-                (&["x"], &["d"]),
-            ]),
+            sections(&[("work", &["a"]), ("home", &["b", "c"]), ("x", &["d"])]),
         );
         // Rows: work, a, home, b, c, x, d
         app.update(Action::Bottom);
@@ -1537,12 +1533,12 @@ pub mod tests {
         assert_eq!(order_file(&dir), "# home\nb\n\n# work\na\n\n# x\n");
 
         app.update(Action::Undo);
-        assert_eq!(app.sections[0].title(), "work");
+        assert_eq!(app.sections[0].name, "work");
         assert_eq!(app.cursor, 0, "cursor goes back with the section");
 
         // Nothing above the first one.
         app.update(Action::MoveUp);
-        assert_eq!(app.sections[0].title(), "work");
+        assert_eq!(app.sections[0].name, "work");
         assert_eq!(app.status, None);
     }
 

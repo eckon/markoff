@@ -67,7 +67,7 @@ impl Order {
             sections: sections
                 .iter()
                 .map(|section| Group {
-                    name: section.title(),
+                    name: section.name.clone(),
                     tasks: section
                         .tasks
                         .iter()

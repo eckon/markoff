@@ -92,7 +92,7 @@ pub fn archive(
     file: &OrderFile,
 ) -> Vec<Op> {
     let section = &sections[s];
-    let after = archive::add(existing, date, &section.title(), &section.tasks[t]);
+    let after = archive::add(existing, date, &section.name, &section.tasks[t]);
     let path = archive_path.to_path_buf();
     let write = match existing {
         Some(before) => Op::Update {
@@ -350,7 +350,7 @@ mod tests {
             .map(|(dir, files)| {
                 let path = Path::new("root").join(dir);
                 Section {
-                    path: vec![dir.to_string()],
+                    name: dir.to_string(),
                     tasks: files
                         .iter()
                         .map(|(file, content)| Task::parse(path.join(file), content))
