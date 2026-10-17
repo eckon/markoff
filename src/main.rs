@@ -7,6 +7,7 @@ mod daily;
 mod edit;
 mod editor;
 mod filter;
+mod history;
 mod keymap;
 mod load;
 mod name;

@@ -9,7 +9,7 @@ markoff is a Rust TUI for todos stored as markdown files. This file is the sourc
 - Order lives in `.order` in the root, not in the filenames: renumbering prefixes renamed every file below a change, which cluttered git. The disk decides what exists, the file only orders it: unlisted files go to the end, stale names are dropped.
 - The `# Heading` is the task's title, the filename follows it.
 - Normalize (slug, cleaned `.order`) runs at startup and before every write action, never on watcher reloads: renaming a file another editor has open breaks that editor's next save.
-- Done tasks go to `.archive/YYYY-MM-DD.md` in the root under their section heading. The header counts today's, so archiving is visible.
+- Done tasks go to `.archive/YYYY-MM-DD.md` in the root under their section heading. The header counts today's, so archiving is visible. A heatmap below the list shows them back to the first day, cells growing with age so years fit.
 - The daily checklist is an add-on in its own module (`daily.rs`), only with `[experimental] daily` in the config: `X` marks a task done for today. Kept apart until recurring tasks get a real design.
 - Writing text happens in `$EDITOR`, the TUI only has quick actions. Keys are vim-like, destructive ones uppercase.
 - Every action is one undo step, undo puts the cursor back where it was.
@@ -34,7 +34,7 @@ For TUI changes also run the real app in tmux against a scratch root dir (or a c
 
 ## Code
 
-- Pure logic (`edit.rs`, `archive.rs`, `name.rs`, `order.rs`) never touches the disk. All writes go through ops in `op.rs`, each with an exact inverse for undo.
+- Pure logic (`edit.rs`, `archive.rs`, `history.rs`, `name.rs`, `order.rs`) never touches the disk. All writes go through ops in `op.rs`, each with an exact inverse for undo.
 - The disk is the source of truth: after a change, reload instead of patching state.
 - `App::update(Action)` never touches the terminal, so it is testable.
 - All keys live in `BINDINGS` (`keymap.rs`), the help overlay reads the same table. Update the README key table with it.

@@ -1,13 +1,16 @@
 //! Reads the root directory into [`Section`]s, in the order of [`order::FILE`].
 
 use std::{
+    collections::BTreeMap,
     fs, io,
     path::{Path, PathBuf},
 };
 
 use color_eyre::{Result, eyre::WrapErr};
+use jiff::civil::Date;
 
 use crate::{
+    archive,
     order::{self, Order, OrderFile},
     task::{Section, Task},
 };
@@ -59,6 +62,28 @@ pub fn read_if_exists(path: &Path) -> Result<Option<String>> {
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err).wrap_err_with(|| format!("failed to read {}", path.display())),
     }
+}
+
+/// Tasks done per day, from the archive files in `root`, see [`archive::count`]. Files whose
+/// name is no date are skipped. No `.archive/` yet means nothing was done.
+pub fn archive(root: &Path) -> Result<BTreeMap<Date, usize>> {
+    let dir = root.join(archive::DIR);
+    if !dir.is_dir() {
+        return Ok(BTreeMap::new());
+    }
+    let mut days = BTreeMap::new();
+    for path in visible_entries(&dir)? {
+        let Some(date) = file_name(&path)
+            .strip_suffix(".md")
+            .and_then(|stem| stem.parse::<Date>().ok())
+        else {
+            continue;
+        };
+        if let Some(content) = read_if_exists(&path)? {
+            days.insert(date, archive::count(&content));
+        }
+    }
+    Ok(days)
 }
 
 fn load_tasks(mut paths: Vec<PathBuf>, order: &Order, section: &str) -> Result<Vec<Task>> {
@@ -130,6 +155,28 @@ mod tests {
             fs::write(path, content).unwrap();
         }
         dir
+    }
+
+    #[test]
+    fn archive_by_date_skips_other_files() {
+        let dir = fixture(&[
+            (
+                ".archive/2026-10-14.md",
+                "# 2026-10-14\n\n## work\n\n### Fix bug\n",
+            ),
+            (".archive/2026-10-02.md", "# 2026-10-02\n"),
+            (".archive/notes.md", "## work\n\n### Not a day\n"),
+        ]);
+        let days = archive(dir.path()).unwrap();
+        let dates: Vec<String> = days.keys().map(Date::to_string).collect();
+        assert_eq!(dates, ["2026-10-02", "2026-10-14"]);
+        assert_eq!(days[&"2026-10-14".parse().unwrap()], 1);
+    }
+
+    #[test]
+    fn archive_without_dir_is_empty() {
+        let dir = fixture(&[]);
+        assert!(archive(dir.path()).unwrap().is_empty());
     }
 
     fn titles(section: &Section) -> Vec<String> {

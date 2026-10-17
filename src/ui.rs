@@ -12,7 +12,7 @@ use ratatui::{
 
 use crate::{
     app::{self, App, Row, Status},
-    filter,
+    filter, history,
     keymap::{Action, BINDINGS, Binding, FILTER_INPUT_HINTS},
 };
 
@@ -20,13 +20,33 @@ use crate::{
 /// returns the list's scroll offset for the caller to keep in [`App::list_offset`].
 pub fn render(app: &App, frame: &mut Frame) -> usize {
     // The header gets a blank line below, like the one above every section.
-    let [header_area, gap_area, main_area, status_area] = Layout::vertical([
+    let [header_area, gap_area, body_area, status_area] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Min(0),
         Constraint::Length(1),
     ])
     .areas(frame.area());
+    // The heatmap with a blank line above, only once something is archived and only if the
+    // list keeps enough room: the tasks come first.
+    let heatmap_block = list_block().padding(Padding::new(1, 2, 1, 0));
+    let heatmap = match app.days.is_empty() {
+        true => Vec::new(),
+        false => heatmap_lines(&app.days, heatmap_block.inner(body_area).width as usize),
+    };
+    let heatmap_height = heatmap.len() as u16 + 1;
+    let (main_area, heatmap_area) =
+        if !heatmap.is_empty() && body_area.height >= MIN_LIST_HEIGHT + heatmap_height {
+            let [main, heatmap] =
+                Layout::vertical([Constraint::Min(0), Constraint::Length(heatmap_height)])
+                    .areas(body_area);
+            (main, Some(heatmap))
+        } else {
+            (body_area, None)
+        };
+    if let Some(area) = heatmap_area {
+        frame.render_widget(Paragraph::new(heatmap).block(heatmap_block), area);
+    }
     render_header(app, frame, header_area);
     let [list_area, preview_area] =
         Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
@@ -119,6 +139,145 @@ fn render_help(frame: &mut Frame) {
         ),
         panel,
     );
+}
+
+/// Lines the list keeps before the heatmap below it is left out.
+const MIN_LIST_HEIGHT: u16 = 10;
+
+/// Room for the weekdays on the right, next to the day cells they belong to.
+const WEEKDAYS: usize = 4;
+
+/// A cell and the space after it.
+const STEP: usize = 2;
+
+/// The glyph per step from little to a lot, see [`history::bounds`]. Only the shade changes:
+/// fonts draw it brighter in order, while dim, light and bold greens often look the same.
+fn steps() -> [Span<'static>; 4] {
+    ["░", "▒", "▓", "█"].map(|shade| shade.fg(DONE_COLOR))
+}
+
+/// The tasks done over time, back to the first archived day, see [`history::columns`]: labels,
+/// 7 rows of cells with today in brackets and the weekdays on the right where cells are days,
+/// and a divider through the gap where the cell size changes.
+fn heatmap_lines(days: &history::Days, width: usize) -> Vec<Line<'static>> {
+    let today = jiff::Zoned::now().date();
+    let room = width.saturating_sub(WEEKDAYS);
+    let columns = history::columns(days, today, room / STEP);
+    let steps = steps();
+    let bounds = history::bounds(
+        columns
+            .iter()
+            .flat_map(|column| (0..7).map(|row| history::rate(days, column.cell(row)))),
+        steps.len(),
+    );
+    // Weekdays only line up for day cells, which are on the right.
+    let day_cells = columns.last().is_some_and(|column| column.unit == 1);
+
+    let zone_starts = zone_starts(&columns);
+    let mut lines = vec![labels(&columns, &zone_starts)];
+    for row in 0..7 {
+        let mut spans: Vec<Span> = Vec::new();
+        for (i, column) in columns.iter().enumerate() {
+            let cell = column.cell(row);
+            let gap: Span = match zone_starts.get(i + 1) {
+                Some(true) => "│".fg(LINE_COLOR),
+                _ => " ".into(),
+            };
+            if cell.0 > today {
+                spans.extend([" ".into(), gap]);
+                continue;
+            }
+            let shade = match history::level(history::rate(days, cell), &bounds) {
+                0 => "·".fg(LINE_COLOR),
+                level => steps[level - 1].clone(),
+            };
+            // The brackets go into the gaps around it.
+            if cell.0 == today && spans.last().is_some_and(|gap| gap.content == " ") {
+                spans.pop();
+                spans.extend(["[".bold(), shade, "]".bold()]);
+            } else {
+                spans.extend([shade, gap]);
+            }
+        }
+        let weekday = match (day_cells, row) {
+            (true, 0) => "Mon",
+            (true, 2) => "Wed",
+            (true, 4) => "Fri",
+            _ => "",
+        };
+        spans.push(weekday.dim());
+        lines.push(Line::from(spans));
+    }
+    lines
+}
+
+/// What one cell covers, the name of a zone of columns.
+fn zone(unit: i64) -> &'static str {
+    match unit {
+        1 => "daily",
+        2..=7 => "weekly",
+        8..=31 => "monthly",
+        _ => "yearly",
+    }
+}
+
+/// Per column whether it starts another zone than the one before, a divider goes before it.
+fn zone_starts(columns: &[history::Column]) -> Vec<bool> {
+    let mut previous = None;
+    columns
+        .iter()
+        .map(|column| {
+            let starts = previous.is_some_and(|previous| previous != zone(column.unit));
+            previous = Some(zone(column.unit));
+            starts
+        })
+        .collect()
+}
+
+/// The row above the cells: the dividers, each zone's name after it, and where there is room
+/// months where cells are days and years elsewhere, at the column they start in.
+fn labels(columns: &[history::Column], zone_starts: &[bool]) -> Line<'static> {
+    // Dates may run into the weekdays on the right.
+    let mut row = vec![(' ', Style::new()); columns.len() * STEP + WEEKDAYS];
+    for (i, _) in zone_starts
+        .iter()
+        .enumerate()
+        .filter(|(_, starts)| **starts)
+    {
+        row[i * STEP - 1] = ('│', Style::new().fg(LINE_COLOR));
+    }
+    let name = Style::new().dim().italic();
+    for (i, column) in columns.iter().enumerate() {
+        if i == 0 || zone_starts[i] {
+            put(&mut row, i * STEP, zone(column.unit), name);
+        }
+    }
+    let mut previous = None;
+    for (i, column) in columns.iter().enumerate() {
+        let label = match column.unit {
+            1 => column.start.strftime("%b").to_string(),
+            _ => column.start.year().to_string(),
+        };
+        // A month only where it starts, a week of the last one would push it out.
+        let starts = column.unit > 1 || column.start.day() <= 7;
+        if previous.as_ref() != Some(&label) && starts {
+            put(&mut row, i * STEP, &label, Style::new().dim());
+        }
+        previous = Some(label);
+    }
+    Line::from(spans(&row))
+}
+
+/// Writes `text` into `row` at `x` if it is free there, with a space or a divider on both sides.
+fn put(row: &mut [(char, Style)], x: usize, text: &str, style: Style) {
+    let end = x + text.chars().count();
+    let free = |at: usize| row.get(at).is_none_or(|(c, _)| *c == ' ');
+    let edge = |at: usize| row.get(at).is_none_or(|(c, _)| *c == ' ' || *c == '│');
+    if end <= row.len() && (x..end).all(free) && (x == 0 || edge(x - 1)) && edge(end) {
+        for (i, c) in text.chars().enumerate() {
+            row[x + i] = (c, style);
+        }
+    }
 }
 
 /// Joins the preview divider at column `x` to the header: `┬` in the header rule, `│` in the
@@ -512,6 +671,7 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::{app::tests::sections, keymap::Action};
+    use jiff::ToSpan;
     use ratatui::{Terminal, backend::TestBackend, style::Modifier};
 
     /// Renders the app and returns the screen as text, styles (bold, highlight) are ignored.
@@ -885,5 +1045,44 @@ mod tests {
             assert!(!screen.contains('│'), "preview shown in\n{screen}");
             app.update(Action::Down);
         }
+    }
+
+    #[test]
+    fn heatmap_below_the_list_once_something_is_archived() {
+        let today = jiff::Zoned::now().date();
+        let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
+        let lines = |app: &App, height| {
+            let mut terminal = Terminal::new(TestBackend::new(60, height)).unwrap();
+            terminal
+                .draw(|frame| {
+                    render(app, frame);
+                })
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            buffer
+                .content()
+                .chunks(buffer.area.width as usize)
+                .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                .collect::<Vec<_>>()
+        };
+        let shown = |lines: &[String]| lines.iter().any(|line| line.trim_end().ends_with("Mon"));
+        assert!(!shown(&lines(&app, 30)), "nothing archived yet");
+
+        // Today the busiest, older days so it is not in the first column.
+        app.days = [(today, 3), (today - 10.days(), 1), (today - 20.days(), 2)].into();
+        let screen = lines(&app, 30);
+        assert!(screen[2].contains("home"), "{screen:#?}");
+        // A blank line, the labels and 7 rows above the status line.
+        assert_eq!(screen[20].trim(), "", "{screen:#?}");
+        assert!(screen[21].starts_with(" daily"), "{screen:#?}");
+        let row = 22 + today.weekday().to_monday_zero_offset() as usize;
+        assert!(
+            screen[row].contains("[█]"),
+            "today in brackets\n{screen:#?}"
+        );
+        assert!(screen[22].trim_end().ends_with("Mon"), "{screen:#?}");
+
+        // The tasks come first: too short for both, the heatmap goes.
+        assert!(!shown(&lines(&app, 20)));
     }
 }

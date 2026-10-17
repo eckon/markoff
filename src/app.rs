@@ -18,7 +18,7 @@ use ratatui::{
 use crate::{
     archive,
     daily::{self, DailyTask},
-    edit, editor, filter,
+    edit, editor, filter, history,
     keymap::{self, Action, Keymap},
     load,
     op::{self, Op},
@@ -107,6 +107,8 @@ pub struct App {
     pub daily: Option<Vec<DailyTask>>,
     /// Tasks in today's archive file, shown in the header.
     pub done_today: usize,
+    /// Tasks done per day, for the heatmap below the list.
+    pub days: history::Days,
 }
 
 impl App {
@@ -133,6 +135,7 @@ impl App {
             daily_path: None,
             daily: None,
             done_today: 0,
+            days: history::Days::new(),
         }
     }
 
@@ -649,9 +652,9 @@ impl App {
             Some(path) => load::read_if_exists(path)?.map(|content| daily::parse(&content)),
             None => None,
         };
-        let archive_path = self.root.join(archive::DIR).join(format!("{}.md", today()));
-        self.done_today =
-            load::read_if_exists(&archive_path)?.map_or(0, |content| archive::count(&content));
+        self.days = load::archive(&self.root)?;
+        let today = jiff::Zoned::now().date();
+        self.done_today = self.days.get(&today).copied().unwrap_or(0);
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
         if let Some(path) = select {
             self.select_path(path);
@@ -1598,6 +1601,7 @@ pub mod tests {
             Some(Status::Info("task archived (u to undo)".to_string()))
         );
         assert_eq!(app.done_today, 2);
+        assert_eq!(app.days.len(), 1, "the heatmap has it too");
         assert_eq!(listing(&app), ["[work]", "[home]"]);
         assert_eq!(order_file(&dir), "# work\n\n# home\n");
         assert_eq!(
