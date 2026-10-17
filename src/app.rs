@@ -459,14 +459,28 @@ impl App {
     fn delete(&mut self) -> Result<()> {
         let (s, t) = match self.selected() {
             Some(Row::Task(s, t)) => (s, t),
-            Some(Row::Section(_)) => {
-                return Err(eyre!("sections are deleted in the shell for now"));
-            }
+            Some(Row::Section(s)) => return self.delete_section(s),
             None => return Ok(()),
         };
         let title = self.sections[s].tasks[t].title();
         // Cursor stays on the same row, which is now the next task (like vim).
         self.apply(edit::delete(&self.sections[s], t))?;
+        self.status = Some(Status::Info(format!("deleted {title} (u to undo)")));
+        Ok(())
+    }
+
+    /// Only empty sections, so `D` never takes tasks with it. The inbox is `todo/` itself.
+    fn delete_section(&mut self, s: usize) -> Result<()> {
+        let section = &self.sections[s];
+        let title = section.title();
+        if s == 0 {
+            return Err(eyre!("the inbox can't be deleted"));
+        }
+        if !section.tasks.is_empty() {
+            return Err(eyre!("{title} is not empty"));
+        }
+        // Cursor stays on the same row, which is now the next section.
+        self.apply(edit::delete_section(&self.sections, s))?;
         self.status = Some(Status::Info(format!("deleted {title} (u to undo)")));
         Ok(())
     }
@@ -729,16 +743,37 @@ pub mod tests {
     }
 
     #[test]
-    fn delete_on_section_is_an_error() {
-        let (_dir, mut app) = app_with_files(&["01-a.md"]);
+    fn delete_section_only_if_empty_and_not_inbox() {
+        let (dir, mut app) = app_with_files(&["01-a.md", "01-work/", "02-home/01-b.md"]);
+        let before = listing(&app);
+
         app.update(Action::Delete);
         assert_eq!(
             app.status,
-            Some(Status::Error(
-                "sections are deleted in the shell for now".to_string()
-            ))
+            Some(Status::Error("the inbox can't be deleted".to_string()))
         );
-        assert_eq!(listing(&app), ["[inbox]", "01-a.md"]);
+        app.cursor = 3;
+        app.update(Action::Delete);
+        assert_eq!(
+            app.status,
+            Some(Status::Error("home is not empty".to_string()))
+        );
+        assert_eq!(listing(&app), before);
+
+        // The empty `work` goes, `home` moves up into its place, under the cursor.
+        app.cursor = 2;
+        app.update(Action::Delete);
+        assert_eq!(listing(&app), ["[inbox]", "01-a.md", "[home]", "01-b.md"]);
+        assert!(dir.path().join("todo/01-home").is_dir());
+        assert_eq!(app.selected(), Some(Row::Section(1)));
+        assert_eq!(
+            app.status,
+            Some(Status::Info("deleted work (u to undo)".to_string()))
+        );
+
+        app.update(Action::Undo);
+        assert_eq!(listing(&app), before);
+        assert_eq!(app.cursor, 2, "back on `work`");
     }
 
     /// Types `text` into the filter input, like `/` followed by the keys.

@@ -23,6 +23,10 @@ pub enum Op {
     Remove { path: PathBuf, content: String },
     /// Renames a file or directory. Fails if the target already exists.
     Rename { from: PathBuf, to: PathBuf },
+    /// Creates an empty directory. Fails if it already exists.
+    CreateDir { path: PathBuf },
+    /// Deletes a directory. Fails if it is not empty, so no file is ever lost with it.
+    RemoveDir { path: PathBuf },
     /// Replaces the content of an existing file. Fails if it no longer has `before`.
     Update {
         path: PathBuf,
@@ -57,6 +61,10 @@ impl Op {
                 ensure_content(path, before)?;
                 write_atomic(path, after)
             }
+            Op::CreateDir { path } => fs::create_dir(path)
+                .wrap_err_with(|| format!("failed to create {}", path.display())),
+            Op::RemoveDir { path } => fs::remove_dir(path)
+                .wrap_err_with(|| format!("failed to remove {}", path.display())),
         }
     }
 
@@ -75,6 +83,8 @@ impl Op {
                 before: after,
                 after: before,
             },
+            Op::CreateDir { path } => Op::RemoveDir { path },
+            Op::RemoveDir { path } => Op::CreateDir { path },
         }
     }
 }
@@ -182,6 +192,24 @@ mod tests {
 
         op.inverse().apply().unwrap();
         assert!(files(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn remove_dir_refuses_non_empty_dir_and_inverse_creates_it() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("work");
+        let op = Op::RemoveDir { path: path.clone() };
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join(".hidden"), "").unwrap();
+
+        // Hidden files don't show in markoff, but still keep the directory.
+        assert!(op.apply().is_err());
+        fs::remove_file(path.join(".hidden")).unwrap();
+
+        op.apply().unwrap();
+        assert!(files(dir.path()).is_empty());
+        op.inverse().apply().unwrap();
+        assert_eq!(files(dir.path()), ["work"]);
     }
 
     #[test]

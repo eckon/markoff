@@ -9,7 +9,7 @@ Next steps for markoff. Remove a task once it is done, delete the file when noth
   - `N` new section below the cursor's section, via `$EDITOR` like a task.
   - `<CR>` on a header renames it via `$EDITOR`. Draft is `# name` plus a git style comment that only the heading is used. Text below is ignored, the status says so.
   - Name clash with an existing section is an error.
-  - `D` deletes an empty section, otherwise an error. The inbox can't be renamed or deleted, new sections go after it.
+  - The inbox can't be renamed, new sections go after it.
   - `X` on a header does nothing.
 - [ ] Rework the help overlay: keys now mean the same on tasks and sections, notes per key would clutter it.
 - [ ] Daily checklist, kept apart as an add-on (own module) until it gets a real design:

@@ -25,6 +25,19 @@ pub fn delete(section: &Section, t: usize) -> Vec<Op> {
     ops
 }
 
+/// `D` on a section header: removes the directory of section `s` and renumbers the
+/// sections after it. Only for an empty section that is not the inbox, the caller checks.
+pub fn delete_section(sections: &[Section], s: usize) -> Vec<Op> {
+    let mut ops = vec![Op::RemoveDir {
+        path: sections[s].dir.clone(),
+    }];
+    // Position among the section directories, the inbox is not one of them.
+    let mut rest = section_entries(sections);
+    rest.remove(s - 1);
+    ops.extend(renames(&rest, &sections[0].dir));
+    ops
+}
+
 /// `X`: adds task `t` to today's archive file, then removes it like [`delete`].
 ///
 /// `existing` is the current content of `archive_path`, `None` if the file does not exist.
@@ -353,6 +366,8 @@ mod tests {
                 Op::Remove { path, .. } => format!("remove {}", file(path)),
                 Op::Rename { from, to } => format!("rename {} -> {}", file(from), file(to)),
                 Op::Update { path, .. } => format!("update {}", file(path)),
+                Op::CreateDir { path } => format!("mkdir {}", file(path)),
+                Op::RemoveDir { path } => format!("rmdir {}", file(path)),
             })
             .collect()
     }
@@ -379,6 +394,15 @@ mod tests {
                 "rename 02-b.md -> 01-b.md",
                 "rename 03-c.md -> 02-c.md",
             ]
+        );
+    }
+
+    #[test]
+    fn delete_section_closes_the_gap() {
+        let sections = tree(&[("", &[]), ("01-a", &[]), ("02-b", &[]), ("03-c", &[])]);
+        assert_eq!(
+            describe(&delete_section(&sections, 2)),
+            ["rmdir 02-b", "rename 03-c -> 02-c"]
         );
     }
 
