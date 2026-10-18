@@ -101,7 +101,7 @@ impl App {
         };
         let today = jiff::Zoned::now().date();
         let columns = history::columns(&self.days, today, self.archive.columns);
-        let day = history::step(&columns, self.archive_day(), by, today);
+        let day = history::step(&columns, &self.days, self.archive_day(), by, today);
         if Some(day) != self.archive.day {
             self.select_day(day);
         }
