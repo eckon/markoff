@@ -40,9 +40,13 @@ pub fn info(mut args: impl Iterator<Item = String>) -> Option<String> {
         "-h" | "--help" => Some(format!(
             "markoff: a TUI for todos stored as markdown files\n\
              \n\
-             Usage: markoff [--dir <path>] [list]\n\
+             Usage: markoff [--dir <path>] [<command>]\n\
              \n\
-             \x20 list           Print sections and tasks as markdown, instead of the TUI\n\
+             Commands, without one the TUI starts:\n\
+             \x20 list                   Print sections and tasks as markdown\n\
+             \x20 add <section> <title>  Add a task at the end of a section, print its path\n\
+             \n\
+             Options:\n\
              \x20 --dir <path>   Root directory, else ${DIR_ENV}, else `dir` in ~/.config/{CONFIG_FILE}\n\
              \x20 -h, --help     Show this help\n\
              \x20 -V, --version  Show the version\n"
@@ -54,7 +58,9 @@ pub fn info(mut args: impl Iterator<Item = String>) -> Option<String> {
 
 /// Resolves the root directory, the one with the sections, and the command if one is given.
 ///
-/// Order: `--dir <path>` / `--dir=<path>`, then [`DIR_ENV`], then `dir` of the config file.
+/// Options may stand anywhere, everything else is left to [`Command::parse`], so commands never
+/// see options. Root order: `--dir <path>` / `--dir=<path>`, then [`DIR_ENV`], then `dir` of the
+/// config file.
 /// Args, env and config are parameters so this can be tested without the real process.
 pub fn parse_args(
     mut args: impl Iterator<Item = String>,
@@ -62,21 +68,23 @@ pub fn parse_args(
     config_dir: Option<PathBuf>,
 ) -> Result<(PathBuf, Option<Command>)> {
     let mut dir = None;
-    let mut command = None;
+    let mut positionals = Vec::new();
     while let Some(arg) = args.next() {
-        if arg == "list" {
-            command = Some(Command::List);
-        } else if arg == "--dir" {
+        if arg == "--dir" {
             let Some(value) = args.next() else {
                 bail!("--dir needs a path");
             };
             dir = Some(value);
         } else if let Some(value) = arg.strip_prefix("--dir=") {
             dir = Some(value.to_string());
-        } else {
+        } else if arg.starts_with('-') {
             bail!("unknown argument: {arg}, see --help");
+        } else {
+            positionals.push(arg);
         }
     }
+    // Before the root, so a wrong command is reported even without a directory.
+    let command = Command::parse(&positionals)?;
 
     let root = match (dir.or(env), config_dir) {
         (Some(dir), _) => PathBuf::from(dir),
@@ -182,12 +190,20 @@ mod tests {
     }
 
     #[test]
-    fn list_command_anywhere() {
+    fn command_between_options() {
         let parse = |list: &[&str]| parse_args(args(list), None, None).unwrap();
         let expected = (PathBuf::from("/a"), Some(Command::List));
         assert_eq!(parse(&["list", "--dir", "/a"]), expected);
         assert_eq!(parse(&["--dir", "/a", "list"]), expected);
         assert_eq!(parse(&["--dir", "/a"]), (PathBuf::from("/a"), None));
+        let add = (
+            PathBuf::from("/a"),
+            Some(Command::Add {
+                section: "work".to_string(),
+                title: "Fix it".to_string(),
+            }),
+        );
+        assert_eq!(parse(&["add", "work", "--dir", "/a", "Fix it"]), add);
     }
 
     #[test]
@@ -231,7 +247,7 @@ mod tests {
     fn info_help_and_version() {
         let help = info(args(&["--help"])).unwrap();
         assert!(help.starts_with("markoff: a TUI"));
-        assert!(help.contains("Usage: markoff [--dir <path>] [list]"));
+        assert!(help.contains("Usage: markoff [--dir <path>] [<command>]"));
         assert_eq!(info(args(&["--dir", "/a", "-h"])), Some(help));
         let version = format!("markoff {}\n", env!("CARGO_PKG_VERSION"));
         assert_eq!(info(args(&["--version"])), Some(version.clone()));

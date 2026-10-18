@@ -1,28 +1,57 @@
-//! Commands for scripting, printed to stdout instead of starting the TUI. Read-only, so they
-//! never normalize: that would rename files behind an editor, like on watcher reloads.
+//! Commands for scripting, run instead of the TUI and printing to stdout.
+//!
+//! The TUI stays the main way to use markoff, commands only make it scriptable. Options like
+//! `--dir` are parsed in [`crate::config`], so a command only sees its own arguments.
 
 use std::path::Path;
 
-use color_eyre::Result;
+use color_eyre::{Result, eyre::bail};
 
-use crate::{load, task::Section};
+use crate::{
+    edit, load, op,
+    task::{HEADING, Section},
+};
 
 /// A command given as argument, without one markoff starts the TUI.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     /// `list`: sections and tasks as markdown, see [`list`].
     List,
+    /// `add <section> <title>`: a task at the end of the section, see [`add`].
+    Add { section: String, title: String },
 }
 
-/// The output of `command` on the sections in `root`.
+impl Command {
+    /// The command from the args that are not options, `None` without any. Each command
+    /// takes an exact number of args, so more can be added later without ambiguity.
+    pub fn parse(args: &[String]) -> Result<Option<Self>> {
+        let [name, rest @ ..] = args else {
+            return Ok(None);
+        };
+        let command = match (name.as_str(), rest) {
+            ("list", []) => Self::List,
+            ("list", _) => bail!("usage: markoff list"),
+            ("add", [section, title]) => Self::Add {
+                section: section.clone(),
+                title: title.clone(),
+            },
+            ("add", _) => bail!("usage: markoff add <section> <title>"),
+            _ => bail!("unknown command: {name}, see --help"),
+        };
+        Ok(Some(command))
+    }
+}
+
+/// Runs `command` on the sections in `root` and returns what to print.
 pub fn run(command: Command, root: &Path) -> Result<String> {
-    let (sections, _) = load::load(root)?;
-    Ok(match command {
-        Command::List => list(&sections),
-    })
+    match command {
+        Command::List => Ok(list(&load::load(root)?.0)),
+        Command::Add { section, title } => add(root, &section, &title),
+    }
 }
 
 /// Sections as `## name` with their task titles as list items, in the order of the TUI.
+/// Read-only, so no normalize: that would rename files behind an editor.
 pub fn list(sections: &[Section]) -> String {
     sections
         .iter()
@@ -37,6 +66,28 @@ pub fn list(sections: &[Section]) -> String {
         .join("\n")
 }
 
+/// Writes a task with only the heading at the end of `section`, like `o` on its last task.
+/// Returns the new path. Sections are a TUI decision, so a missing one is an error.
+fn add(root: &Path, section: &str, title: &str) -> Result<String> {
+    let title = title.trim();
+    if title.is_empty() {
+        bail!("empty title");
+    }
+    let (sections, file) = load::load(root)?;
+    let Some(s) = sections.iter().position(|sec| sec.name == section) else {
+        bail!("no section \"{section}\"");
+    };
+    // Normalize before writing, like every write in the TUI. It keeps the order of sections,
+    // so `s` stays valid.
+    op::apply_all(&edit::normalize(&sections, &file))?;
+    let (sections, file) = load::load(root)?;
+    let end = sections[s].tasks.len();
+    let content = format!("{HEADING}{title}\n");
+    let (ops, path) = edit::insert(&sections, s, end, title, &content, &file);
+    op::apply_all(&ops)?;
+    Ok(format!("{}\n", path.display()))
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -45,24 +96,116 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn list_sections_with_tasks() {
+    fn parse(args: &[&str]) -> Result<Option<Command>> {
+        Command::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    }
+
+    /// A root with section `work` holding `fix-the-bug` and `call-bob`, and an empty `home`.
+    fn root() -> TempDir {
         let dir = TempDir::new().unwrap();
         let root = dir.path();
         fs::create_dir_all(root.join("work")).unwrap();
-        fs::create_dir_all(root.join("empty")).unwrap();
-        fs::write(root.join("work/fix-bug.md"), "# Fix the bug\n\nbody\n").unwrap();
+        fs::create_dir_all(root.join("home")).unwrap();
+        fs::write(root.join("work/fix-the-bug.md"), "# Fix the bug\n\nbody\n").unwrap();
         fs::write(root.join("work/call-bob.md"), "no heading\n").unwrap();
         fs::write(
             root.join(".order"),
-            "# work\nfix-bug\ncall-bob\n\n# empty\n",
+            "# work\nfix-the-bug\ncall-bob\n\n# home\n",
         )
         .unwrap();
+        dir
+    }
 
+    fn add(root: &Path, section: &str, title: &str) -> Result<String> {
+        let command = Command::Add {
+            section: section.to_string(),
+            title: title.to_string(),
+        };
+        run(command, root)
+    }
+
+    #[test]
+    fn parse_commands() {
+        assert_eq!(parse(&[]).unwrap(), None);
+        assert_eq!(parse(&["list"]).unwrap(), Some(Command::List));
         assert_eq!(
-            run(Command::List, root).unwrap(),
-            "## work\n- Fix the bug\n- call bob\n\n## empty\n"
+            parse(&["add", "work", "Fix it"]).unwrap(),
+            Some(Command::Add {
+                section: "work".to_string(),
+                title: "Fix it".to_string(),
+            })
+        );
+        let error = |args: &[&str]| parse(args).unwrap_err().to_string();
+        assert_eq!(error(&["list", "work"]), "usage: markoff list");
+        assert_eq!(
+            error(&["add", "work"]),
+            "usage: markoff add <section> <title>"
+        );
+        assert_eq!(
+            error(&["add", "work", "Fix", "it"]),
+            "usage: markoff add <section> <title>"
+        );
+        assert_eq!(error(&["nope"]), "unknown command: nope, see --help");
+    }
+
+    #[test]
+    fn list_sections_with_tasks() {
+        let dir = root();
+        assert_eq!(
+            run(Command::List, dir.path()).unwrap(),
+            "## work\n- Fix the bug\n- call bob\n\n## home\n"
         );
         assert_eq!(list(&[]), "");
+    }
+
+    #[test]
+    fn add_at_the_end_of_the_section() {
+        let dir = root();
+        let root = dir.path();
+        let path = root.join("work/new-thing.md");
+        assert_eq!(
+            add(root, "work", " New thing ").unwrap(),
+            format!("{}\n", path.display())
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "# New thing\n");
+        assert_eq!(
+            fs::read_to_string(root.join(".order")).unwrap(),
+            "# work\nfix-the-bug\ncall-bob\nnew-thing\n\n# home\n"
+        );
+
+        // A taken name gets a suffix, an empty section works too.
+        add(root, "work", "New thing").unwrap();
+        add(root, "home", "Water plants").unwrap();
+        assert_eq!(
+            run(Command::List, root).unwrap(),
+            "## work\n- Fix the bug\n- call bob\n- New thing\n- New thing\n\n\
+             ## home\n- Water plants\n"
+        );
+        assert!(root.join("work/new-thing-2.md").exists());
+    }
+
+    #[test]
+    fn add_normalizes_first() {
+        let dir = root();
+        let root = dir.path();
+        fs::write(root.join("work/fix-the-bug.md"), "# Renamed\n").unwrap();
+        add(root, "work", "New").unwrap();
+        assert!(root.join("work/renamed.md").exists());
+        assert_eq!(
+            fs::read_to_string(root.join(".order")).unwrap(),
+            "# work\nrenamed\ncall-bob\nnew\n\n# home\n"
+        );
+    }
+
+    #[test]
+    fn add_errors_change_nothing() {
+        let dir = root();
+        let root = dir.path();
+        // Needs normalizing, so a write would show as a rename.
+        fs::write(root.join("work/fix-the-bug.md"), "# Renamed\n").unwrap();
+        let error = |section, title| add(root, section, title).unwrap_err().to_string();
+        assert_eq!(error("wrok", "New"), "no section \"wrok\"");
+        assert_eq!(error("work", "  "), "empty title");
+        assert!(root.join("work/fix-the-bug.md").exists());
     }
 }
