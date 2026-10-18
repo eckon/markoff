@@ -97,3 +97,5 @@ Not in the first version, kept here so the design leaves room for them:
 - Not experimental, so the workflow tests cover it: the archive part of the scenario it is in
   changes from the popup to the page.
 - README: keys table and the archive description.
+- Tests while building: only unit tests for pure logic that help not to break things. The missing
+  app, render and workflow tests are added when finalizing, to keep the code at the usual standard.
