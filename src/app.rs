@@ -13,7 +13,7 @@ use color_eyre::{
 };
 use ratatui::{
     DefaultTerminal,
-    crossterm::event::{self, Event, KeyEventKind},
+    crossterm::event::{self, Event, KeyCode, KeyEventKind},
 };
 
 mod daily;
@@ -51,6 +51,25 @@ pub enum Row {
     DailyTask(usize),
 }
 
+/// A screen of its own, switched with `[` / `]` in this order. The help is an overlay on top.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Page {
+    Todo,
+    /// The done tasks: heatmap and stats, see [`crate::ui`].
+    Archive,
+}
+
+impl Page {
+    pub const ALL: [Page; 2] = [Page::Todo, Page::Archive];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Page::Todo => "todo",
+            Page::Archive => "archive",
+        }
+    }
+}
+
 /// Message for the status line, cleared on the next key press.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Status {
@@ -84,8 +103,7 @@ pub struct App {
     pub status: Option<Status>,
     /// Help overlay is open.
     pub show_help: bool,
-    /// The heatmap of done tasks is open over the list.
-    pub show_archive: bool,
+    pub page: Page,
     editor_request: Option<EditorRequest>,
     /// `/` filter, empty for none. Applied in [`App::rows`], so everything that works on rows
     /// sees only what matches.
@@ -122,7 +140,7 @@ impl App {
             undo: Vec::new(),
             status: None,
             show_help: false,
-            show_archive: false,
+            page: Page::Todo,
             editor_request: None,
             filter: String::new(),
             filter_input: false,
@@ -217,7 +235,7 @@ impl App {
             let action = if self.filter_input {
                 keymap::filter_input(key)
             } else {
-                self.keymap.handle(key)
+                self.keymap.handle(key, self.page)
             };
             // The quit keys quit everywhere, also from the help.
             if action == Some(Action::Quit) {
@@ -225,17 +243,11 @@ impl App {
                 return;
             }
             // Only `?` and `Esc` close the help, other keys do nothing, so a stray key cannot
-            // change tasks that are dimmed behind it.
+            // change tasks that are dimmed behind it. `Esc` by its code, on the archive page it
+            // has no binding.
             if self.show_help {
-                if matches!(action, Some(Action::Help | Action::FilterClear)) {
+                if action == Some(Action::Help) || key.code == KeyCode::Esc {
                     self.show_help = false;
-                }
-                return;
-            }
-            // The same for the archive with `a` and `Esc`.
-            if self.show_archive {
-                if matches!(action, Some(Action::Archive | Action::FilterClear)) {
-                    self.show_archive = false;
                 }
                 return;
             }
@@ -306,7 +318,16 @@ impl App {
             Action::Delete => self.delete()?,
             Action::Undo => self.undo()?,
             Action::Help => self.show_help = true,
-            Action::Archive => self.show_archive = true,
+            Action::PrevPage | Action::NextPage => {
+                let count = Page::ALL.len();
+                let step = if action == Action::NextPage {
+                    1
+                } else {
+                    count - 1
+                };
+                let at = Page::ALL.iter().position(|&page| page == self.page);
+                self.page = Page::ALL[(at.unwrap_or(0) + step) % count];
+            }
             Action::Quit => self.running = false,
             Action::Hint(hint) => self.status = Some(Status::Info(hint.to_string())),
             Action::Filter => self.filter_input = true,
@@ -591,7 +612,7 @@ fn renamed_message(count: usize) -> String {
 pub mod tests {
     use std::fs;
 
-    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::crossterm::event::{KeyEvent, KeyModifiers};
     use tempfile::TempDir;
 
     use super::*;
@@ -717,22 +738,19 @@ pub mod tests {
     }
 
     #[test]
-    fn only_a_and_esc_close_the_archive() {
+    fn pages_wrap_around_and_keep_todo_keys_to_the_list() {
         let (_dir, mut app) = app_with_files(&["work/a.md"]);
         app.cursor = 1;
-        app.handle_event(Event::Key(KeyCode::Char('a').into()));
-        assert!(app.show_archive);
+        app.handle_event(Event::Key(KeyCode::Char(']').into()));
+        assert_eq!(app.page, Page::Archive);
 
         app.handle_event(Event::Key(KeyCode::Char('X').into()));
-        assert!(app.show_archive, "other keys keep the archive open");
         assert_eq!(listing(&app), ["[work]", "a.md"], "X did not archive");
 
-        for code in [KeyCode::Char('a'), KeyCode::Esc] {
-            app.update(Action::Archive);
-            app.handle_event(Event::Key(code.into()));
-            assert!(!app.show_archive, "{code:?} closes the archive");
-            assert!(app.running, "{code:?} does not quit");
-        }
+        app.handle_event(Event::Key(KeyCode::Char(']').into()));
+        assert_eq!(app.page, Page::Todo, "wraps around");
+        app.handle_event(Event::Key(KeyCode::Char('[').into()));
+        assert_eq!(app.page, Page::Archive);
     }
 
     #[test]

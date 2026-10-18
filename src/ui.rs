@@ -14,7 +14,7 @@ mod daily;
 mod help;
 
 use crate::{
-    app::{App, Row, Status},
+    app::{App, Page, Row, Status},
     filter,
     keymap::{self, Action, BINDINGS, FILTER_INPUT_HINTS},
 };
@@ -33,6 +33,29 @@ pub fn render(app: &App, frame: &mut Frame) -> usize {
     ])
     .areas(frame.area());
     render_header(app, frame, header_area);
+    // Before the preview, so its divider can join it.
+    let rule = "─".repeat(rule_area.width as usize).fg(LINE_COLOR);
+    frame.render_widget(Line::from(rule), rule_area);
+    let offset = match app.page {
+        Page::Todo => render_todo(app, frame, [header_area, gap_area, main_area, rule_area]),
+        Page::Archive => {
+            archive::render(app, frame, main_area);
+            app.list_offset
+        }
+    };
+    render_status(app, frame, status_area);
+    if app.show_help {
+        help::render(frame, app.page);
+    }
+    offset
+}
+
+/// The list, and the preview of a task with a body next to it. Returns the list's offset.
+fn render_todo(
+    app: &App,
+    frame: &mut Frame,
+    [header_area, gap_area, main_area, rule_area]: [Rect; 4],
+) -> usize {
     let [list_area, preview_area] =
         Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
             .areas(main_area);
@@ -40,17 +63,13 @@ pub fn render(app: &App, frame: &mut Frame) -> usize {
     // so they don't jump while moving between tasks with and without a body.
     let rule_width = list_block().inner(list_area).width as usize;
 
-    // Before the preview, so its divider can join it.
-    let rule = "─".repeat(rule_area.width as usize).fg(LINE_COLOR);
-    frame.render_widget(Line::from(rule), rule_area);
-
     // The preview only shows up for a task with a body, otherwise the list takes all the width.
     let body = match app.selected() {
         Some(Row::Task(s, t)) => Some(app.sections[s].tasks[t].body.as_str()),
         Some(Row::DailyTask(i)) => Some(daily::body(app, i)),
         _ => None,
     };
-    let offset = match body {
+    match body {
         Some(body) if !body.trim().is_empty() => {
             render_preview(app, frame, preview_area, body);
             connect_divider(
@@ -63,15 +82,7 @@ pub fn render(app: &App, frame: &mut Frame) -> usize {
             render_list(app, frame, list_area, rule_width)
         }
         _ => render_list(app, frame, main_area, rule_width),
-    };
-    render_status(app, frame, status_area);
-    if app.show_help {
-        help::render(frame);
     }
-    if app.show_archive {
-        archive::render(app, frame, main_area.union(rule_area));
-    }
-    offset
 }
 
 /// Joins the preview divider at column `x` to the header: `┬` in the header rule, `│` in the
@@ -86,8 +97,9 @@ fn connect_divider(frame: &mut Frame, x: u16, header_y: u16, gap_y: u16, bottom_
     buffer[(x, gap_y)].set_symbol("│").set_fg(LINE_COLOR);
 }
 
-/// `── Sat 17 Oct ──────── 4 open · ✓ 2 done` over the whole width: today, the tasks in all
-/// sections and those archived today, so done tasks don't just vanish.
+/// `── todo  archive ── Sat 17 Oct ──── 4 open · ✓ 2 done` over the whole width: the pages with
+/// the current one bold, today, the tasks in all sections and those archived today, so done
+/// tasks don't just vanish.
 fn render_header(app: &App, frame: &mut Frame, area: Rect) {
     let date = jiff::Zoned::now().strftime("%a %d %b").to_string();
     let open: usize = app.sections.iter().map(|section| section.tasks.len()).sum();
@@ -98,7 +110,18 @@ fn render_header(app: &App, frame: &mut Frame, area: Rect) {
         "✓".fg(DONE_COLOR),
         format!(" {done} done").dim(),
     ];
-    let spans = rule(None, &date, count, HEADER_COLOR, area.width as usize);
+    let mut pages = vec!["── ".fg(LINE_COLOR)];
+    for (i, page) in Page::ALL.into_iter().enumerate() {
+        if i > 0 {
+            pages.push("  ".into());
+        }
+        pages.push(match page == app.page {
+            true => page.name().bold(),
+            false => page.name().dim(),
+        });
+    }
+    pages.push(" ── ".fg(LINE_COLOR));
+    let spans = rule(Some(pages), &date, count, HEADER_COLOR, area.width as usize);
     frame.render_widget(Line::from(spans), area);
 }
 
@@ -147,8 +170,8 @@ fn hints(app: &App) -> Vec<(String, &'static str)> {
             .collect();
     }
     let help = (Action::Help, "toggle help");
-    let hints = if app.show_archive {
-        vec![(Action::Archive, "toggle archive")]
+    let hints = if app.page == Page::Archive {
+        vec![(Action::NextPage, "switch page"), help]
     } else if app.filter.is_empty() || app.show_help {
         vec![help]
     } else {
@@ -585,7 +608,8 @@ mod tests {
         app.update(Action::Down);
         let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
         let divider = column(&lines[2], '│').expect("preview divider");
-        assert_eq!(column(&lines[0], '┬'), Some(divider), "{lines:#?}");
+        // 50 wide, the pages and the date in the header cover it, it is never drawn over them.
+        assert_eq!(column(&lines[0], '┬'), None, "{lines:#?}");
         assert_eq!(column(&lines[1], '│'), Some(divider), "{lines:#?}");
         assert_eq!(column(&lines[7], '┴'), Some(divider), "{lines:#?}");
 
@@ -668,7 +692,10 @@ mod tests {
         let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
 
         let date = jiff::Zoned::now().strftime("%a %d %b").to_string();
-        assert!(lines[0].starts_with(&format!("── {date} ─")), "{lines:#?}");
+        assert!(
+            lines[0].starts_with(&format!("── todo  archive ── {date} ─")),
+            "{lines:#?}"
+        );
         assert!(lines[0].ends_with("─ 3 open · ✓ 2 done"), "{lines:#?}");
         let check = lines[0].chars().position(|c| c == '✓').unwrap() as u16;
         assert_eq!(terminal.backend().buffer()[(check, 0)].fg, DONE_COLOR);

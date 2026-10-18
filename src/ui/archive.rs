@@ -1,12 +1,12 @@
-//! The archive view (`a`): the [`heatmap`] of done tasks from the bottom over the list, and the
-//! [`stats`] below it. The numbers come from [`crate::history`], this only lays them out.
+//! The archive page: the [heatmap](mod@heatmap) of done tasks and the [stats](mod@stats) below
+//! it. The numbers come from [`crate::history`], this only lays them out.
 
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Modifier, Stylize},
+    style::Stylize,
     text::Line,
-    widgets::{Block, BorderType, Clear, Padding, Paragraph},
+    widgets::{Block, BorderType, Padding, Paragraph},
 };
 
 mod heatmap;
@@ -16,8 +16,7 @@ use super::{DONE_COLOR, LINE_COLOR};
 use crate::app::App;
 use stats::{Stats, stats};
 
-/// The heatmap in a frame from the bottom of `area`, the rest dimmed behind it like for the
-/// help. The status line stays as it is.
+/// The heatmap and the stats in a frame from the top of `area`.
 pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     let block = archive_block();
     let inner = block.inner(area);
@@ -42,18 +41,12 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
         lines.push(Line::default());
         lines.extend(stats.lines);
     }
-    let behind = Rect {
-        height: frame.area().height.saturating_sub(1),
-        ..frame.area()
-    };
-    frame.buffer_mut().set_style(behind, Modifier::DIM);
     let chrome = area.height - inner.height;
     let height = (lines.len() as u16 + chrome).min(area.height);
-    let panel = Rect::new(area.x, area.bottom() - height, area.width, height);
+    let panel = Rect { height, ..area };
     // Inside the border, and inside the padding too.
     let framed = block.clone().padding(Padding::ZERO).inner(panel);
     let inner = block.inner(panel);
-    frame.render_widget(Clear, panel);
     frame.render_widget(Paragraph::new(lines).block(block), panel);
     if !has_stats {
         return;
@@ -131,7 +124,7 @@ mod tests {
         let today = jiff::Zoned::now().date();
         let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
         app.days = [(today, 3)].into();
-        app.update(Action::Archive);
+        app.update(Action::NextPage);
         let mut terminal = Terminal::new(TestBackend::new(30, 30)).unwrap();
         terminal
             .draw(|frame| {
@@ -143,7 +136,7 @@ mod tests {
     }
 
     #[test]
-    fn archive_from_the_bottom_when_toggled() {
+    fn archive_page() {
         let today = jiff::Zoned::now().date();
         let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
         let draw = |app: &App| {
@@ -174,24 +167,24 @@ mod tests {
         );
         assert_eq!(screen[28], "─".repeat(80), "{screen:#?}");
 
-        // Open: the frame from the bottom with its title, the heatmap, then the stats.
+        // On its page: the frame from the top with its title, the heatmap, then the stats.
         app.section_days = [("home".to_string(), app.days.clone())].into();
-        app.update(Action::Archive);
+        app.update(Action::NextPage);
         let buffer = draw(&app);
         let screen = lines(&buffer);
         assert!(screen[0].ends_with(" 1 open · ✓ 3 done"), "{screen:#?}");
-        assert!(screen[5].starts_with("╭ archive ─"), "{screen:#?}");
+        assert!(screen[2].starts_with("╭ archive ─"), "{screen:#?}");
         assert!(
-            screen[5].ends_with("─╮"),
+            screen[2].ends_with("─╮"),
             "no numbers in the title\n{screen:#?}"
         );
         // Room around the heatmap: a blank line above and below, two spaces at the sides.
-        assert_eq!(screen[6].trim_matches(['│', ' ']), "", "{screen:#?}");
-        assert!(screen[7].starts_with("│  daily"), "{screen:#?}");
-        assert!(screen[8].contains(" Mon "), "{screen:#?}");
-        assert_eq!(screen[15].trim_matches(['│', ' ']), "", "{screen:#?}");
+        assert_eq!(screen[3].trim_matches(['│', ' ']), "", "{screen:#?}");
+        assert!(screen[4].starts_with("│  daily"), "{screen:#?}");
+        assert!(screen[5].contains(" Mon "), "{screen:#?}");
+        assert_eq!(screen[12].trim_matches(['│', ' ']), "", "{screen:#?}");
         // Today is the one blue cell, without brackets.
-        let row = 8 + today.weekday().to_monday_zero_offset() as u16;
+        let row = 5 + today.weekday().to_monday_zero_offset() as u16;
         let blue: Vec<u16> = (0..80)
             .filter(|&x| buffer[(x, row)].fg == HEADER_COLOR)
             .collect();
@@ -202,65 +195,65 @@ mod tests {
         // The table with lines between its columns, joined where they meet the others, a
         // double line to the years, both with a heading and a line below it.
         assert!(
-            screen[16].starts_with("├───────────┬───────┬───────┬───────┬─────────╥─"),
+            screen[13].starts_with("├───────────┬───────┬───────┬───────┬─────────╥─"),
             "{screen:#?}"
         );
         assert!(
-            screen[17].starts_with("│           │  week │ month │  year │all time ║ years "),
+            screen[14].starts_with("│           │  week │ month │  year │all time ║ years "),
             "{screen:#?}"
         );
         assert!(
-            screen[18].starts_with("├───────────┼───────┼───────┼───────┼─────────╫─"),
+            screen[15].starts_with("├───────────┼───────┼───────┼───────┼─────────╫─"),
             "{screen:#?}"
         );
-        assert!(screen[18].ends_with("─┤"), "{screen:#?}");
+        assert!(screen[15].ends_with("─┤"), "{screen:#?}");
         assert!(
-            screen[19].starts_with("│  done     │     3 "),
-            "{screen:#?}"
-        );
-        assert!(
-            screen[19].contains(&format!("║ {} ", today.year())),
+            screen[16].starts_with("│  done     │     3 "),
             "{screen:#?}"
         );
         assert!(
-            screen[20].contains("│       – ║"),
+            screen[16].contains(&format!("║ {} ", today.year())),
+            "{screen:#?}"
+        );
+        assert!(
+            screen[17].contains("│       – ║"),
             "no previous for all time\n{screen:#?}"
         );
         assert!(
-            screen[22].starts_with("│  best day │     3 "),
+            screen[19].starts_with("│  best day │     3 "),
             "{screen:#?}"
         );
         // A line closes the table, then the share of each section per period.
         assert!(
-            screen[23].starts_with("├───────────┴───────┴───────┴───────┴─────────╫─"),
+            screen[20].starts_with("├───────────┴───────┴───────┴───────┴─────────╫─"),
             "{screen:#?}"
         );
-        assert!(screen[23].ends_with("─┤"), "{screen:#?}");
+        assert!(screen[20].ends_with("─┤"), "{screen:#?}");
         // The text left of the double line, the bar right of it where the year bars start.
         assert!(
-            screen[24].starts_with("│  week     home 100% "),
+            screen[21].starts_with("│  week     home 100% "),
             "{screen:#?}"
         );
-        assert!(screen[24].contains("║      █"), "{screen:#?}");
+        assert!(screen[21].contains("║      █"), "{screen:#?}");
         // The tasks of the shares where the years have their numbers.
         let column = |line: &str, text: &str| line[..line.find(text).unwrap()].chars().count();
         assert_eq!(
-            column(&screen[24], " 3 "),
-            column(&screen[19], " 6 so far"),
+            column(&screen[21], " 3 "),
+            column(&screen[16], " 6 so far"),
             "{screen:#?}"
         );
         assert!(
-            screen[27].starts_with("│  all time home 100% "),
+            screen[24].starts_with("│  all time home 100% "),
             "{screen:#?}"
         );
         assert!(
-            screen[28].starts_with("╰─────────────────────────────────────────────╨─"),
+            screen[25].starts_with("╰─────────────────────────────────────────────╨─"),
             "{screen:#?}"
         );
-        assert!(screen[29].ends_with("a toggle archive"), "{screen:#?}");
+        assert!(screen[29].ends_with("? toggle help"), "{screen:#?}");
 
         app.days.clear();
         let screen = lines(&draw(&app));
-        assert!(screen[26].contains("nothing archived yet"), "{screen:#?}");
+        assert!(screen[4].contains("nothing archived yet"), "{screen:#?}");
     }
 }

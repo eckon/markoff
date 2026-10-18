@@ -411,8 +411,9 @@ fn filter_and_help() {
     app.quit();
 }
 
-/// The archive: a heatmap of done tasks over the list with `a`. It moves with the date (today's
-/// row, the month names), so this one checks what holds on any day instead of snapshots.
+/// The archive: a page of its own with a heatmap of done tasks, `[` / `]` switch to it. It moves
+/// with the date (today's row, the month names), so this one checks what holds on any day
+/// instead of snapshots.
 #[test]
 fn archive() {
     let today = jiff::Zoned::now().date();
@@ -424,8 +425,8 @@ fn archive() {
     ]);
     app.wait_for("✓ 0 done");
 
-    // Closed until `a`: recent days one cell each, the stats below, nothing done this week.
-    app.press("a");
+    // Recent days one cell each, the stats below, nothing done this week.
+    app.press("]");
     app.wait_for("daily");
     app.wait_for("done     │     0 ");
     assert!(
@@ -434,20 +435,19 @@ fn archive() {
         app.screen()
     );
 
-    // Other keys do nothing while it is open, `Esc` closes it.
+    // Todo keys do nothing on it, `[` goes back to the list.
     app.press("jX");
-    app.press("<Esc>");
-    app.wait_for("? toggle help");
+    app.press("[");
+    app.wait_for("• Fix bug");
     app.wait_for("✓ 0 done");
 
-    // Done shows up in the stats, `a` toggles.
+    // Done shows up in the stats, the pages wrap around.
     app.press("jX");
     app.wait_for("✓ 1 done");
-    app.press("a");
-    app.wait_for("✓ 1 done");
+    app.press("]");
     app.wait_for("done     │     1 ");
-    app.press("a");
-    app.wait_for("? toggle help");
+    app.press("]");
+    app.wait_for("──[1]─ work");
 
     app.quit();
 }
