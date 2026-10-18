@@ -30,8 +30,9 @@ const MIN_LIST_ROWS: usize = 5;
 const SEPARATOR: usize = 3;
 
 /// The overview, heatmap and stats, from the top of `area`, the done tasks of the cursor's cell
-/// below it in the rest, a double line between them. The part without the keys is dimmed. Returns the heatmap's columns and the list's offset.
-pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize) {
+/// below it in the rest, a double line between them. The part without the keys is dimmed.
+/// Returns the heatmap's columns, the list's offset and the column of the preview's divider.
+pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option<u16>) {
     // The heatmap starts where the section rules of the list do.
     let block = Block::new().padding(Padding::new(2, 2, 0, 0));
     let inner = block.inner(area);
@@ -73,7 +74,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize) {
         height: area.height - height - gap.height,
         ..area
     };
-    let offset = list::render(app, frame, list_area, columns);
+    let (offset, preview) = list::render(app, frame, list_area, columns);
 
     // The cursor's `[` in the first column has no gap before it, it goes into the padding.
     let today = jiff::Zoned::now().date();
@@ -121,8 +122,16 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize) {
     };
     if gap.height == SEPARATOR as u16 {
         frame.render_widget(Line::from(line), line_area);
+        // The preview's divider goes up into the double line.
+        if let Some(preview) = preview {
+            let buffer = frame.buffer_mut();
+            buffer[(preview.x, line_area.y)].set_symbol("╤");
+            buffer[(preview.x, line_area.y + 1)]
+                .set_symbol("│")
+                .set_fg(LINE_COLOR);
+        }
     }
-    (columns, offset)
+    (columns, offset, preview.map(|preview| preview.x))
 }
 
 #[cfg(test)]

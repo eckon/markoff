@@ -16,15 +16,15 @@ use crate::{
 };
 
 /// The list below the overview, see [`rows`], with the preview of the task at the cursor like
-/// in the todo list. Returns the scroll offset.
-pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> usize {
+/// in the todo list. Returns the scroll offset and where the preview went.
+pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> (usize, Option<Rect>) {
     let rows = app.archive_rows(columns);
     let body = match rows.get(app.archive.cursor) {
         Some(&ArchiveRow::Task(_, day, index)) => Some(app.done[&day][index].body.as_str()),
         _ => None,
     };
     let list = |frame: &mut Frame, area, width| render_rows(app, frame, area, &rows, width);
-    list_with_preview(frame, area, body, "", list).0
+    list_with_preview(frame, area, body, "", list)
 }
 
 /// The rows themselves, the rules `width` wide.
@@ -77,7 +77,7 @@ fn render_rows(
     } else {
         &[]
     };
-    let state = [app.archive.cursor, app.archive.offset, width];
+    let state = [app.archive.cursor, app.archive.offset];
     rows::render(frame, area, items, state, notes)
 }
 

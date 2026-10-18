@@ -24,8 +24,8 @@ pub enum Kind {
     /// All of the line after the gutter: a section rule or the daily header. A blank line goes
     /// before it, except at the top.
     Header(Vec<Span<'static>>),
-    /// A task's title, cut to one line, wrapped at the cursor. What goes on the right of its
-    /// first line, like the day a task was done.
+    /// A task's title, cut to one line, wrapped at the cursor. What goes on the right edge of
+    /// its first line, like the day a task was done.
     Task(Vec<Span<'static>>, Option<Span<'static>>),
 }
 
@@ -35,13 +35,12 @@ pub fn block<'a>() -> Block<'a> {
 }
 
 /// The rows with the cursor on row `cursor`, then the `notes` dimmed, a blank line before each
-/// unless it is at the top. A task's right text ends at `rule_width`, where the page's rules do.
-/// Starts from `offset`, returns the new one.
+/// unless it is at the top. Starts from `offset`, returns the new one.
 pub fn render(
     frame: &mut Frame,
     area: Rect,
     rows: Vec<Row>,
-    [cursor, offset, rule_width]: [usize; 3],
+    [cursor, offset]: [usize; 2],
     notes: &[&str],
 ) -> usize {
     let block = block();
@@ -87,12 +86,8 @@ pub fn render(
                 bullet,
             ]
         };
-        // Without a right text the title may go on past the rules.
-        let end = match &right {
-            Some(right) => rule_width.saturating_sub(right.width() + 1),
-            None => width,
-        };
-        let title_width = end.saturating_sub(Line::from(prefix(true)).width());
+        let right_width = right.as_ref().map_or(0, |right| right.width() + 1);
+        let title_width = width.saturating_sub(Line::from(prefix(true)).width() + right_width);
         let title_lines = if is_cursor {
             wrap(title, title_width)
         } else {
@@ -108,7 +103,7 @@ pub fn render(
                     && let Some(right) = right.clone()
                 {
                     let used = Line::from(spans.clone()).width() + right.width();
-                    spans.push(" ".repeat(rule_width.saturating_sub(used)).into());
+                    spans.push(" ".repeat(width.saturating_sub(used)).into());
                     spans.push(right);
                 }
                 Line::from(spans)

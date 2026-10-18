@@ -65,7 +65,12 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
                 render_todo(app, frame, [header_area, gap_area, main_area, rule_area]);
         }
         Page::Archive => {
-            (drawn.heatmap_columns, drawn.archive_offset) = archive::render(app, frame, main_area);
+            let divider;
+            (drawn.heatmap_columns, drawn.archive_offset, divider) =
+                archive::render(app, frame, main_area);
+            if let Some(x) = divider {
+                frame.buffer_mut()[(x, rule_area.y)].set_symbol("┴");
+            }
             // The tasks done in the selected cell.
             let selected = archive::range(app, drawn.heatmap_columns);
             let done = (app.archive_rows(drawn.heatmap_columns).iter())
@@ -325,8 +330,7 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
     if app.sections.is_empty() {
         notes.push("no sections yet, N creates one");
     }
-    let state = [app.cursor, app.list_offset, width];
-    rows::render(frame, area, items, state, &notes)
+    rows::render(frame, area, items, [app.cursor, app.list_offset], &notes)
 }
 
 /// Styled chars joined back into spans, one per run of the same style.
