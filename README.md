@@ -103,10 +103,12 @@ The editor is `$VISUAL`, then `$EDITOR`, then `vi`.
 
 Commands for scripts, `--dir` works with them as usual:
 
-- `markoff list` prints the sections and their tasks as markdown, in the order of the TUI.
-- `markoff add <section> "<title>"` adds a task at the end of an existing section and prints its path, e.g. `$EDITOR "$(markoff add work "Fix login bug")"`.
+| Command                 | Action                                                        |
+| ----------------------- | ------------------------------------------------------------- |
+| `list`                  | Print sections and tasks as markdown, in the order of the TUI |
+| `add <section> <title>` | Add a task at the end of an existing section, print its path  |
 
-`markoff list`:
+`markoff list` prints:
 
 ```markdown
 ## work
