@@ -105,8 +105,8 @@ Where the first version differs from the plan above or fills a gap:
 - Section keys in the list count the sections shown, `[1]`-`[9]`, the colors stay the todo
   list's. `1`-`9` in the heatmap jump into the list like there, if that section is shown.
 - The stats are hidden until `s` (for now, second feedback).
-- The help on the archive page groups the keys by part: `heatmap` (with `s`), `list`, and `Tab`
-  under `other`. `j` / `k` are in both parts.
+- The help on the archive page groups the keys by part: `heatmap` (with `1`-`9` and `s`), `list`,
+  and `Tab` under `other`. `j` / `k` and `1`-`9` are in both parts.
 - In the list `h` / `l` and `H` `J` `K` `L` do nothing, in the heatmap `gg` / `G` and `{` / `}`.
 - Moving the heatmap cursor puts the list cursor on its first task, like a jump to a section.
 - The list keeps at least 5 rows: below that the stats go, then the blank lines around the
