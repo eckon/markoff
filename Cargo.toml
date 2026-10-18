@@ -1,6 +1,6 @@
 [package]
 name = "markoff"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "A TUI for todos stored as markdown files"
 license = "GPL-3.0-or-later"
