@@ -108,6 +108,14 @@ Not in this version, the design leaves room for them:
   Pure logic next to `filter.rs`. Crates exist (`chrono-english`), but bring chrono and far more
   than needed. Key open.
 - Narrowing to sections, shared with the todo page: the same logic for both.
+- Every day selectable: now further back a cell covers several days, so old single days can't be
+  picked. A heatmap with a cell per day that scrolls would allow it, but the view of all years at
+  once should stay, it is what the heatmap is liked for. Ways to have both, to discuss:
+  - Zoom: a key switches between the overview of all years and days that scroll, the cursor keeps
+    its date.
+  - Drill in: on a cell of several days a key shows its days, like a zoom on just that cell.
+  - Scroll at the edge: the daily part moves back when the cursor leaves it on the left, the
+    zones further back shrink. Keeps one view, but the overview changes while moving.
 
 ## Before it is final
 
