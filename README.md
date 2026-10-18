@@ -66,34 +66,34 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 
 ### Move
 
-| Key         | Action                                    |
-| ----------- | ----------------------------------------- |
-| `j` / `k`   | Down / up, also `↓` / `↑`                 |
-| `gg` / `G`  | Top / bottom, also `Home` / `End`         |
-| `{` / `}`   | Previous / next section                   |
-| `1`-`9`     | Jump to section, the number in `[1]`      |
+| Key         | Action                                      |
+| ----------- | ------------------------------------------- |
+| `j` / `k`   | Down / up, also `↓` / `↑`                   |
+| `gg` / `G`  | Top / bottom, also `Home` / `End`           |
+| `{` / `}`   | Previous / next section, also `C-u` / `C-d` |
+| `1`-`9`     | Jump to section, the number in `[1]`        |
 
 ### Change
 
-| Key         | Action                                    |
-| ----------- | ----------------------------------------- |
-| `J` / `K`   | Move down / up, also `S-↓` / `S-↑`        |
-| `<CR>`      | Open task in `$EDITOR`, or rename section |
-| `o` / `O`   | New task below / above                    |
-| `N`         | New section                               |
-| `X`         | Done, moves the task to the archive       |
-| `D`         | Delete task, or empty section             |
-| `u`         | Undo                                      |
+| Key         | Action                                      |
+| ----------- | ------------------------------------------- |
+| `J` / `K`   | Move down / up, also `S-↓` / `S-↑`          |
+| `<CR>`      | Open task in `$EDITOR`, or rename section   |
+| `o` / `O`   | New task below / above                      |
+| `N`         | New section                                 |
+| `X`         | Done, moves the task to the archive         |
+| `D`         | Delete task, or empty section               |
+| `u`         | Undo                                        |
 
 ### Other
 
-| Key         | Action                                    |
-| ----------- | ----------------------------------------- |
-| `/`         | Filter titles and bodies, `<CR>` keeps it |
-| `Esc`       | Clear filter, close help or archive       |
-| `?`         | Toggle help                               |
-| `a`         | Toggle archive, a heatmap of done tasks   |
-| `q` / `C-c` | Quit                                      |
+| Key         | Action                                      |
+| ----------- | ------------------------------------------- |
+| `/`         | Filter titles and bodies, `<CR>` keeps it   |
+| `Esc`       | Clear filter, close help or archive         |
+| `?`         | Toggle help                                 |
+| `a`         | Toggle archive, a heatmap of done tasks     |
+| `q` / `C-c` | Quit                                        |
 
 While a filter is set, moving and adding tasks is off.
 
