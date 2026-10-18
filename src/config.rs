@@ -11,8 +11,8 @@
 use std::path::{Path, PathBuf};
 
 use color_eyre::{
-    Result,
-    eyre::{WrapErr, bail},
+    Report, Result,
+    eyre::{WrapErr, bail, eyre},
 };
 
 use crate::{cli::Command, load};
@@ -56,6 +56,11 @@ pub fn info(mut args: impl Iterator<Item = String>) -> Option<String> {
     })
 }
 
+/// A wrong argument, with the pointer to `--help` on a second line like coreutils.
+pub fn usage_error(message: &str) -> Report {
+    eyre!("{message}\nTry 'markoff --help' for more information.")
+}
+
 /// Resolves the root directory, the one with the sections, and the command if one is given.
 ///
 /// Options may stand anywhere, everything else is left to [`Command::parse`], so commands never
@@ -72,13 +77,13 @@ pub fn parse_args(
     while let Some(arg) = args.next() {
         if arg == "--dir" {
             let Some(value) = args.next() else {
-                bail!("--dir needs a path");
+                return Err(usage_error("--dir needs a path"));
             };
             dir = Some(value);
         } else if let Some(value) = arg.strip_prefix("--dir=") {
             dir = Some(value.to_string());
         } else if arg.starts_with('-') {
-            bail!("unknown argument: {arg}, see --help");
+            return Err(usage_error(&format!("unrecognized option '{arg}'")));
         } else {
             positionals.push(arg);
         }
@@ -239,7 +244,7 @@ mod tests {
             root_dir(args(&["--nope"]), None, None)
                 .unwrap_err()
                 .to_string(),
-            "unknown argument: --nope, see --help"
+            "unrecognized option '--nope'\nTry 'markoff --help' for more information."
         );
     }
 

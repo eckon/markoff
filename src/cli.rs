@@ -8,6 +8,7 @@ use std::path::Path;
 use color_eyre::{Result, eyre::bail};
 
 use crate::{
+    config::usage_error,
     edit, load, op,
     task::{HEADING, Section},
 };
@@ -30,13 +31,13 @@ impl Command {
         };
         let command = match (name.as_str(), rest) {
             ("list", []) => Self::List,
-            ("list", _) => bail!("usage: markoff list"),
+            ("list", _) => return Err(usage_error("list takes no arguments")),
             ("add", [section, title]) => Self::Add {
                 section: section.clone(),
                 title: title.clone(),
             },
-            ("add", _) => bail!("usage: markoff add <section> <title>"),
-            _ => bail!("unknown command: {name}, see --help"),
+            ("add", _) => return Err(usage_error("add needs <section> <title>")),
+            _ => return Err(usage_error(&format!("unknown command '{name}'"))),
         };
         Ok(Some(command))
     }
@@ -71,11 +72,11 @@ pub fn list(sections: &[Section]) -> String {
 fn add(root: &Path, section: &str, title: &str) -> Result<String> {
     let title = title.trim();
     if title.is_empty() {
-        bail!("empty title");
+        bail!("cannot add: empty title");
     }
     let (sections, file) = load::load(root)?;
     let Some(s) = sections.iter().position(|sec| sec.name == section) else {
-        bail!("no section \"{section}\"");
+        bail!("cannot add to '{section}': no such section");
     };
     // Normalize before writing, like every write in the TUI. It keeps the order of sections,
     // so `s` stays valid.
@@ -135,17 +136,19 @@ mod tests {
                 title: "Fix it".to_string(),
             })
         );
-        let error = |args: &[&str]| parse(args).unwrap_err().to_string();
-        assert_eq!(error(&["list", "work"]), "usage: markoff list");
-        assert_eq!(
-            error(&["add", "work"]),
-            "usage: markoff add <section> <title>"
-        );
+        let error = |args: &[&str]| {
+            let error = parse(args).unwrap_err().to_string();
+            let (message, help) = error.split_once('\n').unwrap();
+            assert_eq!(help, "Try 'markoff --help' for more information.");
+            message.to_string()
+        };
+        assert_eq!(error(&["list", "work"]), "list takes no arguments");
+        assert_eq!(error(&["add", "work"]), "add needs <section> <title>");
         assert_eq!(
             error(&["add", "work", "Fix", "it"]),
-            "usage: markoff add <section> <title>"
+            "add needs <section> <title>"
         );
-        assert_eq!(error(&["nope"]), "unknown command: nope, see --help");
+        assert_eq!(error(&["nope"]), "unknown command 'nope'");
     }
 
     #[test]
@@ -204,8 +207,11 @@ mod tests {
         // Needs normalizing, so a write would show as a rename.
         fs::write(root.join("work/fix-the-bug.md"), "# Renamed\n").unwrap();
         let error = |section, title| add(root, section, title).unwrap_err().to_string();
-        assert_eq!(error("wrok", "New"), "no section \"wrok\"");
-        assert_eq!(error("work", "  "), "empty title");
+        assert_eq!(
+            error("wrok", "New"),
+            "cannot add to 'wrok': no such section"
+        );
+        assert_eq!(error("work", "  "), "cannot add: empty title");
         assert!(root.join("work/fix-the-bug.md").exists());
     }
 }
