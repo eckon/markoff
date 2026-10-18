@@ -93,8 +93,10 @@ Not in the first version, kept here so the design leaves room for them:
 
 Where the first version differs from the plan above or fills a gap:
 
-- The focused part's frame is drawn in the text color, the other in the rules' gray. The line
-  between overview and list belongs to the overview's frame.
+- No frame (first feedback): the part without the keys is dimmed, the line between overview and
+  list says where `Tab` moves them (`Tab list` / `Tab heatmap`).
+- The header shows the page keys around the pages, `[ todo  archive ]`, and on the archive page
+  the selected day or range instead of today. The status line has no page hint.
 - In the list `h` / `l` do nothing, in the heatmap `gg` / `G`, `{` / `}` and `1`-`9` do nothing.
 - Moving the heatmap cursor puts the list cursor on its first task, like a jump to a section.
 - The list keeps at least 5 rows: below that the stats go, then the blank lines around the
@@ -106,7 +108,9 @@ Where the first version differs from the plan above or fills a gap:
 ## Open for the feedback round
 
 - The reversed cursor cell is hard to see on an empty cell (`·`).
-- The frame title ` archive ` repeats the page name in the header.
+- Section keys in the list: the todo list's (`[3]` for the third todo section, also when only
+  it has tasks) or counted in the list (`[1]`-`[9]` in the order shown).
+- The header is longer now, at 80 columns the todo preview's divider no longer joins it (`┬`).
 - On the first open the list cursor can land on a section header when the last day with tasks is
   in a cell of several days: the heatmap's columns are only known after the first frame.
 
