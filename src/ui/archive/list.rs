@@ -1,5 +1,6 @@
 //! The done tasks of the selected heatmap cell, below the overview. Laid out like the todo
-//! list: section rules with their keys, a bullet per task, its day on the right.
+//! list: section rules with their keys, a bullet per task, its day on the right. The day or the
+//! days of the cell are in the header, see [`range`].
 
 use jiff::{ToSpan, civil::Date};
 use ratatui::{
@@ -7,26 +8,17 @@ use ratatui::{
     layout::Rect,
     style::{Style, Stylize},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, List, ListItem, ListState, Padding},
+    widgets::{List, ListItem, ListState},
 };
 
 use crate::{
-    app::{
-        App,
-        archive::{ArchiveRow, Focus},
-    },
-    ui::{LINE_COLOR, section_color, section_rule, task_prefix, truncate},
+    app::{App, archive::ArchiveRow},
+    ui::{list_block, section_color, section_rule, task_prefix, truncate},
 };
 
-/// The list in a frame below the overview, which draws the line above it. Returns the scroll
-/// offset.
+/// The list below the overview. Returns the scroll offset.
 pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> usize {
-    let focused = app.archive.focus == Focus::List;
-    let block = Block::new()
-        .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
-        .border_type(BorderType::Rounded)
-        .border_style(super::frame_color(focused))
-        .padding(Padding::horizontal(1));
+    let block = list_block();
     let width = block.inner(area).width as usize;
     let today = jiff::Zoned::now().date();
     let sections = app.archive_sections();
@@ -37,11 +29,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> usize
     for (i, &row) in rows.iter().enumerate() {
         let is_cursor = i == app.archive.cursor;
         let (ArchiveRow::Section(s) | ArchiveRow::Task(s, ..)) = row;
-        // The cursor dim while the heatmap has the keys.
-        let color = match focused || !is_cursor {
-            true => section_color(s),
-            false => LINE_COLOR,
-        };
+        let color = section_color(s);
         // Blank line before each section except the first, the cursor skips it.
         if i > 0 && matches!(row, ArchiveRow::Section(_)) {
             items.push(ListItem::new(""));
@@ -103,25 +91,21 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> usize
     state.offset()
 }
 
-/// What the list shows, for the line above it: `Fri 2026-10-16 · 3 tasks`, a cell of more days
-/// as `2026-03-02 – 2026-03-15`.
-pub fn title(app: &App, columns: usize) -> Line<'static> {
+/// The day of the selected cell for the header, `Fri 16 Oct 2026`, a cell of more days as
+/// `02 Mar 2026 – 15 Mar 2026`.
+pub fn range(app: &App, columns: usize) -> String {
     let (start, length) = app.archive_cell(columns);
-    let range = match length {
-        1 => start.strftime("%a %Y-%m-%d").to_string(),
-        _ => format!("{start} – {}", start + (length - 1).days()),
-    };
-    let count = app
-        .archive_rows(columns)
-        .iter()
-        .filter(|row| matches!(row, ArchiveRow::Task(..)))
-        .count();
-    let tasks = if count == 1 { "task" } else { "tasks" };
-    Line::from(vec![
-        " ".into(),
-        range.bold(),
-        format!(" · {count} {tasks} ").dim(),
-    ])
+    match length {
+        1 => start.strftime("%a %d %b %Y").to_string(),
+        _ => {
+            let end = start + (length - 1).days();
+            format!(
+                "{} – {}",
+                start.strftime("%d %b %Y"),
+                end.strftime("%d %b %Y")
+            )
+        }
+    }
 }
 
 /// The day a task was done, as near days are said: `today`, `yesterday`, `Mon 13` within a

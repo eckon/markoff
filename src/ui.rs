@@ -42,7 +42,6 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
         Constraint::Length(1),
     ])
     .areas(frame.area());
-    render_header(app, frame, header_area);
     // Before the preview, so its divider can join it.
     let rule = "─".repeat(rule_area.width as usize).fg(LINE_COLOR);
     frame.render_widget(Line::from(rule), rule_area);
@@ -53,11 +52,16 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
     };
     match app.page {
         Page::Todo => {
+            // Before the preview, so its divider can join it.
+            let today = jiff::Zoned::now().strftime("%a %d %b").to_string();
+            render_header(app, frame, header_area, &today);
             drawn.list_offset =
                 render_todo(app, frame, [header_area, gap_area, main_area, rule_area]);
         }
         Page::Archive => {
             (drawn.heatmap_columns, drawn.archive_offset) = archive::render(app, frame, main_area);
+            let selected = archive::range(app, drawn.heatmap_columns);
+            render_header(app, frame, header_area, &selected);
         }
     }
     render_status(app, frame, status_area);
@@ -114,11 +118,10 @@ fn connect_divider(frame: &mut Frame, x: u16, header_y: u16, gap_y: u16, bottom_
     buffer[(x, gap_y)].set_symbol("│").set_fg(LINE_COLOR);
 }
 
-/// `── todo  archive ── Sat 17 Oct ──── 4 open · ✓ 2 done` over the whole width: the pages with
-/// the current one bold, today, the tasks in all sections and those archived today, so done
-/// tasks don't just vanish.
-fn render_header(app: &App, frame: &mut Frame, area: Rect) {
-    let date = jiff::Zoned::now().strftime("%a %d %b").to_string();
+/// `── [ todo  archive ] ── Sat 17 Oct ──── 4 open · ✓ 2 done` over the whole width: the pages
+/// with the current one bold, between the keys that switch them, the page's `date`, the tasks in
+/// all sections and those archived today, so done tasks don't just vanish.
+fn render_header(app: &App, frame: &mut Frame, area: Rect, date: &str) {
     let open: usize = app.sections.iter().map(|section| section.tasks.len()).sum();
     let done = app.done_today();
 
@@ -127,7 +130,8 @@ fn render_header(app: &App, frame: &mut Frame, area: Rect) {
         "✓".fg(DONE_COLOR),
         format!(" {done} done").dim(),
     ];
-    let mut pages = vec!["── ".fg(LINE_COLOR)];
+    // The keys in the style of the hints in the status line.
+    let mut pages = vec!["── ".fg(LINE_COLOR), "[ ".bold().fg(HEADER_COLOR)];
     for (i, page) in Page::ALL.into_iter().enumerate() {
         if i > 0 {
             pages.push("  ".into());
@@ -137,8 +141,8 @@ fn render_header(app: &App, frame: &mut Frame, area: Rect) {
             false => page.name().dim(),
         });
     }
-    pages.push(" ── ".fg(LINE_COLOR));
-    let spans = rule(Some(pages), &date, count, HEADER_COLOR, area.width as usize);
+    pages.extend([" ]".bold().fg(HEADER_COLOR), " ── ".fg(LINE_COLOR)]);
+    let spans = rule(Some(pages), date, count, HEADER_COLOR, area.width as usize);
     frame.render_widget(Line::from(spans), area);
 }
 
@@ -187,9 +191,7 @@ fn hints(app: &App) -> Vec<(String, &'static str)> {
             .collect();
     }
     let help = (Action::Help, "toggle help");
-    let hints = if app.page == Page::Archive {
-        vec![(Action::NextPage, "switch page"), help]
-    } else if app.filter.is_empty() || app.show_help {
+    let hints = if app.filter.is_empty() || app.show_help || app.page == Page::Archive {
         vec![help]
     } else {
         vec![(Action::FilterClear, "clear filter"), help]
@@ -706,17 +708,23 @@ mod tests {
             sections(&[("home", &["Fix typo"]), ("work", &["Review", "Deploy"])]),
         );
         app.days = [(jiff::Zoned::now().date(), 2)].into();
-        let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
+        // Wider than the others, the pages take room.
+        let mut terminal = Terminal::new(TestBackend::new(60, 9)).unwrap();
         terminal
             .draw(|frame| {
                 render(&app, frame);
             })
             .unwrap();
-        let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
+        let buffer = terminal.backend().buffer();
+        let lines: Vec<String> = buffer
+            .content()
+            .chunks(buffer.area.width as usize)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+            .collect();
 
         let date = jiff::Zoned::now().strftime("%a %d %b").to_string();
         assert!(
-            lines[0].starts_with(&format!("── todo  archive ── {date} ─")),
+            lines[0].starts_with(&format!("── [ todo  archive ] ── {date} ─")),
             "{lines:#?}"
         );
         assert!(lines[0].ends_with("─ 3 open · ✓ 2 done"), "{lines:#?}");

@@ -12,15 +12,13 @@ use crate::{
     ui::{DONE_COLOR, LINE_COLOR, section_color},
 };
 
-/// The stats below the heatmap and where their lines go, so the frame can join them.
+/// The stats below the heatmap and where their lines go, so the line above can join them.
 #[derive(Default)]
 pub struct Stats {
     pub lines: Vec<Line<'static>>,
-    /// Rows that are lines, joined to the frame on the left, and on the right if `true`.
-    pub rules: Vec<(usize, bool)>,
     /// Lines down from the line above the stats to the row `end`, as their column and where
-    /// they meet those two. With a third, they go on to the frame and meet it there.
-    pub verticals: Vec<(usize, &'static str, &'static str, Option<&'static str>)>,
+    /// they meet those two.
+    pub verticals: Vec<(usize, &'static str, &'static str)>,
     pub end: usize,
 }
 
@@ -151,17 +149,17 @@ pub fn stats(app: &App, width: usize) -> Stats {
         })
         .collect();
     // Where the lines between the columns of the table are.
-    let mut verticals: Vec<(usize, &str, &str, Option<&str>)> = widths
+    let mut verticals: Vec<(usize, &str, &str)> = widths
         .iter()
         .scan(label_width, |x, width| {
             let at = *x;
             *x += width + 2;
-            Some((at, "┬", "┴", None))
+            Some((at, "┬", "┴"))
         })
         .collect();
-    // The double line goes on through the shares below, to the frame.
+    // The double line goes on through the shares below.
     if split {
-        verticals.push((table_width, "╥", "╫", Some("╨")));
+        verticals.push((table_width, "╥", "╫"));
     }
 
     // The table and the years end in a line, then the share of each section per period.
@@ -211,7 +209,6 @@ pub fn stats(app: &App, width: usize) -> Stats {
     }
     Stats {
         lines,
-        rules: vec![(underline_at, split), (end, true)],
         verticals,
         end,
     }

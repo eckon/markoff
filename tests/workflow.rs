@@ -432,7 +432,7 @@ fn archive() {
     app.wait_for("• Old two");
     app.wait_for("• Old one");
     assert!(
-        app.screen().lines().any(|row| row.contains(" Mon ")),
+        app.screen().lines().any(|row| row.ends_with(" Mon")),
         "{}",
         app.screen()
     );
