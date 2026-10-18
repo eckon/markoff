@@ -62,14 +62,15 @@ pub fn find(columns: &[Column], day: Date) -> Option<(usize, i64)> {
     })
 }
 
-/// The first day of the next cell with tasks done, going `columns` and `rows` at a time from
-/// the one that holds `day`: empty cells are skipped. Stays if there is none before the edge or
-/// before cells that start after `today`, without a cell for `day` too.
+/// The first day of the cell `columns` and `rows` away from the one that holds `day`. With
+/// `skip` the next one with tasks done that way, empty cells are skipped. Stays if there is none
+/// before the edge or before cells that start after `today`, without a cell for `day` too.
 pub fn step(
     columns: &[Column],
     days: &Days,
     day: Date,
     (columns_by, rows_by): (i64, i64),
+    skip: bool,
     today: Date,
 ) -> Date {
     let Some((mut column, mut row)) = find(columns, day) else {
@@ -88,7 +89,7 @@ pub fn step(
         if cell.0 > today {
             return day;
         }
-        if rate(days, cell) > 0.0 {
+        if !skip || rate(days, cell) > 0.0 {
             return cell.0;
         }
     }
@@ -302,10 +303,11 @@ mod tests {
         assert_eq!(find(&columns, date("2026-10-01")), Some((0, 1)));
         assert_eq!(find(&columns, date("2026-09-27")), None);
 
-        // Every day done, so no cell is skipped.
-        let every = Days::from_iter((0..20).map(|i| (date("2026-09-28") + i.days(), 1)));
-        let walk = |days: &Days, day: &str, by| step(&columns, days, date(day), by, today);
-        let step = |day: &str, by| walk(&every, day, by).to_string();
+        let walk = |day: &str, by, skip| {
+            let some = Days::from([(date("2026-10-12"), 1), (date("2026-10-15"), 2)]);
+            step(&columns, &some, date(day), by, skip, today).to_string()
+        };
+        let step = |day: &str, by| walk(day, by, false);
         // Into the bigger cell on the same row, to its first day, and back.
         assert_eq!(step("2026-10-13", (-1, 0)), "2026-09-30");
         assert_eq!(step("2026-10-01", (1, 0)), "2026-10-13");
@@ -316,9 +318,8 @@ mod tests {
         assert_eq!(step("2026-10-17", (0, 1)), "2026-10-17");
         assert_eq!(step("2026-10-10", (1, 0)), "2026-10-10");
 
-        // Empty cells are skipped to the next one with tasks that way, none: stays.
-        let some = Days::from([(date("2026-10-12"), 1), (date("2026-10-15"), 2)]);
-        let step = |day: &str, by| walk(&some, day, by).to_string();
+        // Skipping goes past empty cells to the next one with tasks that way, none: stays.
+        let step = |day: &str, by| walk(day, by, true);
         assert_eq!(step("2026-10-12", (0, 1)), "2026-10-15");
         assert_eq!(step("2026-10-15", (0, -1)), "2026-10-12");
         assert_eq!(step("2026-10-15", (0, 1)), "2026-10-15");

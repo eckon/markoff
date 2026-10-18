@@ -56,7 +56,7 @@ impl App {
     /// Runs `action` on the archive page. `false` for those of every page, the rest stays here
     /// and never reaches the todo list behind it.
     pub(super) fn update_archive(&mut self, action: Action) -> bool {
-        let by = match (action, self.archive.focus) {
+        let (by, skip) = match (action, self.archive.focus) {
             (Action::Help | Action::PrevPage | Action::NextPage | Action::Quit, _) => {
                 return false;
             }
@@ -93,15 +93,19 @@ impl App {
                 self.archive.cursor = cursor::moved(&lines, self.archive.cursor, action);
                 return true;
             }
-            (Action::Left, _) => (-1, 0),
-            (Action::Right, _) => (1, 0),
-            (Action::Up, _) => (0, -1),
-            (Action::Down, _) => (0, 1),
+            (Action::Left, _) => ((-1, 0), false),
+            (Action::Right, _) => ((1, 0), false),
+            (Action::Up, _) => ((0, -1), false),
+            (Action::Down, _) => ((0, 1), false),
+            (Action::SkipLeft, _) => ((-1, 0), true),
+            (Action::SkipRight, _) => ((1, 0), true),
+            (Action::SkipUp, _) => ((0, -1), true),
+            (Action::SkipDown, _) => ((0, 1), true),
             _ => return true,
         };
         let today = jiff::Zoned::now().date();
         let columns = history::columns(&self.days, today, self.archive.columns);
-        let day = history::step(&columns, &self.days, self.archive_day(), by, today);
+        let day = history::step(&columns, &self.days, self.archive_day(), by, skip, today);
         if Some(day) != self.archive.day {
             self.select_day(day);
         }

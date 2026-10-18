@@ -309,7 +309,14 @@ impl App {
         }
         match action {
             // Only on the archive page, see [`Self::update_archive`].
-            Action::Left | Action::Right | Action::Focus | Action::Stats => {}
+            Action::Left
+            | Action::Right
+            | Action::SkipLeft
+            | Action::SkipDown
+            | Action::SkipUp
+            | Action::SkipRight
+            | Action::Focus
+            | Action::Stats => {}
             // A section hidden by the filter has no header to jump to.
             Action::Up
             | Action::Down

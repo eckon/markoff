@@ -98,8 +98,9 @@ Where the first version differs from the plan above or fills a gap:
 - The header shows the page keys around the pages, `[ todo  archive ]`. On the archive page the
   selected day or range instead of today, and only `✓ N done` of the selection. The status line
   has no page hint.
-- `h` / `j` / `k` / `l` skip empty cells: the cursor goes on that way to the next cell with tasks
-  done, on the same row or in the same column. Without one it stays.
+- `H` / `J` / `K` / `L` skip empty cells: the cursor goes on that way to the next cell with tasks
+  done, on the same row or in the same column. Without one it stays. `h` / `j` / `k` / `l` go
+  one cell, empty or not.
 - The heatmap cursor is between bold brackets, the cell keeps its shade: `[█]`.
 - Section keys in the list count the sections shown, `[1]`-`[9]`, the colors stay the todo
   list's. `1`-`9` in the heatmap jump into the list like there, if that section is shown.
