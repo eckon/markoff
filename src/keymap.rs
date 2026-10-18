@@ -99,16 +99,15 @@ use KeyCode::{Backspace, Char, Down, End, Enter, Esc, Home, Left, Right, Tab, Up
 use Trigger::{Ctrl, Key, Seq, Shift};
 
 /// The single source of truth for keys: [`Keymap::handle`] reads it and so does the help
-/// overlay, so the two can never disagree. One line per binding, hence no rustfmt.
+/// overlay, so the two can never disagree. A key may be in several groups of a page, like `j` in
+/// the archive's heatmap and list, it does the same there. One line per binding, hence no
+/// rustfmt.
 #[rustfmt::skip]
 pub const BINDINGS: &[Binding] = &[
-    Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "move", pages: ALL },
-    Binding { keys: &[(&[Key(Char('h')), Key(Left)], A::Left), (&[Key(Char('l')), Key(Right)], A::Right)], help: "left / right", group: "move", pages: ARCHIVE },
-    Binding { keys: &[(&[Key(Char('H'))], A::SkipLeft), (&[Key(Char('L'))], A::SkipRight)], help: "left / right, skip empty", group: "move", pages: ARCHIVE },
-    Binding { keys: &[(&[Key(Char('J'))], A::SkipDown), (&[Key(Char('K'))], A::SkipUp)], help: "down / up, skip empty", group: "move", pages: ARCHIVE },
-    Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "move", pages: ALL },
-    Binding { keys: &[(&[Key(Char('{')), Ctrl('u')], A::PrevSection), (&[Key(Char('}')), Ctrl('d')], A::NextSection)], help: "previous / next section", group: "move", pages: ALL },
-    Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section", group: "move", pages: ALL },
+    Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "move", pages: TODO },
+    Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "move", pages: TODO },
+    Binding { keys: &[(&[Key(Char('{')), Ctrl('u')], A::PrevSection), (&[Key(Char('}')), Ctrl('d')], A::NextSection)], help: "previous / next section", group: "move", pages: TODO },
+    Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section", group: "move", pages: TODO },
     Binding { keys: &[(&[Key(Char('J')), Shift(Down)], A::MoveDown), (&[Key(Char('K')), Shift(Up)], A::MoveUp)], help: "move down / up", group: "change", pages: TODO },
     Binding { keys: &[(&[Key(Enter)], A::Open)], help: "open in $EDITOR", group: "change", pages: TODO },
     Binding { keys: &[(&[Key(Char('o'))], A::NewBelow), (&[Key(Char('O'))], A::NewAbove)], help: "new task below / above", group: "change", pages: TODO },
@@ -116,10 +115,18 @@ pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('X'))], A::Done)], help: "done (archive)", group: "change", pages: TODO },
     Binding { keys: &[(&[Key(Char('D'))], A::Delete)], help: "delete", group: "change", pages: TODO },
     Binding { keys: &[(&[Key(Char('u'))], A::Undo)], help: "undo", group: "change", pages: TODO },
-    Binding { keys: &[(&[Key(Tab)], A::Focus)], help: "keys to heatmap / list", group: "archive", pages: ARCHIVE },
-    Binding { keys: &[(&[Key(Char('s'))], A::Stats)], help: "toggle stats", group: "archive", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('h')), Key(Left)], A::Left), (&[Key(Char('l')), Key(Right)], A::Right)], help: "left / right", group: "heatmap", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "heatmap", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('H'))], A::SkipLeft), (&[Key(Char('L'))], A::SkipRight)], help: "left / right, skip empty", group: "heatmap", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('J'))], A::SkipDown), (&[Key(Char('K'))], A::SkipUp)], help: "down / up, skip empty", group: "heatmap", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('s'))], A::Stats)], help: "toggle stats", group: "heatmap", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "list", pages: ARCHIVE },
+    Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "list", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('{')), Ctrl('u')], A::PrevSection), (&[Key(Char('}')), Ctrl('d')], A::NextSection)], help: "previous / next section", group: "list", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section, also from the heatmap", group: "list", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('/'))], A::Filter)], help: "filter", group: "other", pages: TODO },
     Binding { keys: &[(&[Key(Esc)], A::FilterClear)], help: "clear filter", group: "other", pages: TODO },
+    Binding { keys: &[(&[Key(Tab)], A::Focus)], help: "keys to heatmap / list", group: "other", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('?'))], A::Help)], help: "toggle help", group: "other", pages: ALL },
     Binding { keys: &[(&[Key(Char('['))], A::PrevPage), (&[Key(Char(']'))], A::NextPage)], help: "previous / next page", group: "other", pages: ALL },
     Binding { keys: &[(&[Key(Char('q')), Ctrl('c')], A::Quit)], help: "quit", group: "other", pages: ALL },
