@@ -57,29 +57,37 @@ pub fn add(archive: Option<&str>, date: &str, section: &str, task: &Task) -> Str
     }
 }
 
-/// How many tasks each `## section` of the archive file holds, in file order: its `### `
+/// The tasks of the archive file in file order, each with its `## section`: the `### `
 /// headings outside code blocks. Tasks above the first section, possible in a file edited by
-/// hand, have an empty name.
+/// hand, have an empty section.
 ///
 /// A `# ` heading inside a task body is shifted to `### ` as well and counts too. Rare enough
-/// for a number in the header.
-pub fn sections(archive: &str) -> Vec<(String, usize)> {
+/// for the archive page.
+pub fn tasks(archive: &str) -> Vec<Done> {
     let mut fence = Fence::default();
-    let mut sections: Vec<(String, usize)> = Vec::new();
+    let mut section = "";
+    let mut tasks = Vec::new();
     for line in archive.split_inclusive('\n') {
         if fence.update(line) {
             continue;
         }
         match heading_level(line) {
-            Some(SECTION_LEVEL) => sections.push((line[SECTION_LEVEL..].trim().to_string(), 0)),
-            Some(TASK_LEVEL) => match sections.last_mut() {
-                Some((_, done)) => *done += 1,
-                None => sections.push((String::new(), 1)),
-            },
+            Some(SECTION_LEVEL) => section = line[SECTION_LEVEL..].trim(),
+            Some(TASK_LEVEL) => tasks.push(Done {
+                section: section.to_string(),
+                title: line[TASK_LEVEL..].trim().to_string(),
+            }),
             _ => {}
         }
     }
-    sections
+    tasks
+}
+
+/// A task in the archive, see [`tasks`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Done {
+    pub section: String,
+    pub title: String,
 }
 
 /// The task as it appears in the archive: `### Title`, then the body with shifted headings.
@@ -175,11 +183,13 @@ mod tests {
     }
 
     #[test]
-    fn tasks_per_section() {
+    fn tasks_with_their_section() {
         let archive = "### Loose\n\n## work\n\n### A\n\n```\n### no\n## nor\n```\n\n### B\n\n## home\n\n### C\n";
-        let sections = [("", 1), ("work", 2), ("home", 1)];
-        let sections = sections.map(|(name, done)| (name.to_string(), done));
-        assert_eq!(super::sections(archive), sections);
+        let tasks: Vec<String> = super::tasks(archive)
+            .into_iter()
+            .map(|done| format!("{}/{}", done.section, done.title))
+            .collect();
+        assert_eq!(tasks, ["/Loose", "work/A", "work/B", "home/C"]);
     }
 
     #[test]
@@ -191,7 +201,7 @@ mod tests {
             "home",
             &task("# B\n\n```\n### no\n```\n"),
         );
-        let count = |archive: &str| -> usize { sections(archive).iter().map(|(_, n)| n).sum() };
+        let count = |archive: &str| tasks(archive).len();
         assert_eq!(count(""), 0);
         assert_eq!(count(&one), 1);
         assert_eq!(count(&two), 2);

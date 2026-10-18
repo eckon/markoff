@@ -1,5 +1,6 @@
 //! The archive page: the [heatmap](mod@heatmap) of done tasks and the [stats](mod@stats) below
-//! it. The numbers come from [`crate::history`], this only lays them out.
+//! it, then the [list] of the tasks in the heatmap's cursor. The numbers come from
+//! [`crate::history`], this only lays them out.
 
 use ratatui::{
     Frame,
@@ -10,18 +11,24 @@ use ratatui::{
 };
 
 mod heatmap;
+mod list;
 mod stats;
 
 use super::{DONE_COLOR, LINE_COLOR};
 use crate::app::App;
 use stats::{Stats, stats};
 
-/// The heatmap and the stats in a frame from the top of `area`. Returns the heatmap's columns.
-pub fn render(app: &App, frame: &mut Frame, area: Rect) -> usize {
+/// Least rows the list keeps below the overview, the stats give way first.
+const MIN_LIST_ROWS: usize = 5;
+
+/// The overview, heatmap and stats, in a frame from the top of `area`, the done tasks of the
+/// cursor's cell below it in the rest. Returns the heatmap's columns and the list's offset.
+pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize) {
     let block = archive_block();
     let inner = block.inner(area);
     let width = inner.width as usize;
-    let (mut lines, stats) = match app.days.is_empty() {
+    let columns = heatmap::columns(width);
+    let (mut lines, mut stats) = match app.days.is_empty() {
         true => (
             vec![Line::from("nothing archived yet".dim())],
             Stats::default(),
@@ -31,9 +38,18 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> usize {
             stats(app, width),
         ),
     };
+    // The frame's bottom line is the list's title, below it the list and its bottom line.
+    let room = (inner.height as usize).saturating_sub(MIN_LIST_ROWS + 1);
+    if lines.len() + 1 + stats.lines.len() > room {
+        stats = Stats::default();
+    }
     // A blank line above and below the heatmap where there is room: the separator and the
     // stats come on top.
-    if lines.len() + 1 + stats.lines.len() + 2 <= inner.height as usize {
+    let stats_height = match stats.lines.len() {
+        0 => 0,
+        height => height + 1,
+    };
+    if lines.len() + stats_height + 2 <= room {
         lines.insert(0, Line::default());
         lines.push(Line::default());
     }
@@ -50,15 +66,24 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> usize {
     // Inside the border, and inside the padding too.
     let framed = block.clone().padding(Padding::ZERO).inner(panel);
     let inner = block.inner(panel);
+    let block = block.title_bottom(list::title(app, columns));
     frame.render_widget(Paragraph::new(lines).block(block), panel);
-    let columns = heatmap::columns(width);
+    let list_area = Rect {
+        y: panel.bottom(),
+        height: area.height - height,
+        ..area
+    };
+    let offset = list::render(app, frame, list_area, columns);
+    // The bottom line goes on as the list's frame.
+    let buffer = frame.buffer_mut();
+    let bottom = framed.bottom();
+    buffer[(panel.x, bottom)].set_symbol("├");
+    buffer[(framed.right(), bottom)].set_symbol("┤");
     if !has_stats {
-        return columns;
+        return (columns, offset);
     }
 
     // Lines of the stats, joined to the frame and to each other.
-    let buffer = frame.buffer_mut();
-    let bottom = framed.bottom();
     let row = |at: usize| inner.y + (separator + 1 + at) as u16;
     let x = |at: usize| inner.x + at as u16;
     let top = inner.y + separator as u16;
@@ -94,11 +119,14 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> usize {
         if row(stats.end) < bottom {
             buffer[(x(at), row(stats.end))].set_symbol(end_join);
         }
-        if let Some(join) = bottom_join {
+        // Not into the list's title.
+        if let Some(join) = bottom_join
+            && buffer[(x(at), bottom)].symbol() == "─"
+        {
             buffer[(x(at), bottom)].set_symbol(join);
         }
     }
-    columns
+    (columns, offset)
 }
 
 /// The frame of the archive, its title says what it is, the numbers are in the stats.
@@ -145,7 +173,7 @@ mod tests {
         let today = jiff::Zoned::now().date();
         let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
         let draw = |app: &App| {
-            let mut terminal = Terminal::new(TestBackend::new(80, 30)).unwrap();
+            let mut terminal = Terminal::new(TestBackend::new(80, 40)).unwrap();
             terminal
                 .draw(|frame| {
                     render(app, frame);
@@ -170,7 +198,7 @@ mod tests {
             !screen.iter().any(|line| line.contains("╭ archive")),
             "{screen:#?}"
         );
-        assert_eq!(screen[28], "─".repeat(80), "{screen:#?}");
+        assert_eq!(screen[38], "─".repeat(80), "{screen:#?}");
 
         // On its page: the frame from the top with its title, the heatmap, then the stats.
         app.section_days = [("home".to_string(), app.days.clone())].into();
@@ -251,11 +279,12 @@ mod tests {
             screen[24].starts_with("│  all time home 100% "),
             "{screen:#?}"
         );
-        assert!(
-            screen[25].starts_with("╰─────────────────────────────────────────────╨─"),
-            "{screen:#?}"
-        );
-        assert!(screen[29].ends_with("? toggle help"), "{screen:#?}");
+        // The frame's bottom line is the title of the list below, the double line ends in it.
+        let title = format!("├ {} · 0 tasks ─", today.strftime("%a %Y-%m-%d"));
+        assert!(screen[25].starts_with(&title), "{screen:#?}");
+        assert_eq!(screen[25].chars().nth(46), Some('╨'), "{screen:#?}");
+        assert!(screen[26].contains("nothing done"), "{screen:#?}");
+        assert!(screen[39].ends_with("? toggle help"), "{screen:#?}");
 
         app.days.clear();
         let screen = lines(&draw(&app));

@@ -425,10 +425,12 @@ fn archive() {
     ]);
     app.wait_for("✓ 0 done");
 
-    // Recent days one cell each, the stats below, nothing done this week.
+    // Recent days one cell each, the cursor on the last day with tasks done and its tasks below,
+    // newest first. 20 rows are too few for the stats.
     app.press("]");
     app.wait_for("daily");
-    app.wait_for("done     │     0 ");
+    app.wait_for("• Old two");
+    app.wait_for("• Old one");
     assert!(
         app.screen().lines().any(|row| row.contains(" Mon ")),
         "{}",
@@ -436,16 +438,15 @@ fn archive() {
     );
 
     // Todo keys do nothing on it, `[` goes back to the list.
-    app.press("jX");
-    app.press("[");
+    app.press("X[");
     app.wait_for("• Fix bug");
     app.wait_for("✓ 0 done");
 
-    // Done shows up in the stats, the pages wrap around.
+    // The page stays where it was, the pages wrap around.
     app.press("jX");
     app.wait_for("✓ 1 done");
     app.press("]");
-    app.wait_for("done     │     1 ");
+    app.wait_for("• Old two");
     app.press("]");
     app.wait_for("──[1]─ work");
 

@@ -5,25 +5,29 @@ use std::collections::BTreeMap;
 
 use jiff::{ToSpan, civil::Date};
 
+use crate::archive::Done;
+
+/// The done tasks per day, only days with an archive file, see [`crate::load::archive`].
+pub type Archive = BTreeMap<Date, Vec<Done>>;
+
 /// Tasks done per day, only days with an archive file.
 pub type Days = BTreeMap<Date, usize>;
 
 /// [`Days`] per section, by the section names in the archive.
 pub type Sections = BTreeMap<String, Days>;
 
-/// The tasks per day and section from [`crate::load::archive`] as the days overall and the
-/// days of each section.
-pub fn split(archive: &BTreeMap<Date, Vec<(String, usize)>>) -> (Days, Sections) {
+/// Tasks done per day overall and per section.
+pub fn split(archive: &Archive) -> (Days, Sections) {
     let mut days = Days::new();
     let mut sections = Sections::new();
     for (&day, done) in archive {
-        days.insert(day, done.iter().map(|(_, done)| done).sum());
-        for (name, done) in done {
+        days.insert(day, done.len());
+        for task in done {
             *sections
-                .entry(name.clone())
+                .entry(task.section.clone())
                 .or_default()
                 .entry(day)
-                .or_default() += done;
+                .or_default() += 1;
         }
     }
     (days, sections)
@@ -379,16 +383,16 @@ mod tests {
 
     #[test]
     fn split_into_days_and_sections() {
-        let section = |name: &str, done| (name.to_string(), done);
-        let archive = BTreeMap::from([
+        let done = |section: &str| Done {
+            section: section.to_string(),
+            title: String::new(),
+        };
+        let archive = Archive::from([
             (
                 date("2026-10-12"),
-                vec![section("work", 2), section("home", 1)],
+                vec![done("work"), done("work"), done("home")],
             ),
-            (
-                date("2026-10-13"),
-                vec![section("work", 1), section("work", 1)],
-            ),
+            (date("2026-10-13"), vec![done("work"), done("work")]),
         ]);
         let (days, sections) = split(&archive);
         assert_eq!(

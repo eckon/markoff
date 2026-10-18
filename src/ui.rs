@@ -25,6 +25,8 @@ pub struct Drawn {
     pub list_offset: usize,
     /// See [`crate::app::archive::ArchivePage::columns`].
     pub heatmap_columns: usize,
+    /// See [`crate::app::archive::ArchivePage::offset`].
+    pub archive_offset: usize,
 }
 
 /// Draws the whole screen from the current state. Rendering never mutates the app, what the
@@ -47,13 +49,16 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
     let mut drawn = Drawn {
         list_offset: app.list_offset,
         heatmap_columns: app.archive.columns,
+        archive_offset: app.archive.offset,
     };
     match app.page {
         Page::Todo => {
             drawn.list_offset =
                 render_todo(app, frame, [header_area, gap_area, main_area, rule_area]);
         }
-        Page::Archive => drawn.heatmap_columns = archive::render(app, frame, main_area),
+        Page::Archive => {
+            (drawn.heatmap_columns, drawn.archive_offset) = archive::render(app, frame, main_area);
+        }
     }
     render_status(app, frame, status_area);
     if app.show_help {
@@ -240,12 +245,43 @@ fn section_color(index: usize) -> Color {
     SECTION_COLORS[index % SECTION_COLORS.len()]
 }
 
+/// Opens the section key in a section rule: `──[1]─ work`.
+const KEY_OPEN: &str = "──[";
+
+/// `──[1]─ work ─────── 2` for section `s` in its color, filled to `width`. The todo list and
+/// the done tasks on the archive page.
+fn section_rule(s: usize, name: &str, count: usize, width: usize) -> Vec<Span<'static>> {
+    // The key that jumps here replaces the leading `── ` of the rule, the key right above the
+    // bullets. Dim like the count, so the name stays what stands out. Without a key the rule is
+    // as long, the names align.
+    let keyed = |key: char| {
+        vec![
+            KEY_OPEN.fg(LINE_COLOR),
+            key.to_string().dim(),
+            "]─ ".fg(LINE_COLOR),
+        ]
+    };
+    let lead = match keymap::jump_key(s) {
+        Some(key) => keyed(key),
+        None => {
+            let lead_width: usize = keyed(' ').iter().map(Span::width).sum();
+            vec![format!("{} ", "─".repeat(lead_width - 1)).fg(LINE_COLOR)]
+        }
+    };
+    let count = vec![count.to_string().dim()];
+    rule(Some(lead), name, count, section_color(s), width)
+}
+
+/// Gutter and indent before a task title, the bullet below the key of the section. `first` is
+/// the first line of the title, the bullet only goes there.
+fn task_prefix(gutter: Span<'static>, color: Color, first: bool) -> Vec<Span<'static>> {
+    let bullet = if first { "• ".fg(color) } else { "  ".into() };
+    vec![gutter, " ".repeat(KEY_OPEN.chars().count()).into(), bullet]
+}
+
 /// No box around the list. Sections are rules, tasks get a bullet in the section color,
 /// the cursor is a bar in the gutter. Returns the scroll offset.
 fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize {
-    /// Opens the section key in a section rule: `──[1]─ work`.
-    const KEY_OPEN: &str = "──[";
-
     let block = list_block();
     let text_width = block.inner(area).width as usize;
 
@@ -282,35 +318,16 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
         };
         let title = match row {
             Row::Section(s) => {
-                let section = &app.sections[s];
                 // Only the shown tasks, so with a filter it says how many match.
                 let count = rows
                     .iter()
                     .filter(|row| matches!(row, Row::Task(task_s, _) if *task_s == s))
                     .count();
-                // The key that jumps here replaces the leading `── ` of the rule, the key right
-                // above the bullets. Dim like the count, so the name stays what stands out.
-                // Without a key the rule is as long, the names align.
-                let keyed = |key: char| {
-                    vec![
-                        KEY_OPEN.fg(LINE_COLOR),
-                        key.to_string().dim(),
-                        "]─ ".fg(LINE_COLOR),
-                    ]
-                };
-                let lead = match keymap::jump_key(s) {
-                    Some(key) => keyed(key),
-                    None => {
-                        let lead_width: usize = keyed(' ').iter().map(Span::width).sum();
-                        vec![format!("{} ", "─".repeat(lead_width - 1)).fg(LINE_COLOR)]
-                    }
-                };
                 let mut spans = vec![gutter()];
-                spans.extend(rule(
-                    Some(lead),
-                    &section.name,
-                    vec![count.to_string().dim()],
-                    color,
+                spans.extend(section_rule(
+                    s,
+                    &app.sections[s].name,
+                    count,
                     width.saturating_sub(gutter().width()),
                 ));
                 items.push(ListItem::new(Line::from(spans)));
@@ -339,15 +356,7 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
             }
         };
 
-        // Gutter and indent before the title, the bullet below the key of the section.
-        let prefix = |first: bool| -> Vec<Span<'static>> {
-            let bullet = if first { "• ".fg(color) } else { "  ".into() };
-            vec![
-                gutter(),
-                " ".repeat(KEY_OPEN.chars().count()).into(),
-                bullet,
-            ]
-        };
+        let prefix = |first: bool| task_prefix(gutter(), color, first);
         let title_width = text_width.saturating_sub(Line::from(prefix(true)).width());
         let title_lines = if is_cursor {
             wrap(title, title_width)

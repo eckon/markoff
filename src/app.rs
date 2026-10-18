@@ -120,6 +120,8 @@ pub struct App {
     daily_path: Option<PathBuf>,
     /// The tasks of the daily checklist, `None` if it is not set or the file does not exist.
     pub daily: Option<Vec<DailyTask>>,
+    /// The done tasks, from the archive.
+    pub done: history::Archive,
     /// Tasks done per day, from the archive.
     pub days: history::Days,
     /// The same per section.
@@ -151,6 +153,7 @@ impl App {
             list_offset: 0,
             daily_path: None,
             daily: None,
+            done: history::Archive::new(),
             days: history::Days::new(),
             section_days: history::Sections::new(),
         }
@@ -182,6 +185,7 @@ impl App {
                 if let Some(drawn) = drawn {
                     self.list_offset = drawn.list_offset;
                     self.archive.columns = drawn.heatmap_columns;
+                    self.archive.offset = drawn.archive_offset;
                 }
                 dirty = false;
             }
@@ -340,7 +344,7 @@ impl App {
                 let at = Page::ALL.iter().position(|&page| page == self.page);
                 self.page = Page::ALL[(at.unwrap_or(0) + step) % count];
                 if self.page == Page::Archive {
-                    self.archive.day = Some(self.archive_day());
+                    self.open_archive();
                 }
             }
             Action::Quit => self.running = false,
@@ -557,7 +561,8 @@ impl App {
     fn reload(&mut self, select: Option<&Path>) -> Result<()> {
         (self.sections, self.order_file) = load::load(&self.root)?;
         self.reload_daily()?;
-        (self.days, self.section_days) = history::split(&load::archive(&self.root)?);
+        self.done = load::archive(&self.root)?;
+        (self.days, self.section_days) = history::split(&self.done);
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
         if let Some(path) = select {
             self.select_path(path);
