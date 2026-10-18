@@ -1,7 +1,7 @@
 # Idea: archive view
 
-Agreed in discussion, not built yet. Once built, its rules go to AGENTS.md, README.md and the
-code, and this file is removed.
+Built, waiting for the feedback round. Once final, its rules go to AGENTS.md, README.md and the
+code (mostly done), and this file is removed.
 
 ## Why
 
@@ -89,13 +89,30 @@ Not in the first version, kept here so the design leaves room for them:
   than needed. Key open.
 - Narrowing to sections, shared with the todo page: the same logic for both.
 
-## Notes for building
+## As built
 
-- The archive is loaded as counts per day and section now. The list needs the titles too.
-- `ui/archive.rs` is already about 800 lines: split into heatmap, stats and list modules.
-- The popup state (`show_archive`) becomes the current page.
-- Not experimental, so the workflow tests cover it: the archive part of the scenario it is in
-  changes from the popup to the page.
-- README: keys table and the archive description.
-- Tests while building: only unit tests for pure logic that help not to break things. The missing
-  app, render and workflow tests are added when finalizing, to keep the code at the usual standard.
+Where the first version differs from the plan above or fills a gap:
+
+- The focused part's frame is drawn in the text color, the other in the rules' gray. The line
+  between overview and list belongs to the overview's frame.
+- In the list `h` / `l` do nothing, in the heatmap `gg` / `G`, `{` / `}` and `1`-`9` do nothing.
+- Moving the heatmap cursor puts the list cursor on its first task, like a jump to a section.
+- The list keeps at least 5 rows: below that the stats go, then the blank lines around the
+  heatmap.
+- Done tasks come from the `### ` headings of the archive files, so a `# ` heading in a task body
+  shows up as a task of its own (it did count as one before too).
+- The cursor moves of both lists are shared in `cursor.rs`.
+
+## Open for the feedback round
+
+- The reversed cursor cell is hard to see on an empty cell (`·`).
+- The frame title ` archive ` repeats the page name in the header.
+- On the first open the list cursor can land on a section header when the last day with tasks is
+  in a cell of several days: the heatmap's columns are only known after the first frame.
+
+## Before it is final
+
+- Tests: while building only unit tests for pure logic were added where they helped. The missing
+  app (archive actions, focus, page switching), render (list, focus, small screens) and workflow
+  tests are added when finalizing, to keep the code at the usual standard.
+- This file goes, what is left of it moves to AGENTS.md.

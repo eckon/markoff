@@ -548,6 +548,8 @@ impl App {
         self.done = load::archive(&self.root)?;
         (self.days, self.section_days) = history::split(&self.done);
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
+        let archive_rows = self.archive_rows(self.archive.columns).len();
+        self.archive.cursor = self.archive.cursor.min(archive_rows.saturating_sub(1));
         if let Some(path) = select {
             self.select_path(path);
         }
