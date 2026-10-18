@@ -2,6 +2,7 @@
 
 mod app;
 mod archive;
+mod cli;
 mod config;
 mod daily;
 mod edit;
@@ -42,7 +43,11 @@ fn run() -> Result<()> {
     color_eyre::install()?;
 
     // Load before entering the TUI, so errors print to a normal terminal.
-    let (root, config) = config::from_env()?;
+    let (root, config, command) = config::from_env()?;
+    if let Some(command) = command {
+        print!("{}", cli::run(command, &root)?);
+        return Ok(());
+    }
     let daily = config.daily.map(|name| root.join(name));
     let app = App::load(root, daily)?;
 
