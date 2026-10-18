@@ -94,8 +94,7 @@ Not in the first version, kept here so the design leaves room for them:
 Where the first version differs from the plan above or fills a gap:
 
 - No frame (first feedback): the part without the keys is dimmed. Between overview and list a
-  double line with a blank line on each side, on its left where `Tab` moves the keys
-  (`Tab list` / `Tab heatmap`).
+  double line with a blank line on each side. No `Tab` hint there, it was too noisy, `?` has it.
 - The header shows the page keys around the pages, `[ todo  archive ]`. On the archive page the
   selected day or range instead of today, and only `✓ N done` of the selection. The status line
   has no page hint.
@@ -114,7 +113,6 @@ Where the first version differs from the plan above or fills a gap:
 
 ## Open for the feedback round
 
-- Three places with key hints (header, separator, status line), may be too many.
 - The header is longer now, at 80 columns the todo preview's divider no longer joins it (`┬`).
 - On the first open the list cursor can land on a section header when the last day with tasks is
   in a cell of several days: the heatmap's columns are only known after the first frame.

@@ -16,7 +16,7 @@ mod stats;
 
 pub use list::range;
 
-use super::{HEADER_COLOR, LINE_COLOR};
+use super::LINE_COLOR;
 use crate::{
     app::{App, archive::Focus},
     history,
@@ -30,8 +30,7 @@ const MIN_LIST_ROWS: usize = 5;
 const SEPARATOR: usize = 3;
 
 /// The overview, heatmap and stats, from the top of `area`, the done tasks of the cursor's cell
-/// below it in the rest, a line between them says how to switch. The part without the keys is
-/// dimmed. Returns the heatmap's columns and the list's offset.
+/// below it in the rest, a double line between them. The part without the keys is dimmed. Returns the heatmap's columns and the list's offset.
 pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize) {
     // The heatmap starts where the section rules of the list do.
     let block = Block::new().padding(Padding::new(2, 2, 0, 0));
@@ -108,21 +107,13 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize) {
         }
     }
 
-    // A double line between the two parts, in it what `Tab` moves the keys to. The other part
-    // is dimmed.
-    let (dimmed, to) = match app.archive.focus {
-        Focus::Heatmap => (list_area, "list"),
-        Focus::List => (overview, "heatmap"),
+    // The part without the keys is dimmed, a double line between the two.
+    let dimmed = match app.archive.focus {
+        Focus::Heatmap => list_area,
+        Focus::List => overview,
     };
     frame.buffer_mut().set_style(dimmed, Modifier::DIM);
-    // On the left, below the pages in the header.
-    let mut line = vec![
-        "══ ".fg(LINE_COLOR),
-        "Tab".bold().fg(HEADER_COLOR),
-        format!(" {to} ").into(),
-    ];
-    let fill = width.saturating_sub(Line::from(line.clone()).width());
-    line.push("═".repeat(fill).fg(LINE_COLOR));
+    let line = "═".repeat(width).fg(LINE_COLOR);
     let line_area = Rect {
         y: gap.y + 1,
         height: 1,
@@ -266,9 +257,9 @@ mod tests {
             screen[22].starts_with("  all time home 100% "),
             "{screen:#?}"
         );
-        // Between overview and list a double line with the key to the list, which is dimmed.
+        // Between overview and list a double line, the list without the keys is dimmed.
         assert_eq!(screen[23].trim(), "", "{screen:#?}");
-        assert!(screen[24].starts_with("  ══ Tab list ═"), "{screen:#?}");
+        assert_eq!(screen[24].trim(), "═".repeat(76), "{screen:#?}");
         assert!(screen[26].contains("nothing done"), "{screen:#?}");
         assert!(buffer[(2, 26)].modifier.contains(Modifier::DIM));
         assert!(!buffer[(2, 14)].modifier.contains(Modifier::DIM));
