@@ -92,8 +92,10 @@ fn render_todo(
     frame: &mut Frame,
     [header_area, gap_area, main_area, rule_area]: [Rect; 4],
 ) -> usize {
-    // The preview only shows up for a task with a body, otherwise the list takes all the width.
+    // The preview only shows up for a task with a body and unless `p` hid it, otherwise the list
+    // takes all the width.
     let body = match app.selected() {
+        _ if app.hide_preview => None,
         Some(Row::Task(s, t)) => Some(app.sections[s].tasks[t].body.as_str()),
         Some(Row::DailyTask(i)) => Some(daily::body(app, i)),
         _ => None,
@@ -514,6 +516,12 @@ mod tests {
         }
         // The title is only in the list, the preview starts with the body.
         assert_eq!(screen.matches("Fix typo").count(), 1, "{screen}");
+
+        // `p` hides it, the title gets all the width.
+        app.update(Action::Preview);
+        let hidden = super::tests::screen(&app);
+        assert!(!hidden.contains("line one"), "{hidden}");
+        assert!(!hidden.contains('│'), "{hidden}");
     }
 
     #[test]

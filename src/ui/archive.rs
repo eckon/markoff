@@ -148,6 +148,79 @@ mod tests {
         ui::{HEADER_COLOR, render},
     };
 
+    /// Renders the app 80 wide and returns the screen as lines.
+    fn lines_80(app: &App, height: u16) -> Vec<String> {
+        let mut terminal = Terminal::new(TestBackend::new(80, height)).unwrap();
+        terminal
+            .draw(|frame| {
+                render(app, frame);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        buffer
+            .content()
+            .chunks(buffer.area.width as usize)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn preview_of_done_task_only_while_the_list_has_the_keys() {
+        let today = jiff::Zoned::now().date();
+        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        let done = |title: &str, body: &str| crate::archive::Done {
+            section: "work".to_string(),
+            title: title.to_string(),
+            body: body.to_string(),
+        };
+        let long = "a done task with a title long enough to run past the split";
+        app.done = [(today, vec![done(long, "## Notes\nline"), done("Plain", "")])].into();
+        (app.days, app.section_days) = history::split(&app.done);
+        app.update(Action::NextPage);
+        app.update(Action::Focus);
+        // Newest first: `Plain`, then the one with a body.
+        app.update(Action::Down);
+
+        let screen = lines_80(&app, 24);
+        let at = |text: &str| screen.iter().position(|line| line.contains(text));
+        let notes = at("## Notes").expect("preview");
+        let divider = screen[notes].chars().position(|c| c == '│').unwrap();
+        // The divider joins the double line above and the rule above the status line.
+        let double = at("═").unwrap();
+        assert_eq!(
+            screen[double].chars().nth(divider),
+            Some('╤'),
+            "{screen:#?}"
+        );
+        assert_eq!(screen[double + 1].chars().nth(divider), Some('│'));
+        assert_eq!(screen[22].chars().nth(divider), Some('┴'), "{screen:#?}");
+        // The list is cut at the split, the date at its end.
+        let row = at("a done task").unwrap();
+        assert!(screen[row][..screen[row].find('│').unwrap()].contains("today"));
+
+        // The title gets all the width without the preview.
+        let full_width = |app: &App| {
+            let screen = lines_80(app, 24);
+            assert!(
+                !screen.iter().any(|line| line.contains("## Notes")),
+                "{screen:#?}"
+            );
+            let row = screen
+                .iter()
+                .find(|line| line.contains("a done task"))
+                .unwrap();
+            assert!(row.contains("past the split"), "{screen:#?}");
+            assert!(row.trim_end().ends_with("today"), "{screen:#?}");
+        };
+        // Not while the heatmap has the keys.
+        app.update(Action::Focus);
+        full_width(&app);
+        // Nor in the list after `p`.
+        app.update(Action::Focus);
+        app.update(Action::Preview);
+        full_width(&app);
+    }
+
     #[test]
     fn narrow_screen_cuts_the_table_off() {
         let today = jiff::Zoned::now().date();

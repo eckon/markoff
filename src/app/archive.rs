@@ -23,6 +23,8 @@ pub struct ArchivePage {
     pub focus: Focus,
     /// The stats below the heatmap are shown, off until `s`.
     pub show_stats: bool,
+    /// `p` hid the preview next to the list, its own and not the todo list's.
+    pub hide_preview: bool,
 }
 
 /// What takes the move keys on the archive page, switched with `Tab`.
@@ -70,6 +72,10 @@ impl App {
             }
             (Action::Stats, _) => {
                 self.archive.show_stats = !self.archive.show_stats;
+                return true;
+            }
+            (Action::Preview, Focus::List) => {
+                self.archive.hide_preview = !self.archive.hide_preview;
                 return true;
             }
             // Like in the todo list, `h` / `l` do nothing. A section key from the heatmap goes

@@ -11,15 +11,21 @@ use ratatui::{
 };
 
 use crate::{
-    app::{App, archive::ArchiveRow},
+    app::{
+        App,
+        archive::{ArchiveRow, Focus},
+    },
     ui::{list_with_preview, rows, section_color},
 };
 
 /// The list below the overview, see [`rows`], with the preview of the task at the cursor like
-/// in the todo list. Returns the scroll offset and where the preview went.
+/// in the todo list, unless `p` hid it. Returns the scroll offset and where the preview went.
 pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> (usize, Option<Rect>) {
     let rows = app.archive_rows(columns);
+    // Only while the list has the keys: moving in the heatmap would open and close it.
+    let hidden = app.archive.hide_preview || app.archive.focus == Focus::Heatmap;
     let body = match rows.get(app.archive.cursor) {
+        _ if hidden => None,
         Some(&ArchiveRow::Task(_, day, index)) => Some(app.done[&day][index].body.as_str()),
         _ => None,
     };

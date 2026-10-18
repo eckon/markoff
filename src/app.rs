@@ -106,6 +106,8 @@ pub struct App {
     pub status: Option<Status>,
     /// Help overlay is open.
     pub show_help: bool,
+    /// `p` hid the preview next to the list.
+    pub hide_preview: bool,
     pub page: Page,
     pub archive: ArchivePage,
     editor_request: Option<EditorRequest>,
@@ -146,6 +148,7 @@ impl App {
             undo: Vec::new(),
             status: None,
             show_help: false,
+            hide_preview: false,
             page: Page::Todo,
             archive: ArchivePage::default(),
             editor_request: None,
@@ -342,6 +345,7 @@ impl App {
             Action::Delete => self.delete()?,
             Action::Undo => self.undo()?,
             Action::Help => self.show_help = true,
+            Action::Preview => self.hide_preview = !self.hide_preview,
             Action::PrevPage | Action::NextPage => {
                 let count = Page::ALL.len();
                 let step = if action == Action::NextPage {
@@ -764,6 +768,22 @@ pub mod tests {
         assert_eq!(app.page, Page::Todo, "wraps around");
         app.handle_event(Event::Key(KeyCode::Char('[').into()));
         assert_eq!(app.page, Page::Archive);
+    }
+
+    #[test]
+    fn preview_toggles_on_each_page_of_its_own() {
+        let (_dir, mut app) = app_with_files(&["work/a.md"]);
+        app.update(Action::Preview);
+        assert!(app.hide_preview);
+
+        // On the archive page only in the list, and not the todo list's.
+        app.update(Action::NextPage);
+        app.update(Action::Preview);
+        assert!(!app.archive.hide_preview, "not in the heatmap");
+        app.update(Action::Focus);
+        app.update(Action::Preview);
+        assert!(app.archive.hide_preview);
+        assert!(app.hide_preview, "the todo list's stays");
     }
 
     #[test]

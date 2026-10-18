@@ -1,79 +1,99 @@
 # Idea: archive view
 
-Built, waiting for the feedback round. Once final, its rules go to AGENTS.md, README.md and the
-code (mostly done), and this file is removed.
+Built and through several feedback rounds, not final yet. Once final, its rules go to AGENTS.md,
+README.md and the code (mostly done), and this file is removed.
 
 ## Why
 
 A reminder of what was done recently, to continue a task that has several parts: "what did I do
-yesterday", "what did I do for work in the last 3 weeks". Plus the overview the archive popup gives
-today. Fully read-only: no writes from this page, not even opening a file in `$EDITOR`. Searching
+yesterday", "what did I do for work in the last 3 weeks". Plus the overview the old archive popup
+gave. Fully read-only: no writes from this page, not even opening a file in `$EDITOR`. Searching
 the archive by text is not the goal, the editor does that.
 
-## Pages
+## As it is now
 
-- The archive becomes a full page instead of the popup over the todo list. Help stays an overlay.
-- `[` / `]` switch between the pages and wrap around, so more pages can come later. `a` is
-  removed.
-- The header shows the pages, `todo  archive`, the current one highlighted.
-- Each page keeps its state within the session: the archive page keeps its cursor and focus when
-  switching away and back.
-- `?` shows only the keys of the current page.
+### Pages
+
+- Todo list and archive are pages, `[` / `]` switch and wrap around, so more pages can come
+  later. The help stays an overlay.
+- The header shows the keys around the pages, `── [ todo  archive ] ──`, the current one bold.
+  On the archive page it shows the selected day or range instead of today, and only `✓ N done` of
+  the selection.
+- Each page keeps its state within the session (cursor, focus, `p`, `s`).
+- `?` shows only the keys of the current page. On the archive page grouped by part: `heatmap`,
+  `list`, `other`. `j` / `k` and `1`-`9` are in both parts.
 - Todo keys (`X`, `D`, `o`, `u`, `/`, …) do nothing on the archive page, without a hint.
 
-## Layout
+### Layout
 
 ```text
-┌ archive ───────────────────────────────┐
-│ heatmap: labels + 7 weekday rows       │
-│ stats: period table, years, share bars │
-├ Fri 2026-10-16 · 3 tasks ──────────────┤
-│ work                                   │
-│   Fix login bug              yesterday │
-│   Review PR                     Mon 13 │
-│ home                                   │
-│   Call plumber               yesterday │
-└────────────────────────────────────────┘
+  heatmap: labels + 7 weekday rows, the cursor between brackets: ·[▓]·
+  stats (only with `s`): period table, years, share bars
+
+  ════════════════════════╤════════════════════════
+                          │
+  ──[1]─ work ───── 2     │ ## Notes
+ ▌   • Fix login  today   │ body of the task at the cursor
+     • Review PR  Mon 13  │
 ```
 
-- Overview on top, as the popup has it now: heatmap and stats. The stats stay over all time, they
-  do not follow the selection.
-- Below it the done tasks of the selection.
-- Small screens: the stats are dropped first. The heatmap keeps its height (labels + 7 rows), its
-  width adapts as now. The list gets the rest and scrolls.
+- No frame. The part without the keys is dimmed, a double line with a blank line on each side
+  between the two. No `Tab` hint, it was too noisy.
+- The list keeps at least 5 rows: the stats give way first. The heatmap keeps its height.
 
-## Heatmap
+### Heatmap
 
-- A cursor on a cell, the cell is the selection: on the right a day, further back a cell covers
-  more days, so older selections are longer stretches.
-- `h` / `l` a column, `j` / `k` a row. Stops at the edges, skips the days after today.
-- The selected cell is drawn reversed.
-- The cursor remembers a date: after a resize or a reload it lands on the cell that contains it.
-- On opening: the last day with done tasks, today if something is done today, so on a Monday
-  Friday. Heatmap focused.
+- The cursor's cell is the selection: on the right a day, further back a cell covers more days.
+- `h` / `l` a column, `j` / `k` a row, empty cells too. `H` / `J` / `K` / `L` go on that way to the
+  next cell with tasks done. Both stop at the edges and before days after today.
+- The cursor remembers a date: after a resize or a reload it lands on the cell that holds it.
+- On first opening: the last day with tasks done, so on a Monday Friday. The heatmap has the keys.
+- `1`-`9` jump into the list, to that section's first task, if it is shown.
+- `s` shows or hides the stats, hidden by default (for now, see below).
 
-## List
+### List
 
-- The tasks of the selected cell, grouped by section like the todo list: sections in `.order`
-  order, sections no longer in the todo list after them like any other section, under their
-  archived name. Newest first within a section.
-- Each row: the title, the done date on the right. Relative when near (`today`, `yesterday`,
-  `Mon 13` within about a week), the full date further back (`2026-03-04`).
-- The frame title says the range and the count: `Fri 2026-10-16 · 3 tasks`,
-  `2026-03-02 – 2026-03-15 · 12 tasks`. An empty selection says so in the list.
-- A cursor row like in the todo list: `j` / `k`, `gg` / `G`, `{` / `}`, `1`-`9`.
+- The tasks of the selected cell, grouped by section in `.order` order, sections only in the
+  archive after them by name. Newest first within a section.
+- Section keys count the sections shown, `[1]`-`[9]`, the colors stay the todo list's.
+- Each row: the title and the done day on the right edge, relative when near (`today`,
+  `yesterday`, `Mon 13`), the date further back. The title wraps at the cursor.
+- `j` / `k`, `gg` / `G`, `{` / `}`, `1`-`9` like in the todo list. Moving the heatmap cursor puts
+  the list cursor on the first task.
+- The task at the cursor shows its body in a preview on the right, like in the todo list, but only
+  while the list has the keys. `p` hides or shows it, on each page of its own, shown by default.
+  The body's headings are shifted back to how they were in the task.
 
-## Focus
+### Code
 
-- `Tab` switches between heatmap and list. The focused one has a highlighted frame, the other's
-  cursor is dim.
+- `app/archive.rs` the page's state and actions, `ui/archive/` its heatmap, stats and list.
+- Shared with the todo list: the cursor moves (`cursor.rs`), the list renderer (`ui/rows.rs`) and
+  the list with its preview (`list_with_preview` in `ui.rs`). Rows are built per page, writing
+  actions and what the cursor follows (file path or position) stay per page.
+
+## Open points
+
+1. **Stats.** `s` is a stopgap. Open: where they belong (own page, below the list, only on a
+   wide screen), and what they should show. On a small screen `s` shows nothing at all, because the
+   list keeps its 5 rows, which looks like a broken key.
+2. **First open.** The list cursor can land on a section header when the last day with tasks is
+   in a cell of several days: the heatmap's columns are only known after the first frame.
+3. **Header length.** The page keys made the header longer, at 80 columns the todo preview's
+   divider no longer joins it (`┬`), the date is in the way.
+4. **Uppercase keys.** AGENTS.md says destructive keys are uppercase. On the read-only archive
+   page `H` / `J` / `K` / `L` are not destructive, and `J` / `K` mean something else than on the
+   todo page (move a task). Fine for a read-only page, but the rule in AGENTS.md should say so
+   when this file goes.
+5. **Body parsing.** A `# ` heading in a task body becomes `### ` in the archive, so it shows up
+   as a task of its own and cuts the body there. It counted as a task before too. Fixing it means
+   changing how tasks are archived.
 
 ## Later
 
-Not in the first version, kept here so the design leaves room for them:
+Not in this version, the design leaves room for them:
 
-- `<CR>` on a done task shows its body, read-only (overlay or `$PAGER`, open).
-- Visual mode in the heatmap: `v` anchors, `h` / `l` extend the selection over several cells.
+- Visual mode in the heatmap: `v` anchors, `h` / `l` extend the selection over several cells, for
+  "the last 3 weeks".
 - Date words to pick a range, without an LLM: a fixed table, like git's `--since` or taskwarrior.
 
   | Input                                      | Meaning                                  |
@@ -89,41 +109,11 @@ Not in the first version, kept here so the design leaves room for them:
   than needed. Key open.
 - Narrowing to sections, shared with the todo page: the same logic for both.
 
-## As built
-
-Where the first version differs from the plan above or fills a gap:
-
-- No frame (first feedback): the part without the keys is dimmed. Between overview and list a
-  double line with a blank line on each side. No `Tab` hint there, it was too noisy, `?` has it.
-- The header shows the page keys around the pages, `[ todo  archive ]`. On the archive page the
-  selected day or range instead of today, and only `✓ N done` of the selection. The status line
-  has no page hint.
-- `H` / `J` / `K` / `L` skip empty cells: the cursor goes on that way to the next cell with tasks
-  done, on the same row or in the same column. Without one it stays. `h` / `j` / `k` / `l` go
-  one cell, empty or not.
-- The heatmap cursor is between bold brackets, the cell keeps its shade: `[█]`.
-- Section keys in the list count the sections shown, `[1]`-`[9]`, the colors stay the todo
-  list's. `1`-`9` in the heatmap jump into the list like there, if that section is shown.
-- The stats are hidden until `s` (for now, second feedback).
-- The help on the archive page groups the keys by part: `heatmap` (with `1`-`9` and `s`), `list`,
-  and `Tab` under `other`. `j` / `k` and `1`-`9` are in both parts.
-- In the list `h` / `l` and `H` `J` `K` `L` do nothing, in the heatmap `gg` / `G` and `{` / `}`.
-- Moving the heatmap cursor puts the list cursor on its first task, like a jump to a section.
-- The list keeps at least 5 rows: below that the stats go, then the blank lines around the
-  heatmap.
-- Done tasks come from the `### ` headings of the archive files, so a `# ` heading in a task body
-  shows up as a task of its own (it did count as one before too).
-- The cursor moves of both lists are shared in `cursor.rs`.
-
-## Open for the feedback round
-
-- The header is longer now, at 80 columns the todo preview's divider no longer joins it (`┬`).
-- On the first open the list cursor can land on a section header when the last day with tasks is
-  in a cell of several days: the heatmap's columns are only known after the first frame.
-
 ## Before it is final
 
-- Tests: while building only unit tests for pure logic were added where they helped. The missing
-  app (archive actions, focus, page switching), render (list, focus, small screens) and workflow
-  tests are added when finalizing, to keep the code at the usual standard.
+- Tests. There are: unit tests for the pure parts (heatmap steps, bodies, relative days, cursor
+  moves via the todo list), the list renderer, the archive preview with its joins, page switching
+  and `p`. Missing: app tests for the heatmap moves, skipping, focus and section keys, render
+  tests for the cursor brackets and small screens, and in the workflow scenarios the archive part
+  (moving, `Tab`, the list, the preview) and `p` on the todo page.
 - This file goes, what is left of it moves to AGENTS.md.

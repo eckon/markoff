@@ -196,3 +196,83 @@ fn wrap(text: Vec<Span<'static>>, width: usize) -> Vec<Vec<Span<'static>>> {
     lines.push(spans(&rest));
     lines
 }
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{Terminal, backend::TestBackend, style::Color};
+
+    use super::*;
+
+    /// The rows in a list 40 wide, as text.
+    fn draw(rows: Vec<Row>, cursor: usize, notes: &[&str]) -> Vec<String> {
+        let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
+        terminal
+            .draw(|frame| {
+                render(frame, frame.area(), rows, [cursor, 0], notes);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        buffer
+            .content()
+            .chunks(buffer.area.width as usize)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect()
+    }
+
+    fn header(name: &str) -> Row {
+        let rule = section_rule(0, Color::Blue, name, 1, 36);
+        Row {
+            color: Color::Blue,
+            kind: Kind::Header(rule),
+        }
+    }
+
+    fn task(title: &str, right: Option<&str>) -> Row {
+        Row {
+            color: Color::Blue,
+            kind: Kind::Task(
+                vec![title.to_string().into()],
+                right.map(|r| r.to_string().into()),
+            ),
+        }
+    }
+
+    #[test]
+    fn sections_with_a_blank_line_between_and_the_cursor_in_the_gutter() {
+        let rows = vec![
+            header("work"),
+            task("a", None),
+            header("home"),
+            task("b", None),
+        ];
+        let lines = draw(rows, 3, &[]);
+        // The padding, then the gutter.
+        assert!(lines[0].starts_with("  ──[1]─ work ─"), "{lines:#?}");
+        assert!(lines[0].trim_end().ends_with("─ 1"), "{lines:#?}");
+        assert_eq!(lines[1].trim_end(), "     • a");
+        assert_eq!(lines[2].trim(), "", "blank before the next section");
+        assert_eq!(lines[4].trim_end(), " ▌   • b");
+    }
+
+    #[test]
+    fn right_text_on_the_edge_of_the_first_line() {
+        let long = "a title that is far too long for one line";
+        let rows = vec![task(long, Some("today")), task(long, Some("today"))];
+        let lines = draw(rows, 1, &[]);
+        // 40 wide, the padding leaves 37: the title is cut a space before `today`.
+        assert_eq!(lines[0], "     • a title that is far too … today  ");
+        // At the cursor the title wraps, `today` stays on its first line.
+        assert_eq!(lines[1], " ▌   • a title that is far too   today  ");
+        assert_eq!(lines[2].trim_end(), " ▌     long for one line");
+    }
+
+    #[test]
+    fn notes_after_the_rows_dimmed() {
+        let lines = draw(Vec::new(), 0, &["nothing done"]);
+        assert_eq!(lines[0].trim_end(), "  nothing done");
+
+        let lines = draw(vec![task("a", None)], 0, &["no sections yet"]);
+        assert_eq!(lines[1].trim(), "", "a blank line before a note");
+        assert_eq!(lines[2].trim_end(), "  no sections yet");
+    }
+}
