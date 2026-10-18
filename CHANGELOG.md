@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/eckon/markoff/compare/v0.2.0...v0.3.0) - 2026-10-18
+
+### Added
+
+- add add sub command
+- add list sub command
+- add c-w binding to delete word in filter mode
+- allow jumping to prev/next section with c-u/c-d
+
+### Other
+
+- improve subcommands list
+
 ## [0.2.0](https://github.com/eckon/markoff/compare/v0.1.0...v0.2.0) - 2026-10-17
 
 ### Added
