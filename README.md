@@ -95,7 +95,7 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 | `a`         | Toggle archive, a heatmap of done tasks     |
 | `q` / `C-c` | Quit                                        |
 
-While a filter is set, moving and adding tasks is off.
+In the filter, `C-w` deletes the last word. While a filter is set, moving and adding tasks is off.
 
 The editor is `$VISUAL`, then `$EDITOR`, then `vi`.
 
