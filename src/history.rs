@@ -414,6 +414,7 @@ mod tests {
         let done = |section: &str| Done {
             section: section.to_string(),
             title: String::new(),
+            body: String::new(),
         };
         let archive = Archive::from([
             (

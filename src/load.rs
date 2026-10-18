@@ -173,6 +173,7 @@ mod tests {
         let fix_bug = archive::Done {
             section: "work".to_string(),
             title: "Fix bug".to_string(),
+            body: String::new(),
         };
         assert_eq!(days[&"2026-10-14".parse().unwrap()], [fix_bug]);
     }

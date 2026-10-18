@@ -6,17 +6,18 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph, Wrap},
+    widgets::{Block, Borders, Padding, Paragraph, Wrap},
 };
 
 mod archive;
 mod daily;
 mod help;
+mod rows;
 
 use crate::{
     app::{App, Page, Row, Status, archive::ArchiveRow},
     filter,
-    keymap::{self, Action, BINDINGS, FILTER_INPUT_HINTS},
+    keymap::{Action, BINDINGS, FILTER_INPUT_HINTS},
 };
 
 /// What a frame leaves for the next one, the caller keeps it in the app.
@@ -86,32 +87,42 @@ fn render_todo(
     frame: &mut Frame,
     [header_area, gap_area, main_area, rule_area]: [Rect; 4],
 ) -> usize {
-    let [list_area, preview_area] =
-        Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
-            .areas(main_area);
-    // Rules keep the split width even when the list gets the whole screen,
-    // so they don't jump while moving between tasks with and without a body.
-    let rule_width = list_block().inner(list_area).width as usize;
-
     // The preview only shows up for a task with a body, otherwise the list takes all the width.
     let body = match app.selected() {
         Some(Row::Task(s, t)) => Some(app.sections[s].tasks[t].body.as_str()),
         Some(Row::DailyTask(i)) => Some(daily::body(app, i)),
         _ => None,
     };
+    let (offset, preview) =
+        list_with_preview(frame, main_area, body, &app.filter, |frame, area, width| {
+            render_list(app, frame, area, width)
+        });
+    if let Some(preview) = preview {
+        connect_divider(frame, preview.x, header_area.y, gap_area.y, rule_area.y);
+    }
+    offset
+}
+
+/// A list in `area` drawn by `list`, and next to it the preview of `body` if it has text, with
+/// the matches of `filter`. Without one the list takes all the width, but its rules keep the
+/// split width, so they don't jump while moving between tasks with and without a body. Returns
+/// the list's offset and where the preview went.
+fn list_with_preview(
+    frame: &mut Frame,
+    area: Rect,
+    body: Option<&str>,
+    filter: &str,
+    list: impl FnOnce(&mut Frame, Rect, usize) -> usize,
+) -> (usize, Option<Rect>) {
+    let [list_area, preview_area] =
+        Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).areas(area);
+    let rule_width = rows::block().inner(list_area).width as usize;
     match body {
         Some(body) if !body.trim().is_empty() => {
-            render_preview(app, frame, preview_area, body);
-            connect_divider(
-                frame,
-                preview_area.x,
-                header_area.y,
-                gap_area.y,
-                rule_area.y,
-            );
-            render_list(app, frame, list_area, rule_width)
+            render_preview(frame, preview_area, body, filter);
+            (list(frame, list_area, rule_width), Some(preview_area))
         }
-        _ => render_list(app, frame, main_area, rule_width),
+        _ => (list(frame, area, rule_width), None),
     }
 }
 
@@ -253,170 +264,69 @@ fn section_color(index: usize) -> Color {
     SECTION_COLORS[index % SECTION_COLORS.len()]
 }
 
-/// Opens the section key in a section rule: `──[1]─ work`.
-const KEY_OPEN: &str = "──[";
-
-/// `──[1]─ work ─────── 2` with the key of the `key`th section, in `color`, filled to `width`.
-/// The todo list and the done tasks on the archive page.
-fn section_rule(
-    key: usize,
-    color: Color,
-    name: &str,
-    count: usize,
-    width: usize,
-) -> Vec<Span<'static>> {
-    // The key that jumps here replaces the leading `── ` of the rule, the key right above the
-    // bullets. Dim like the count, so the name stays what stands out. Without a key the rule is
-    // as long, the names align.
-    let keyed = |key: char| {
-        vec![
-            KEY_OPEN.fg(LINE_COLOR),
-            key.to_string().dim(),
-            "]─ ".fg(LINE_COLOR),
-        ]
-    };
-    let lead = match keymap::jump_key(key) {
-        Some(key) => keyed(key),
-        None => {
-            let lead_width: usize = keyed(' ').iter().map(Span::width).sum();
-            vec![format!("{} ", "─".repeat(lead_width - 1)).fg(LINE_COLOR)]
-        }
-    };
-    let count = vec![count.to_string().dim()];
-    rule(Some(lead), name, count, color, width)
-}
-
-/// Gutter and indent before a task title, the bullet below the key of the section. `first` is
-/// the first line of the title, the bullet only goes there.
-fn task_prefix(gutter: Span<'static>, color: Color, first: bool) -> Vec<Span<'static>> {
-    let bullet = if first { "• ".fg(color) } else { "  ".into() };
-    vec![gutter, " ".repeat(KEY_OPEN.chars().count()).into(), bullet]
-}
-
-/// No box around the list. Sections are rules, tasks get a bullet in the section color,
-/// the cursor is a bar in the gutter. Returns the scroll offset.
+/// The todo list: the daily checklist and the sections with their tasks, see [`rows`].
+/// Returns the scroll offset.
 fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize {
-    let block = list_block();
-    let text_width = block.inner(area).width as usize;
-
-    let mut items: Vec<ListItem> = Vec::new();
-    let mut selected = 0;
     let rows = app.rows();
-    for (i, &row) in rows.iter().enumerate() {
-        let is_cursor = i == app.cursor;
-        let color = match row {
-            Row::Section(s) | Row::Task(s, _) => section_color(s),
-            Row::Daily | Row::DailyTask(_) => daily::COLOR,
-        };
-
-        // Blank line before each section except the first. Not a row, the cursor skips it.
-        if i > 0 && matches!(row, Row::Section(_) | Row::Daily) {
-            items.push(ListItem::new(""));
-        }
-        if is_cursor {
-            selected = items.len();
-        }
-
-        // One column gutter for the cursor bar.
-        let gutter = || -> Span<'static> {
-            if is_cursor {
-                "▌".fg(color)
+    let items: Vec<rows::Row> = (rows.iter().enumerate())
+        .map(|(i, &row)| {
+            let is_cursor = i == app.cursor;
+            let color = match row {
+                Row::Section(s) | Row::Task(s, _) => section_color(s),
+                Row::Daily | Row::DailyTask(_) => daily::COLOR,
+            };
+            let task_style = if is_cursor {
+                Style::new().fg(color)
             } else {
-                " ".into()
-            }
-        };
-        let task_style = if is_cursor {
-            Style::new().fg(color)
-        } else {
-            Style::new()
-        };
-        let title = match row {
-            Row::Section(s) => {
-                // Only the shown tasks, so with a filter it says how many match.
-                let count = rows
-                    .iter()
-                    .filter(|row| matches!(row, Row::Task(task_s, _) if *task_s == s))
-                    .count();
-                let mut spans = vec![gutter()];
-                spans.extend(section_rule(
-                    s,
-                    color,
-                    &app.sections[s].name,
-                    count,
-                    width.saturating_sub(gutter().width()),
-                ));
-                items.push(ListItem::new(Line::from(spans)));
-                continue;
-            }
-            Row::Daily => {
-                let mut spans = vec![gutter()];
-                spans.extend(daily::header(app, width.saturating_sub(gutter().width())));
-                items.push(ListItem::new(Line::from(spans)));
-                continue;
-            }
-            Row::DailyTask(i) => daily::task(app, i, task_style),
-            Row::Task(s, t) => {
-                let title = app.sections[s].tasks[t].title();
-                let mut style = task_style;
-                // Listed for a match in the body only: weaker, `…` hints at the preview.
-                let body_only = !filter::matches(&title, &app.filter);
-                if body_only {
-                    style = style.dim();
+                Style::new()
+            };
+            let kind = match row {
+                Row::Section(s) => {
+                    // Only the shown tasks, so with a filter it says how many match.
+                    let count = rows
+                        .iter()
+                        .filter(|row| matches!(row, Row::Task(task_s, _) if *task_s == s))
+                        .count();
+                    let name = &app.sections[s].name;
+                    rows::Kind::Header(rows::section_rule(
+                        s,
+                        color,
+                        name,
+                        count,
+                        width.saturating_sub(1),
+                    ))
                 }
-                let mut spans = highlight(&title, &app.filter, style);
-                if body_only {
-                    spans.push(" …".dim());
+                Row::Daily => rows::Kind::Header(daily::header(app, width.saturating_sub(1))),
+                Row::DailyTask(i) => rows::Kind::Task(daily::task(app, i, task_style), None),
+                Row::Task(s, t) => {
+                    let title = app.sections[s].tasks[t].title();
+                    let mut style = task_style;
+                    // Listed for a match in the body only: weaker, `…` hints at the preview.
+                    let body_only = !filter::matches(&title, &app.filter);
+                    if body_only {
+                        style = style.dim();
+                    }
+                    let mut spans = highlight(&title, &app.filter, style);
+                    if body_only {
+                        spans.push(" …".dim());
+                    }
+                    rows::Kind::Task(spans, None)
                 }
-                spans
-            }
-        };
+            };
+            rows::Row { color, kind }
+        })
+        .collect();
 
-        let prefix = |first: bool| task_prefix(gutter(), color, first);
-        let title_width = text_width.saturating_sub(Line::from(prefix(true)).width());
-        let title_lines = if is_cursor {
-            wrap(title, title_width)
-        } else {
-            vec![truncate(title, title_width)]
-        };
-        let lines: Vec<Line> = title_lines
-            .into_iter()
-            .enumerate()
-            .map(|(n, title)| {
-                let mut spans = prefix(n == 0);
-                spans.extend(title);
-                Line::from(spans)
-            })
-            .collect();
-        items.push(ListItem::new(lines));
-    }
+    let mut notes = Vec::new();
     if items.is_empty() && !app.filter.is_empty() {
-        // Gutter column like the rows, so it lines up with the section rules.
-        items.push(ListItem::new(" no matches".dim()));
+        notes.push("no matches");
     }
     // Tasks only live in sections, so without one there is nowhere to add a task.
     if app.sections.is_empty() {
-        if !items.is_empty() {
-            items.push(ListItem::new(""));
-        }
-        items.push(ListItem::new(" no sections yet, N creates one".dim()));
+        notes.push("no sections yet, N creates one");
     }
-
-    let list = List::new(items).block(block);
-    // Starts from the last offset, ratatui only scrolls when the cursor would leave the
-    // screen. A fresh offset would pin the cursor to the bottom edge while moving up.
-    let mut state = ListState::default()
-        .with_offset(app.list_offset)
-        .with_selected(Some(selected));
-    frame.render_stateful_widget(list, area, &mut state);
-    state.offset()
-}
-
-/// Spans split into single styled chars, so they can be cut anywhere.
-fn chars(spans: Vec<Span<'static>>) -> Vec<(char, Style)> {
-    spans
-        .iter()
-        .flat_map(|span| span.content.chars().map(|c| (c, span.style)))
-        .collect()
+    let state = [app.cursor, app.list_offset, width];
+    rows::render(frame, area, items, state, &notes)
 }
 
 /// Styled chars joined back into spans, one per run of the same style.
@@ -425,39 +335,6 @@ fn spans(chars: &[(char, Style)]) -> Vec<Span<'static>> {
         .chunk_by(|a, b| a.1 == b.1)
         .map(|run| Span::styled(run.iter().map(|(c, _)| c).collect::<String>(), run[0].1))
         .collect()
-}
-
-/// One line of `width`, ending in `…` when cut, so a long title doesn't just stop.
-fn truncate(text: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
-    let chars = chars(text);
-    if chars.len() <= width {
-        return spans(&chars);
-    }
-    let mut line = spans(&chars[..width.saturating_sub(1)]);
-    line.push("…".dim());
-    line
-}
-
-/// Lines of at most `width`, broken at spaces, words longer than a line are split.
-fn wrap(text: Vec<Span<'static>>, width: usize) -> Vec<Vec<Span<'static>>> {
-    let mut rest = chars(text);
-    let mut lines = Vec::new();
-    while rest.len() > width && width > 0 {
-        let space = rest[..=width].iter().rposition(|(c, _)| *c == ' ');
-        let (line, next) = match space {
-            Some(at) if at > 0 => (&rest[..at], &rest[at + 1..]),
-            _ => (&rest[..width], &rest[width..]),
-        };
-        lines.push(spans(line));
-        rest = next.to_vec();
-    }
-    lines.push(spans(&rest));
-    lines
-}
-
-/// Space on the right so rules stop before the preview divider.
-fn list_block<'a>() -> Block<'a> {
-    Block::new().padding(Padding::new(1, 2, 0, 0))
 }
 
 /// `── work ─────── 2`, filled to `width`. Section headers, the date header, help groups.
@@ -481,9 +358,10 @@ fn rule(
     spans
 }
 
-/// Task body as raw text, read only. No title, the cursor row in the list shows it in full.
-fn render_preview(app: &App, frame: &mut Frame, area: Rect, body: &str) {
-    let text = body_text(body, &app.filter);
+/// Task body as raw text, read only, with the matches of `filter`. No title, the cursor row in
+/// the list shows it in full. The todo list and the archive page.
+fn render_preview(frame: &mut Frame, area: Rect, body: &str, filter: &str) {
+    let text = body_text(body, filter);
 
     // No box, a divider on the left.
     let divider = Block::new()

@@ -7,91 +7,78 @@ use ratatui::{
     Frame,
     layout::Rect,
     style::{Style, Stylize},
-    text::{Line, Span},
-    widgets::{List, ListItem, ListState},
+    text::Span,
 };
 
 use crate::{
     app::{App, archive::ArchiveRow},
-    ui::{list_block, section_color, section_rule, task_prefix, truncate},
+    ui::{list_with_preview, rows, section_color},
 };
 
-/// The list below the overview. Returns the scroll offset.
+/// The list below the overview, see [`rows`], with the preview of the task at the cursor like
+/// in the todo list. Returns the scroll offset.
 pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> usize {
-    let block = list_block();
-    let width = block.inner(area).width as usize;
+    let rows = app.archive_rows(columns);
+    let body = match rows.get(app.archive.cursor) {
+        Some(&ArchiveRow::Task(_, day, index)) => Some(app.done[&day][index].body.as_str()),
+        _ => None,
+    };
+    let list = |frame: &mut Frame, area, width| render_rows(app, frame, area, &rows, width);
+    list_with_preview(frame, area, body, "", list).0
+}
+
+/// The rows themselves, the rules `width` wide.
+fn render_rows(
+    app: &App,
+    frame: &mut Frame,
+    area: Rect,
+    rows: &[ArchiveRow],
+    width: usize,
+) -> usize {
     let today = jiff::Zoned::now().date();
     let sections = app.archive_sections();
-    let rows = app.archive_rows(columns);
-
-    let mut items: Vec<ListItem> = Vec::new();
-    let mut selected = 0;
     // Keys count the sections shown, the colors stay those of the todo list.
     let mut keys = 0..;
-    for (i, &row) in rows.iter().enumerate() {
-        let is_cursor = i == app.archive.cursor;
-        let (ArchiveRow::Section(s) | ArchiveRow::Task(s, ..)) = row;
-        let color = section_color(s);
-        // Blank line before each section except the first, the cursor skips it.
-        if i > 0 && matches!(row, ArchiveRow::Section(_)) {
-            items.push(ListItem::new(""));
-        }
-        if is_cursor {
-            selected = items.len();
-        }
-        let gutter = || -> Span<'static> {
-            if is_cursor {
-                "▌".fg(color)
-            } else {
-                " ".into()
-            }
-        };
-        let line = match row {
-            ArchiveRow::Section(s) => {
-                let count = rows
-                    .iter()
-                    .filter(|row| matches!(row, ArchiveRow::Task(task_s, ..) if *task_s == s))
-                    .count();
-                let mut spans = vec![gutter()];
-                spans.extend(section_rule(
-                    keys.next().unwrap_or_default(),
-                    color,
-                    &sections[s],
-                    count,
-                    width.saturating_sub(gutter().width()),
-                ));
-                spans
-            }
-            ArchiveRow::Task(_, day, index) => {
-                let style = if is_cursor {
-                    Style::new().fg(color)
-                } else {
-                    Style::new()
-                };
-                let title = app.done[&day][index].title.clone();
-                let when = format!(" {}", when(day, today));
-                let mut spans = task_prefix(gutter(), color, true);
-                let used = Line::from(spans.clone()).width() + when.chars().count();
-                let title = truncate(vec![Span::styled(title, style)], width.saturating_sub(used));
-                let title_width: usize = title.iter().map(Span::width).sum();
-                spans.extend(title);
-                spans.push(" ".repeat(width.saturating_sub(used + title_width)).into());
-                spans.push(when.dim());
-                spans
-            }
-        };
-        items.push(ListItem::new(Line::from(line)));
-    }
-    if items.is_empty() {
-        // Gutter column like the rows, so it lines up with the section rules.
-        items.push(ListItem::new(" nothing done".dim()));
-    }
-
-    let mut state = ListState::default()
-        .with_offset(app.archive.offset)
-        .with_selected(Some(selected));
-    frame.render_stateful_widget(List::new(items).block(block), area, &mut state);
-    state.offset()
+    let items: Vec<rows::Row> = (rows.iter().enumerate())
+        .map(|(i, &row)| {
+            let (ArchiveRow::Section(s) | ArchiveRow::Task(s, ..)) = row;
+            let color = section_color(s);
+            let kind = match row {
+                ArchiveRow::Section(s) => {
+                    let count = rows
+                        .iter()
+                        .filter(|row| matches!(row, ArchiveRow::Task(task_s, ..) if *task_s == s))
+                        .count();
+                    let key = keys.next().unwrap_or_default();
+                    let rule = rows::section_rule(
+                        key,
+                        color,
+                        &sections[s],
+                        count,
+                        width.saturating_sub(1),
+                    );
+                    rows::Kind::Header(rule)
+                }
+                ArchiveRow::Task(_, day, index) => {
+                    let style = if i == app.archive.cursor {
+                        Style::new().fg(color)
+                    } else {
+                        Style::new()
+                    };
+                    let title = Span::styled(app.done[&day][index].title.clone(), style);
+                    rows::Kind::Task(vec![title], Some(when(day, today).dim()))
+                }
+            };
+            rows::Row { color, kind }
+        })
+        .collect();
+    let notes: &[&str] = if items.is_empty() {
+        &["nothing done"]
+    } else {
+        &[]
+    };
+    let state = [app.archive.cursor, app.archive.offset, width];
+    rows::render(frame, area, items, state, notes)
 }
 
 /// The day of the selected cell for the header, `Fri 16 Oct 2026`, a cell of more days as

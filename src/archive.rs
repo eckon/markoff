@@ -59,26 +59,46 @@ pub fn add(archive: Option<&str>, date: &str, section: &str, task: &Task) -> Str
 
 /// The tasks of the archive file in file order, each with its `## section`: the `### `
 /// headings outside code blocks. Tasks above the first section, possible in a file edited by
-/// hand, have an empty section.
+/// hand, have an empty section. The body is what follows up to the next of these headings, its
+/// headings shifted back up as they were in the task.
 ///
-/// A `# ` heading inside a task body is shifted to `### ` as well and counts too. Rare enough
-/// for the archive page.
+/// A `# ` heading inside a task body is shifted to `### ` as well and counts as a task too. Rare
+/// enough for the archive page.
 pub fn tasks(archive: &str) -> Vec<Done> {
     let mut fence = Fence::default();
     let mut section = "";
-    let mut tasks = Vec::new();
+    let mut tasks: Vec<Done> = Vec::new();
+    // Lines go to the body of the last task until the next section, the date heading too.
+    let mut in_task = false;
     for line in archive.split_inclusive('\n') {
-        if fence.update(line) {
-            continue;
+        let level = match fence.update(line) {
+            true => None,
+            false => heading_level(line),
+        };
+        match level {
+            Some(level) if level <= TASK_LEVEL => {
+                in_task = level == TASK_LEVEL;
+                match level {
+                    SECTION_LEVEL => section = line[SECTION_LEVEL..].trim(),
+                    TASK_LEVEL => tasks.push(Done {
+                        section: section.to_string(),
+                        title: line[TASK_LEVEL..].trim().to_string(),
+                        body: String::new(),
+                    }),
+                    _ => {}
+                }
+            }
+            _ if !in_task => {}
+            Some(level) => {
+                let body = &mut tasks.last_mut().expect("in a task").body;
+                body.push_str(&"#".repeat(level - HEADING_SHIFT));
+                body.push_str(&line[level..]);
+            }
+            None => tasks.last_mut().expect("in a task").body.push_str(line),
         }
-        match heading_level(line) {
-            Some(SECTION_LEVEL) => section = line[SECTION_LEVEL..].trim(),
-            Some(TASK_LEVEL) => tasks.push(Done {
-                section: section.to_string(),
-                title: line[TASK_LEVEL..].trim().to_string(),
-            }),
-            _ => {}
-        }
+    }
+    for task in &mut tasks {
+        task.body = task.body.trim().to_string();
     }
     tasks
 }
@@ -88,6 +108,7 @@ pub fn tasks(archive: &str) -> Vec<Done> {
 pub struct Done {
     pub section: String,
     pub title: String,
+    pub body: String,
 }
 
 /// The task as it appears in the archive: `### Title`, then the body with shifted headings.
@@ -180,6 +201,16 @@ mod tests {
 
     fn task(content: &str) -> Task {
         Task::parse(PathBuf::from("todo/fix-bug.md"), content)
+    }
+
+    #[test]
+    fn task_bodies_with_their_headings_as_before() {
+        let fix = task("# Fix bug\n\n## Notes\n\n```sh\n# comment\n```\n\ndone\n");
+        let archive = add(None, "2026-10-14", "work", &fix);
+        let archive = add(Some(&archive), "2026-10-14", "home", &task("# B\n"));
+        let tasks = tasks(&archive);
+        assert_eq!(tasks[0].body, "## Notes\n\n```sh\n# comment\n```\n\ndone");
+        assert_eq!(tasks[1].body, "", "the next section ends the body");
     }
 
     #[test]
