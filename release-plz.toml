@@ -7,6 +7,9 @@ features_always_increment_minor = true
 release_always = false
 # dist uploads the binaries to the draft and publishes it.
 git_release_draft = true
+# Refactors, tests or dependency bumps alone would open a release PR with an empty changelog entry, breaking ones still count.
+release_commits = "^(feat|fix)|^[a-z]+(\\(.+\\))?!:"
+pr_labels = ["release"]
 
 [changelog]
 # Without `## [Unreleased]`: release-plz writes changes straight under the new version, so it would always be empty.
@@ -17,8 +20,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 """
+# In the order they were made, like the history reads.
+sort_commits = "oldest"
+# A breaking refactor still matters to users, the skip below must not hide it.
+protect_breaking_commits = true
 # Only user-facing changes, refactors, tests, CI and dependency bumps stay in git log.
 commit_parsers = [
+  { field = "breaking", pattern = "true", group = "changed" },
   { message = "^feat", group = "added" },
   { message = "^fix", group = "fixed" },
   { message = ".*", skip = true },
