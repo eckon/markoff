@@ -15,7 +15,7 @@ use color_eyre::{
     eyre::{WrapErr, bail},
 };
 
-use crate::load;
+use crate::{cli::Command, load};
 
 /// Env var with the root directory, used when no `--dir` is given.
 const DIR_ENV: &str = "MARKOFF_DIR";
@@ -40,8 +40,9 @@ pub fn info(mut args: impl Iterator<Item = String>) -> Option<String> {
         "-h" | "--help" => Some(format!(
             "markoff: a TUI for todos stored as markdown files\n\
              \n\
-             Usage: markoff [--dir <path>]\n\
+             Usage: markoff [--dir <path>] [list]\n\
              \n\
+             \x20 list           Print sections and tasks as markdown, instead of the TUI\n\
              \x20 --dir <path>   Root directory, else ${DIR_ENV}, else `dir` in ~/.config/{CONFIG_FILE}\n\
              \x20 -h, --help     Show this help\n\
              \x20 -V, --version  Show the version\n"
@@ -51,18 +52,21 @@ pub fn info(mut args: impl Iterator<Item = String>) -> Option<String> {
     })
 }
 
-/// Resolves the root directory, the one with the sections.
+/// Resolves the root directory, the one with the sections, and the command if one is given.
 ///
 /// Order: `--dir <path>` / `--dir=<path>`, then [`DIR_ENV`], then `dir` of the config file.
 /// Args, env and config are parameters so this can be tested without the real process.
-pub fn root_dir(
+pub fn parse_args(
     mut args: impl Iterator<Item = String>,
     env: Option<String>,
     config_dir: Option<PathBuf>,
-) -> Result<PathBuf> {
+) -> Result<(PathBuf, Option<Command>)> {
     let mut dir = None;
+    let mut command = None;
     while let Some(arg) = args.next() {
-        if arg == "--dir" {
+        if arg == "list" {
+            command = Some(Command::List);
+        } else if arg == "--dir" {
             let Some(value) = args.next() else {
                 bail!("--dir needs a path");
             };
@@ -74,28 +78,28 @@ pub fn root_dir(
         }
     }
 
-    if let Some(dir) = dir.or(env) {
-        return Ok(PathBuf::from(dir));
-    }
-    match config_dir {
-        Some(dir) => Ok(dir),
-        None => bail!(
+    let root = match (dir.or(env), config_dir) {
+        (Some(dir), _) => PathBuf::from(dir),
+        (None, Some(dir)) => dir,
+        (None, None) => bail!(
             "no directory given, use --dir <path>, set {DIR_ENV}, \
              or set `dir` in ~/.config/{CONFIG_FILE}"
         ),
-    }
+    };
+    Ok((root, command))
 }
 
-/// Reads the real process args, env and config file. Returns the root and the config.
-pub fn from_env() -> Result<(PathBuf, Config)> {
+/// Reads the real process args, env and config file. Returns the root, the config and the
+/// command.
+pub fn from_env() -> Result<(PathBuf, Config, Option<Command>)> {
     let var = |name| std::env::var(name).ok().filter(|v: &String| !v.is_empty());
     let home = var("HOME");
     let config = match config_path(var("XDG_CONFIG_HOME"), home.clone()) {
         Some(path) => read_config(&path, home.as_deref())?,
         None => Config::default(),
     };
-    let root = root_dir(std::env::args().skip(1), var(DIR_ENV), config.dir.clone())?;
-    Ok((root, config))
+    let (root, command) = parse_args(std::env::args().skip(1), var(DIR_ENV), config.dir.clone())?;
+    Ok((root, config, command))
 }
 
 /// `$XDG_CONFIG_HOME/markoff/config.toml`, falling back to `~/.config/markoff/config.toml`.
@@ -168,6 +172,24 @@ mod tests {
             .into_iter()
     }
 
+    /// The root of [`parse_args`], for the tests without a command.
+    fn root_dir(
+        args: impl Iterator<Item = String>,
+        env: Option<String>,
+        config_dir: Option<PathBuf>,
+    ) -> Result<PathBuf> {
+        parse_args(args, env, config_dir).map(|(root, _)| root)
+    }
+
+    #[test]
+    fn list_command_anywhere() {
+        let parse = |list: &[&str]| parse_args(args(list), None, None).unwrap();
+        let expected = (PathBuf::from("/a"), Some(Command::List));
+        assert_eq!(parse(&["list", "--dir", "/a"]), expected);
+        assert_eq!(parse(&["--dir", "/a", "list"]), expected);
+        assert_eq!(parse(&["--dir", "/a"]), (PathBuf::from("/a"), None));
+    }
+
     #[test]
     fn flag_wins_over_env() {
         let dir = root_dir(args(&["--dir", "/a"]), Some("/b".into()), None).unwrap();
@@ -209,13 +231,13 @@ mod tests {
     fn info_help_and_version() {
         let help = info(args(&["--help"])).unwrap();
         assert!(help.starts_with("markoff: a TUI"));
-        assert!(help.contains("Usage: markoff [--dir <path>]"));
+        assert!(help.contains("Usage: markoff [--dir <path>] [list]"));
         assert_eq!(info(args(&["--dir", "/a", "-h"])), Some(help));
         let version = format!("markoff {}\n", env!("CARGO_PKG_VERSION"));
         assert_eq!(info(args(&["--version"])), Some(version.clone()));
         assert_eq!(info(args(&["-V"])), Some(version));
         assert_eq!(info(args(&["--dir", "/a"])), None);
-        assert_eq!(info(args(&["--nope"])), None, "left to root_dir");
+        assert_eq!(info(args(&["--nope"])), None, "left to parse_args");
     }
 
     #[test]

@@ -99,6 +99,18 @@ In the filter, `C-w` deletes the last word. While a filter is set, moving and ad
 
 The editor is `$VISUAL`, then `$EDITOR`, then `vi`.
 
+## CLI
+
+For scripts, `markoff list` prints the sections and their tasks as markdown, in the order of the TUI:
+
+```markdown
+## work
+- Fix login bug
+- Review PR
+
+## home
+```
+
 ## Daily checklist (experimental)
 
 A checklist that starts fresh every day, shown above the sections:
