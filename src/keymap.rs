@@ -17,6 +17,8 @@ pub enum Action {
     Right,
     /// `Tab` on the archive page: the heatmap or the list takes the move keys.
     Focus,
+    /// `s` on the archive page: shows or hides the stats below the heatmap.
+    Stats,
     Top,
     Bottom,
     PrevSection,
@@ -96,7 +98,6 @@ use Trigger::{Ctrl, Key, Seq, Shift};
 pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "move", pages: ALL },
     Binding { keys: &[(&[Key(Char('h')), Key(Left)], A::Left), (&[Key(Char('l')), Key(Right)], A::Right)], help: "left / right", group: "move", pages: ARCHIVE },
-    Binding { keys: &[(&[Key(Tab)], A::Focus)], help: "heatmap / list", group: "move", pages: ARCHIVE },
     Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "move", pages: ALL },
     Binding { keys: &[(&[Key(Char('{')), Ctrl('u')], A::PrevSection), (&[Key(Char('}')), Ctrl('d')], A::NextSection)], help: "previous / next section", group: "move", pages: ALL },
     Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section", group: "move", pages: ALL },
@@ -107,6 +108,8 @@ pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('X'))], A::Done)], help: "done (archive)", group: "change", pages: TODO },
     Binding { keys: &[(&[Key(Char('D'))], A::Delete)], help: "delete", group: "change", pages: TODO },
     Binding { keys: &[(&[Key(Char('u'))], A::Undo)], help: "undo", group: "change", pages: TODO },
+    Binding { keys: &[(&[Key(Tab)], A::Focus)], help: "keys to heatmap / list", group: "archive", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('s'))], A::Stats)], help: "toggle stats", group: "archive", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('/'))], A::Filter)], help: "filter", group: "other", pages: TODO },
     Binding { keys: &[(&[Key(Esc)], A::FilterClear)], help: "clear filter", group: "other", pages: TODO },
     Binding { keys: &[(&[Key(Char('?'))], A::Help)], help: "toggle help", group: "other", pages: ALL },

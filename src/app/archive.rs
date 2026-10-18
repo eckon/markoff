@@ -21,6 +21,8 @@ pub struct ArchivePage {
     /// First list line on screen, like [`App::list_offset`].
     pub offset: usize,
     pub focus: Focus,
+    /// The stats below the heatmap are shown, off until `s`.
+    pub show_stats: bool,
 }
 
 /// What takes the move keys on the archive page, switched with `Tab`.
@@ -64,6 +66,10 @@ impl App {
             }
             (Action::Focus, Focus::List) => {
                 self.archive.focus = Focus::Heatmap;
+                return true;
+            }
+            (Action::Stats, _) => {
+                self.archive.show_stats = !self.archive.show_stats;
                 return true;
             }
             // Like in the todo list, `h` / `l` do nothing.

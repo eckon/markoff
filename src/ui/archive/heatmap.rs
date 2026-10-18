@@ -51,7 +51,10 @@ pub fn lines(days: &history::Days, width: usize, selected: Date) -> Vec<Line<'st
         let mut spans: Vec<Span> = Vec::new();
         for (i, column) in columns.iter().enumerate() {
             let cell = column.cell(row);
+            // The cursor between brackets in the gaps around it, over a divider too.
             let gap: Span = match zone_starts.get(i + 1) {
+                _ if selected == Some((i, row)) => "]".bold(),
+                _ if selected == Some((i + 1, row)) => "[".bold(),
                 Some(true) => "│".fg(LINE_COLOR),
                 _ => " ".into(),
             };
@@ -63,7 +66,7 @@ pub fn lines(days: &history::Days, width: usize, selected: Date) -> Vec<Line<'st
                 0 => "·".fg(LINE_COLOR),
                 level => steps[level - 1].clone(),
             };
-            // Today in the header's blue, the cursor reversed.
+            // Today in the header's blue, the cursor reversed as well.
             let shade = if cell.0 == today {
                 shade.fg(HEADER_COLOR)
             } else {

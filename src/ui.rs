@@ -14,7 +14,7 @@ mod daily;
 mod help;
 
 use crate::{
-    app::{App, Page, Row, Status},
+    app::{App, Page, Row, Status, archive::ArchiveRow},
     filter,
     keymap::{self, Action, BINDINGS, FILTER_INPUT_HINTS},
 };
@@ -53,15 +53,24 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
     match app.page {
         Page::Todo => {
             // Before the preview, so its divider can join it.
+            // The tasks in all sections and those archived today, so done tasks don't just
+            // vanish.
             let today = jiff::Zoned::now().strftime("%a %d %b").to_string();
-            render_header(app, frame, header_area, &today);
+            let open: usize = app.sections.iter().map(|section| section.tasks.len()).sum();
+            let mut count = vec![format!("{open} open · ").dim()];
+            count.extend(done_count(app.done_today()));
+            render_header(app, frame, header_area, &today, count);
             drawn.list_offset =
                 render_todo(app, frame, [header_area, gap_area, main_area, rule_area]);
         }
         Page::Archive => {
             (drawn.heatmap_columns, drawn.archive_offset) = archive::render(app, frame, main_area);
+            // The tasks done in the selected cell.
             let selected = archive::range(app, drawn.heatmap_columns);
-            render_header(app, frame, header_area, &selected);
+            let done = (app.archive_rows(drawn.heatmap_columns).iter())
+                .filter(|row| matches!(row, ArchiveRow::Task(..)))
+                .count();
+            render_header(app, frame, header_area, &selected, done_count(done));
         }
     }
     render_status(app, frame, status_area);
@@ -106,6 +115,11 @@ fn render_todo(
     }
 }
 
+/// `✓ 2 done` for the header.
+fn done_count(done: usize) -> Vec<Span<'static>> {
+    vec!["✓".fg(DONE_COLOR), format!(" {done} done").dim()]
+}
+
 /// Joins the preview divider at column `x` to the header: `┬` in the header rule, `│` in the
 /// blank line below. Only where the rule is a line, never over the date or the counts. At the
 /// bottom `┴` in the rule above the status line.
@@ -119,17 +133,9 @@ fn connect_divider(frame: &mut Frame, x: u16, header_y: u16, gap_y: u16, bottom_
 }
 
 /// `── [ todo  archive ] ── Sat 17 Oct ──── 4 open · ✓ 2 done` over the whole width: the pages
-/// with the current one bold, between the keys that switch them, the page's `date`, the tasks in
-/// all sections and those archived today, so done tasks don't just vanish.
-fn render_header(app: &App, frame: &mut Frame, area: Rect, date: &str) {
-    let open: usize = app.sections.iter().map(|section| section.tasks.len()).sum();
-    let done = app.done_today();
-
-    let count = vec![
-        format!("{open} open · ").dim(),
-        "✓".fg(DONE_COLOR),
-        format!(" {done} done").dim(),
-    ];
+/// with the current one bold, between the keys that switch them, then the page's `date` and
+/// `count`.
+fn render_header(app: &App, frame: &mut Frame, area: Rect, date: &str, count: Vec<Span<'static>>) {
     // The keys in the style of the hints in the status line.
     let mut pages = vec!["── ".fg(LINE_COLOR), "[ ".bold().fg(HEADER_COLOR)];
     for (i, page) in Page::ALL.into_iter().enumerate() {
