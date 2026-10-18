@@ -101,7 +101,8 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 | ----------- | ------------------------------------------- |
 | `h` / `l`   | Heatmap column back / forward, also `←` / `→` |
 | `j` / `k`   | Heatmap a day down / up, list down / up     |
-| `H` `J` `K` `L` | Heatmap like `h` `j` `k` `l`, skips empty cells |
+| `H` / `L`   | Like `h` / `l`, skips empty cells           |
+| `J` / `K`   | Like `j` / `k` in the heatmap, skips empty  |
 | `Tab`       | Move keys to the heatmap or the list        |
 | `s`         | Toggle the stats below the heatmap          |
 
