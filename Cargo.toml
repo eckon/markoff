@@ -2,8 +2,8 @@
 name = "markoff"
 version = "0.2.0"
 edition = "2024"
-rust-version = "1.89"
 description = "A TUI for todos stored as markdown files"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/eckon/markoff"
 
 [dependencies]
