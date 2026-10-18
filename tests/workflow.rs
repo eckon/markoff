@@ -372,7 +372,7 @@ fn hand_made_data() {
     app.quit();
 }
 
-/// Filter, help and hints: what only shows or narrows, without changing files.
+/// Filter, help, hints and the preview: what only shows or narrows, without changing files.
 #[test]
 fn filter_and_help() {
     let mut app = Markoff::start_with(&[
@@ -407,6 +407,16 @@ fn filter_and_help() {
     app.press("D?");
     app.wait_for("• Buy milk");
     snapshot!("filter_and_help_3_closed", app.state());
+
+    // The preview shows a task's body, `p` hides it and shows it again.
+    app.press("1j");
+    app.wait_for("│ Ask about the milk frother.");
+    app.press("p");
+    // The rule above the status line no longer joins a divider.
+    app.wait_for(&"─".repeat(80));
+    assert!(!app.screen().contains("frother"), "{}", app.screen());
+    app.press("p");
+    app.wait_for("│ Ask about the milk frother.");
 
     app.quit();
 }
