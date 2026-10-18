@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use jiff::{ToSpan, civil::Date};
 
 use super::App;
-use crate::{history, keymap::Action};
+use crate::{cursor, history, keymap::Action};
 
 /// Where the archive page is, kept while switching pages.
 #[derive(Debug, Default)]
@@ -20,6 +20,15 @@ pub struct ArchivePage {
     pub cursor: usize,
     /// First list line on screen, like [`App::list_offset`].
     pub offset: usize,
+    pub focus: Focus,
+}
+
+/// What takes the move keys on the archive page, switched with `Tab`.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    #[default]
+    Heatmap,
+    List,
 }
 
 /// One line in the list of done tasks, grouped like the todo list.
@@ -42,14 +51,38 @@ impl App {
         })
     }
 
-    /// Runs `action` on the archive page. `false` if it is none of the page's own.
+    /// Runs `action` on the archive page. `false` for those of every page, the rest stays here
+    /// and never reaches the todo list behind it.
     pub(super) fn update_archive(&mut self, action: Action) -> bool {
-        let by = match action {
-            Action::Left => (-1, 0),
-            Action::Right => (1, 0),
-            Action::Up => (0, -1),
-            Action::Down => (0, 1),
-            _ => return false,
+        let by = match (action, self.archive.focus) {
+            (Action::Help | Action::PrevPage | Action::NextPage | Action::Quit, _) => {
+                return false;
+            }
+            (Action::Focus, Focus::Heatmap) => {
+                self.archive.focus = Focus::List;
+                return true;
+            }
+            (Action::Focus, Focus::List) => {
+                self.archive.focus = Focus::Heatmap;
+                return true;
+            }
+            // Like in the todo list, `h` / `l` do nothing.
+            (_, Focus::List) => {
+                let lines: Vec<cursor::Line> = (self.archive_rows(self.archive.columns))
+                    .into_iter()
+                    .map(|row| match row {
+                        ArchiveRow::Section(s) => cursor::Line::Header(Some(s)),
+                        ArchiveRow::Task(..) => cursor::Line::Item,
+                    })
+                    .collect();
+                self.archive.cursor = cursor::moved(&lines, self.archive.cursor, action);
+                return true;
+            }
+            (Action::Left, _) => (-1, 0),
+            (Action::Right, _) => (1, 0),
+            (Action::Up, _) => (0, -1),
+            (Action::Down, _) => (0, 1),
+            _ => return true,
         };
         let today = jiff::Zoned::now().date();
         let columns = history::columns(&self.days, today, self.archive.columns);

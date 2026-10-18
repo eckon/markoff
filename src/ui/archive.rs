@@ -5,7 +5,7 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    style::Stylize,
+    style::{Color, Stylize},
     text::Line,
     widgets::{Block, BorderType, Padding, Paragraph},
 };
@@ -15,7 +15,7 @@ mod list;
 mod stats;
 
 use super::{DONE_COLOR, LINE_COLOR};
-use crate::app::App;
+use crate::app::{App, archive::Focus};
 use stats::{Stats, stats};
 
 /// Least rows the list keeps below the overview, the stats give way first.
@@ -24,7 +24,8 @@ const MIN_LIST_ROWS: usize = 5;
 /// The overview, heatmap and stats, in a frame from the top of `area`, the done tasks of the
 /// cursor's cell below it in the rest. Returns the heatmap's columns and the list's offset.
 pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize) {
-    let block = archive_block();
+    let focused = app.archive.focus == Focus::Heatmap;
+    let block = archive_block(focused);
     let inner = block.inner(area);
     let width = inner.width as usize;
     let columns = heatmap::columns(width);
@@ -34,7 +35,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize) {
             Stats::default(),
         ),
         false => (
-            heatmap::lines(&app.days, width, app.archive_day()),
+            heatmap::lines(&app.days, width, app.archive_day(), focused),
             stats(app, width),
         ),
     };
@@ -129,13 +130,19 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize) {
     (columns, offset)
 }
 
-/// The frame of the archive, its title says what it is, the numbers are in the stats.
-fn archive_block() -> Block<'static> {
+/// The frame of the archive, its title says what it is, the numbers are in the stats. Lit while
+/// the heatmap has the keys.
+fn archive_block(focused: bool) -> Block<'static> {
     Block::bordered()
         .border_type(BorderType::Rounded)
-        .border_style(LINE_COLOR)
+        .border_style(frame_color(focused))
         .padding(Padding::horizontal(2))
         .title(Line::from(" archive ".fg(DONE_COLOR).bold()))
+}
+
+/// The frame of the part with the keys in the text color, the other one like the rules.
+fn frame_color(focused: bool) -> Color {
+    if focused { Color::Reset } else { LINE_COLOR }
 }
 
 #[cfg(test)]

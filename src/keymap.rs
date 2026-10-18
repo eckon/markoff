@@ -15,6 +15,8 @@ pub enum Action {
     /// `h` / `l` on the archive page: a heatmap column back or forward.
     Left,
     Right,
+    /// `Tab` on the archive page: the heatmap or the list takes the move keys.
+    Focus,
     Top,
     Bottom,
     PrevSection,
@@ -85,7 +87,7 @@ const ARCHIVE: &[Page] = &[Page::Archive];
 const ALL: &[Page] = &[Page::Todo, Page::Archive];
 
 use Action as A;
-use KeyCode::{Backspace, Char, Down, End, Enter, Esc, Home, Left, Right, Up};
+use KeyCode::{Backspace, Char, Down, End, Enter, Esc, Home, Left, Right, Tab, Up};
 use Trigger::{Ctrl, Key, Seq, Shift};
 
 /// The single source of truth for keys: [`Keymap::handle`] reads it and so does the help
@@ -94,9 +96,10 @@ use Trigger::{Ctrl, Key, Seq, Shift};
 pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "move", pages: ALL },
     Binding { keys: &[(&[Key(Char('h')), Key(Left)], A::Left), (&[Key(Char('l')), Key(Right)], A::Right)], help: "left / right", group: "move", pages: ARCHIVE },
-    Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "move", pages: TODO },
-    Binding { keys: &[(&[Key(Char('{')), Ctrl('u')], A::PrevSection), (&[Key(Char('}')), Ctrl('d')], A::NextSection)], help: "previous / next section", group: "move", pages: TODO },
-    Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section", group: "move", pages: TODO },
+    Binding { keys: &[(&[Key(Tab)], A::Focus)], help: "heatmap / list", group: "move", pages: ARCHIVE },
+    Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "move", pages: ALL },
+    Binding { keys: &[(&[Key(Char('{')), Ctrl('u')], A::PrevSection), (&[Key(Char('}')), Ctrl('d')], A::NextSection)], help: "previous / next section", group: "move", pages: ALL },
+    Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section", group: "move", pages: ALL },
     Binding { keys: &[(&[Key(Char('J')), Shift(Down)], A::MoveDown), (&[Key(Char('K')), Shift(Up)], A::MoveUp)], help: "move down / up", group: "change", pages: TODO },
     Binding { keys: &[(&[Key(Enter)], A::Open)], help: "open in $EDITOR", group: "change", pages: TODO },
     Binding { keys: &[(&[Key(Char('o'))], A::NewBelow), (&[Key(Char('O'))], A::NewAbove)], help: "new task below / above", group: "change", pages: TODO },

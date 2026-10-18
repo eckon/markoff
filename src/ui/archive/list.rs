@@ -11,17 +11,21 @@ use ratatui::{
 };
 
 use crate::{
-    app::{App, archive::ArchiveRow},
+    app::{
+        App,
+        archive::{ArchiveRow, Focus},
+    },
     ui::{LINE_COLOR, section_color, section_rule, task_prefix, truncate},
 };
 
 /// The list in a frame below the overview, which draws the line above it. Returns the scroll
 /// offset.
 pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> usize {
+    let focused = app.archive.focus == Focus::List;
     let block = Block::new()
         .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
         .border_type(BorderType::Rounded)
-        .border_style(LINE_COLOR)
+        .border_style(super::frame_color(focused))
         .padding(Padding::horizontal(1));
     let width = block.inner(area).width as usize;
     let today = jiff::Zoned::now().date();
@@ -33,7 +37,11 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> usize
     for (i, &row) in rows.iter().enumerate() {
         let is_cursor = i == app.archive.cursor;
         let (ArchiveRow::Section(s) | ArchiveRow::Task(s, ..)) = row;
-        let color = section_color(s);
+        // The cursor dim while the heatmap has the keys.
+        let color = match focused || !is_cursor {
+            true => section_color(s),
+            false => LINE_COLOR,
+        };
         // Blank line before each section except the first, the cursor skips it.
         if i > 0 && matches!(row, ArchiveRow::Section(_)) {
             items.push(ListItem::new(""));

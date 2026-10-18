@@ -4,6 +4,7 @@ mod app;
 mod archive;
 mod cli;
 mod config;
+mod cursor;
 mod daily;
 mod edit;
 mod editor;

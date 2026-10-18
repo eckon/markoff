@@ -25,6 +25,7 @@ use archive::ArchivePage;
 use editor::EditorRequest;
 
 use crate::{
+    cursor,
     daily::DailyTask,
     edit, filter, history,
     keymap::{self, Action, Keymap},
@@ -308,23 +309,23 @@ impl App {
         }
         match action {
             // Only on the archive page, see [`Self::update_archive`].
-            Action::Left | Action::Right => {}
-            Action::Up => self.cursor = self.cursor.saturating_sub(1),
-            Action::Down => {
-                let last = self.rows().len().saturating_sub(1);
-                self.cursor = (self.cursor + 1).min(last);
-            }
-            Action::Top => self.cursor = 0,
-            Action::Bottom => self.cursor = self.rows().len().saturating_sub(1),
-            Action::PrevSection => self.cursor = self.prev_section_row(),
-            Action::NextSection => self.cursor = self.next_section_row(),
-            Action::JumpSection(s) => {
-                // Nothing if the section does not exist or the filter hides it.
-                let rows = self.rows();
-                if let Some(header) = rows.iter().position(|&row| row == Row::Section(s)) {
-                    let has_task = matches!(rows.get(header + 1), Some(Row::Task(..)));
-                    self.cursor = header + usize::from(has_task);
-                }
+            Action::Left | Action::Right | Action::Focus => {}
+            // A section hidden by the filter has no header to jump to.
+            Action::Up
+            | Action::Down
+            | Action::Top
+            | Action::Bottom
+            | Action::PrevSection
+            | Action::NextSection
+            | Action::JumpSection(_) => {
+                let lines: Vec<cursor::Line> = (self.rows().into_iter())
+                    .map(|row| match row {
+                        Row::Section(s) => cursor::Line::Header(Some(s)),
+                        Row::Daily => cursor::Line::Header(None),
+                        Row::Task(..) | Row::DailyTask(_) => cursor::Line::Item,
+                    })
+                    .collect();
+                self.cursor = cursor::moved(&lines, self.cursor, action);
             }
             Action::MoveDown | Action::MoveUp => self.move_selected(action == Action::MoveDown)?,
             Action::Open => self.open(),
@@ -472,23 +473,6 @@ impl App {
         self.apply(ops)?;
         self.select_path(&moved_to);
         Ok(())
-    }
-
-    /// `{`: the nearest section header above the cursor. On a task that is its own section.
-    fn prev_section_row(&self) -> usize {
-        let rows = self.rows();
-        (0..self.cursor)
-            .rev()
-            .find(|&i| matches!(rows[i], Row::Section(_) | Row::Daily))
-            .unwrap_or(0)
-    }
-
-    /// `}`: the next section header below the cursor, the cursor stays if there is none.
-    fn next_section_row(&self) -> usize {
-        let rows = self.rows();
-        (self.cursor + 1..rows.len())
-            .find(|&i| matches!(rows[i], Row::Section(_) | Row::Daily))
-            .unwrap_or(self.cursor)
     }
 
     /// Where `J` / `K` put task `t` of section `s`, as section and index among the other

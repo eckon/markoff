@@ -31,7 +31,12 @@ fn steps() -> [Span<'static>; 4] {
 /// The tasks done over time, back to the first archived day, see [`history::columns`]: labels,
 /// 7 rows of cells with today in blue and the weekdays on the right where cells are days, and
 /// a divider through the gap where the cell size changes.
-pub fn lines(days: &history::Days, width: usize, selected: Date) -> Vec<Line<'static>> {
+pub fn lines(
+    days: &history::Days,
+    width: usize,
+    selected: Date,
+    focused: bool,
+) -> Vec<Line<'static>> {
     let today = jiff::Zoned::now().date();
     let columns = history::columns(days, today, columns(width));
     let selected = history::find(&columns, selected);
@@ -63,16 +68,16 @@ pub fn lines(days: &history::Days, width: usize, selected: Date) -> Vec<Line<'st
                 0 => "·".fg(LINE_COLOR),
                 level => steps[level - 1].clone(),
             };
-            // Today in the header's blue, the cursor reversed.
+            // Today in the header's blue, the cursor reversed, dim while the list has the keys.
             let shade = if cell.0 == today {
                 shade.fg(HEADER_COLOR)
             } else {
                 shade
             };
-            let shade = if selected == Some((i, row)) {
-                shade.reversed()
-            } else {
-                shade
+            let shade = match (selected == Some((i, row)), focused) {
+                (true, true) => shade.reversed(),
+                (true, false) => shade.reversed().dim(),
+                (false, _) => shade,
             };
             spans.extend([shade, gap]);
         }
