@@ -66,14 +66,9 @@ pub fn lines(days: &history::Days, width: usize, selected: Date) -> Vec<Line<'st
                 0 => "·".fg(LINE_COLOR),
                 level => steps[level - 1].clone(),
             };
-            // Today in the header's blue, the cursor reversed as well.
+            // Today in the header's blue.
             let shade = if cell.0 == today {
                 shade.fg(HEADER_COLOR)
-            } else {
-                shade
-            };
-            let shade = if selected == Some((i, row)) {
-                shade.reversed()
             } else {
                 shade
             };

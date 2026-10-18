@@ -36,7 +36,7 @@ pub enum Focus {
 /// One line in the list of done tasks, grouped like the todo list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArchiveRow {
-    /// Index into [`App::archive_sections`].
+    /// Index into [`App::archive_sections`], for its color. Its key counts the sections shown.
     Section(usize),
     /// The section, the day and the task's index in [`App::done`] on that day.
     Task(usize, Date, usize),
@@ -72,15 +72,24 @@ impl App {
                 self.archive.show_stats = !self.archive.show_stats;
                 return true;
             }
-            // Like in the todo list, `h` / `l` do nothing.
-            (_, Focus::List) => {
+            // Like in the todo list, `h` / `l` do nothing. A section key from the heatmap goes
+            // to the list, like `Tab` and the jump in one.
+            (_, Focus::List) | (Action::JumpSection(_), Focus::Heatmap) => {
+                let mut keys = 0..;
                 let lines: Vec<cursor::Line> = (self.archive_rows(self.archive.columns))
                     .into_iter()
                     .map(|row| match row {
-                        ArchiveRow::Section(s) => cursor::Line::Header(Some(s)),
+                        ArchiveRow::Section(_) => cursor::Line::Header(keys.next()),
                         ArchiveRow::Task(..) => cursor::Line::Item,
                     })
                     .collect();
+                // Only to a section that is there, otherwise the heatmap keeps the keys.
+                if let Action::JumpSection(s) = action
+                    && !lines.contains(&cursor::Line::Header(Some(s)))
+                {
+                    return true;
+                }
+                self.archive.focus = Focus::List;
                 self.archive.cursor = cursor::moved(&lines, self.archive.cursor, action);
                 return true;
             }

@@ -256,9 +256,15 @@ fn section_color(index: usize) -> Color {
 /// Opens the section key in a section rule: `──[1]─ work`.
 const KEY_OPEN: &str = "──[";
 
-/// `──[1]─ work ─────── 2` for section `s` in its color, filled to `width`. The todo list and
-/// the done tasks on the archive page.
-fn section_rule(s: usize, name: &str, count: usize, width: usize) -> Vec<Span<'static>> {
+/// `──[1]─ work ─────── 2` with the key of the `key`th section, in `color`, filled to `width`.
+/// The todo list and the done tasks on the archive page.
+fn section_rule(
+    key: usize,
+    color: Color,
+    name: &str,
+    count: usize,
+    width: usize,
+) -> Vec<Span<'static>> {
     // The key that jumps here replaces the leading `── ` of the rule, the key right above the
     // bullets. Dim like the count, so the name stays what stands out. Without a key the rule is
     // as long, the names align.
@@ -269,7 +275,7 @@ fn section_rule(s: usize, name: &str, count: usize, width: usize) -> Vec<Span<'s
             "]─ ".fg(LINE_COLOR),
         ]
     };
-    let lead = match keymap::jump_key(s) {
+    let lead = match keymap::jump_key(key) {
         Some(key) => keyed(key),
         None => {
             let lead_width: usize = keyed(' ').iter().map(Span::width).sum();
@@ -277,7 +283,7 @@ fn section_rule(s: usize, name: &str, count: usize, width: usize) -> Vec<Span<'s
         }
     };
     let count = vec![count.to_string().dim()];
-    rule(Some(lead), name, count, section_color(s), width)
+    rule(Some(lead), name, count, color, width)
 }
 
 /// Gutter and indent before a task title, the bullet below the key of the section. `first` is
@@ -334,6 +340,7 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                 let mut spans = vec![gutter()];
                 spans.extend(section_rule(
                     s,
+                    color,
                     &app.sections[s].name,
                     count,
                     width.saturating_sub(gutter().width()),

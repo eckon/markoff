@@ -104,7 +104,7 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 | `Tab`       | Move keys to the heatmap or the list        |
 | `s`         | Toggle the stats below the heatmap          |
 
-In the list `gg` / `G`, `{` / `}` and `1`-`9` work like in the todo list. The other todo keys do nothing on the archive page.
+In the list `gg` / `G`, `{` / `}` and `1`-`9` work like in the todo list, the numbers count the sections shown. `1`-`9` in the heatmap jump into the list. The other todo keys do nothing on the archive page.
 
 In the filter, `C-w` deletes the last word. While a filter is set, moving and adding tasks is off.
 

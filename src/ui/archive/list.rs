@@ -26,6 +26,8 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> usize
 
     let mut items: Vec<ListItem> = Vec::new();
     let mut selected = 0;
+    // Keys count the sections shown, the colors stay those of the todo list.
+    let mut keys = 0..;
     for (i, &row) in rows.iter().enumerate() {
         let is_cursor = i == app.archive.cursor;
         let (ArchiveRow::Section(s) | ArchiveRow::Task(s, ..)) = row;
@@ -52,7 +54,8 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> usize
                     .count();
                 let mut spans = vec![gutter()];
                 spans.extend(section_rule(
-                    s,
+                    keys.next().unwrap_or_default(),
+                    color,
                     &sections[s],
                     count,
                     width.saturating_sub(gutter().width()),

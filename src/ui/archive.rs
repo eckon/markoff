@@ -115,15 +115,14 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize) {
         Focus::List => (overview, "heatmap"),
     };
     frame.buffer_mut().set_style(dimmed, Modifier::DIM);
-    let hint = vec![
-        " ".into(),
+    // On the left, below the pages in the header.
+    let mut line = vec![
+        "══ ".fg(LINE_COLOR),
         "Tab".bold().fg(HEADER_COLOR),
         format!(" {to} ").into(),
-        "══".fg(LINE_COLOR),
     ];
-    let fill = width.saturating_sub(Line::from(hint.clone()).width());
-    let mut line = vec!["═".repeat(fill).fg(LINE_COLOR)];
-    line.extend(hint);
+    let fill = width.saturating_sub(Line::from(line.clone()).width());
+    line.push("═".repeat(fill).fg(LINE_COLOR));
     let line_area = Rect {
         y: gap.y + 1,
         height: 1,
@@ -219,6 +218,7 @@ mod tests {
         assert_eq!(blue.len(), 1, "{screen:#?}");
         assert_eq!(buffer[(blue[0], row)].symbol(), "█");
         assert!(screen[row as usize].contains("[█]"), "{screen:#?}");
+        assert!(!buffer[(blue[0], row)].modifier.contains(Modifier::REVERSED));
 
         // The table with lines between its columns, joined where they meet the others, a
         // double line to the years, both with a heading and a line below it.
@@ -268,7 +268,7 @@ mod tests {
         );
         // Between overview and list a double line with the key to the list, which is dimmed.
         assert_eq!(screen[23].trim(), "", "{screen:#?}");
-        assert!(screen[24].ends_with("═ Tab list ══  "), "{screen:#?}");
+        assert!(screen[24].starts_with("  ══ Tab list ═"), "{screen:#?}");
         assert!(screen[26].contains("nothing done"), "{screen:#?}");
         assert!(buffer[(2, 26)].modifier.contains(Modifier::DIM));
         assert!(!buffer[(2, 14)].modifier.contains(Modifier::DIM));
