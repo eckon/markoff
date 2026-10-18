@@ -43,6 +43,8 @@ fn render_rows(
 ) -> usize {
     let today = jiff::Zoned::now().date();
     let sections = app.archive_sections();
+    // No cursor while the heatmap has the keys, its blue cell says what the list shows.
+    let cursor = (app.archive.focus == Focus::List).then_some(app.archive.cursor);
     // Keys count the sections shown, the colors stay those of the todo list.
     let mut keys = 0..;
     let items: Vec<rows::Row> = (rows.iter().enumerate())
@@ -66,7 +68,7 @@ fn render_rows(
                     rows::Kind::Header(rule)
                 }
                 ArchiveRow::Task(_, day, index) => {
-                    let style = if i == app.archive.cursor {
+                    let style = if cursor == Some(i) {
                         Style::new().fg(color)
                     } else {
                         Style::new()
@@ -83,8 +85,7 @@ fn render_rows(
     } else {
         &[]
     };
-    let state = [app.archive.cursor, app.archive.offset];
-    rows::render(frame, area, items, state, notes)
+    rows::render(frame, area, items, (cursor, app.archive.offset), notes)
 }
 
 /// The day of the selected cell for the header, `Fri 16 Oct 2026`, a cell of more days as

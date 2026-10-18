@@ -33,6 +33,8 @@ const SEPARATOR: usize = 3;
 /// below it in the rest, a double line between them. The part without the keys is dimmed.
 /// Returns the heatmap's columns, the list's offset and the column of the preview's divider.
 pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option<u16>) {
+    // Only the part with the keys shows its cursor.
+    let heatmap_keys = app.archive.focus == Focus::Heatmap;
     // The heatmap starts where the section rules of the list do.
     let block = Block::new().padding(Padding::new(2, 2, 0, 0));
     let inner = block.inner(area);
@@ -44,7 +46,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
             Stats::default(),
         ),
         false => (
-            heatmap::lines(&app.days, width, app.archive_day()),
+            heatmap::lines(&app.days, width, app.archive_day(), heatmap_keys),
             stats(app, width),
         ),
     };
@@ -79,7 +81,8 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
     // The cursor's `[` in the first column has no gap before it, it goes into the padding.
     let today = jiff::Zoned::now().date();
     let cells = history::columns(&app.days, today, columns);
-    if !app.days.is_empty()
+    if heatmap_keys
+        && !app.days.is_empty()
         && let Some((0, row)) = history::find(&cells, app.archive_day())
     {
         // Below the row of labels.
@@ -162,6 +165,60 @@ mod tests {
             .chunks(buffer.area.width as usize)
             .map(|row| row.iter().map(|cell| cell.symbol()).collect())
             .collect()
+    }
+
+    #[test]
+    fn one_cursor_and_the_selection_in_blue() {
+        let today = jiff::Zoned::now().date();
+        let yesterday = today - 1.days();
+        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        let done = crate::archive::Done {
+            section: "work".to_string(),
+            title: "Fix bug".to_string(),
+            body: String::new(),
+        };
+        app.done = [(yesterday, vec![done])].into();
+        (app.days, app.section_days) = history::split(&app.done);
+        app.update(Action::NextPage);
+        let draw = |app: &App| {
+            let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+            terminal
+                .draw(|frame| {
+                    render(app, frame);
+                })
+                .unwrap();
+            terminal.backend().buffer().clone()
+        };
+        let text = |buffer: &ratatui::buffer::Buffer, y: u16| -> String {
+            (0..80).map(|x| buffer[(x, y)].symbol()).collect()
+        };
+        // The heatmap's rows below its labels, the list's from the line below the separator.
+        let heatmap = 3..10;
+        let list = 13..22;
+        let blue = |buffer: &ratatui::buffer::Buffer| -> Vec<(u16, u16)> {
+            let cells = heatmap.clone().flat_map(|y| (0..80).map(move |x| (x, y)));
+            cells.filter(|&at| buffer[at].fg == HEADER_COLOR).collect()
+        };
+
+        // The heatmap has the keys: the selected day blue between brackets, today not blue. The
+        // list has no cursor.
+        let buffer = draw(&app);
+        let selected = blue(&buffer);
+        assert_eq!(selected.len(), 1, "only the selection is blue");
+        let (x, y) = selected[0];
+        assert_eq!(buffer[(x - 1, y)].symbol(), "[");
+        assert_eq!(buffer[(x + 1, y)].symbol(), "]");
+        assert!(list.clone().all(|y| !text(&buffer, y).contains('▌')));
+
+        // The list has the keys: its cursor shows, the brackets go, the selection stays blue.
+        app.update(Action::Focus);
+        let buffer = draw(&app);
+        assert_eq!(blue(&buffer), selected);
+        assert!(heatmap.clone().all(|y| !text(&buffer, y).contains('[')));
+        assert!(
+            list.clone()
+                .any(|y| text(&buffer, y).contains("▌   • Fix bug"))
+        );
     }
 
     #[test]
@@ -283,7 +340,7 @@ mod tests {
         assert!(screen[2].starts_with("  daily"), "{screen:#?}");
         assert!(screen[3].contains(" Mon "), "{screen:#?}");
         assert_eq!(screen[10].trim(), "", "{screen:#?}");
-        // Today is the one blue cell, the cursor is on it.
+        // Nothing done yet: the selection is today, the one blue cell, between brackets.
         let row = 3 + today.weekday().to_monday_zero_offset() as u16;
         let blue: Vec<u16> = (0..80)
             .filter(|&x| buffer[(x, row)].fg == HEADER_COLOR)

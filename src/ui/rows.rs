@@ -34,13 +34,14 @@ pub fn block<'a>() -> Block<'a> {
     Block::new().padding(Padding::new(1, 2, 0, 0))
 }
 
-/// The rows with the cursor on row `cursor`, then the `notes` dimmed, a blank line before each
-/// unless it is at the top. Starts from `offset`, returns the new one.
+/// The rows with the cursor on row `cursor`, `None` while the list does not have the keys. Then
+/// the `notes` dimmed, a blank line before each unless it is at the top. Starts from `offset`,
+/// returns the new one.
 pub fn render(
     frame: &mut Frame,
     area: Rect,
     rows: Vec<Row>,
-    [cursor, offset]: [usize; 2],
+    (cursor, offset): (Option<usize>, usize),
     notes: &[&str],
 ) -> usize {
     let block = block();
@@ -48,7 +49,7 @@ pub fn render(
     let mut items: Vec<ListItem> = Vec::new();
     let mut selected = 0;
     for (i, row) in rows.into_iter().enumerate() {
-        let is_cursor = i == cursor;
+        let is_cursor = cursor == Some(i);
         // Blank line before each section except the first. Not a row, the cursor skips it.
         if i > 0 && matches!(row.kind, Kind::Header(_)) {
             items.push(ListItem::new(""));
@@ -208,7 +209,7 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
         terminal
             .draw(|frame| {
-                render(frame, frame.area(), rows, [cursor, 0], notes);
+                render(frame, frame.area(), rows, (Some(cursor), 0), notes);
             })
             .unwrap();
         let buffer = terminal.backend().buffer();

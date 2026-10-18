@@ -29,12 +29,19 @@ fn steps() -> [Span<'static>; 4] {
 }
 
 /// The tasks done over time, back to the first archived day, see [`history::columns`]: labels,
-/// 7 rows of cells with today in blue and the weekdays on the right where cells are days, and
-/// a divider through the gap where the cell size changes.
-pub fn lines(days: &history::Days, width: usize, selected: Date) -> Vec<Line<'static>> {
+/// 7 rows of cells with the `selected` one in blue and the weekdays on the right where cells are
+/// days, and a divider through the gap where the cell size changes. With the `cursor` there too,
+/// it is between brackets.
+pub fn lines(
+    days: &history::Days,
+    width: usize,
+    selected: Date,
+    cursor: bool,
+) -> Vec<Line<'static>> {
     let today = jiff::Zoned::now().date();
     let columns = history::columns(days, today, columns(width));
     let selected = history::find(&columns, selected);
+    let bracketed = selected.filter(|_| cursor);
     let steps = steps();
     let bounds = history::bounds(
         columns.iter().flat_map(|column| {
@@ -53,8 +60,8 @@ pub fn lines(days: &history::Days, width: usize, selected: Date) -> Vec<Line<'st
             let cell = column.cell(row);
             // The cursor between brackets in the gaps around it, over a divider too.
             let gap: Span = match zone_starts.get(i + 1) {
-                _ if selected == Some((i, row)) => "]".bold(),
-                _ if selected == Some((i + 1, row)) => "[".bold(),
+                _ if bracketed == Some((i, row)) => "]".bold(),
+                _ if bracketed == Some((i + 1, row)) => "[".bold(),
                 Some(true) => "│".fg(LINE_COLOR),
                 _ => " ".into(),
             };
@@ -66,8 +73,8 @@ pub fn lines(days: &history::Days, width: usize, selected: Date) -> Vec<Line<'st
                 0 => "·".fg(LINE_COLOR),
                 level => steps[level - 1].clone(),
             };
-            // Today in the header's blue.
-            let shade = if cell.0 == today {
+            // The selection in the header's blue, only the color changes.
+            let shade = if selected == Some((i, row)) {
                 shade.fg(HEADER_COLOR)
             } else {
                 shade

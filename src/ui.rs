@@ -332,7 +332,13 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
     if app.sections.is_empty() {
         notes.push("no sections yet, N creates one");
     }
-    rows::render(frame, area, items, [app.cursor, app.list_offset], &notes)
+    rows::render(
+        frame,
+        area,
+        items,
+        (Some(app.cursor), app.list_offset),
+        &notes,
+    )
 }
 
 /// Styled chars joined back into spans, one per run of the same style.

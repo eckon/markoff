@@ -27,7 +27,7 @@ the archive by text is not the goal, the editor does that.
 ### Layout
 
 ```text
-  heatmap: labels + 7 weekday rows, the cursor between brackets: ·[▓]·
+  heatmap: labels + 7 weekday rows, the selection blue, the cursor between brackets: ·[▓]·
   stats (only with `s`): period table, years, share bars
 
   ════════════════════════╤════════════════════════
@@ -39,11 +39,16 @@ the archive by text is not the goal, the editor does that.
 
 - No frame. The part without the keys is dimmed, a double line with a blank line on each side
   between the two. No `Tab` hint, it was too noisy.
+- One cursor on the page: the brackets in the heatmap or the bar in the list, only in the part
+  with the keys. The selection is apart from it: the selected cell is blue in the heatmap, also
+  while the list has the keys (dimmed with the rest). Today has no mark of its own, the page opens
+  on the last day with tasks done. Visual mode can make more cells blue the same way.
 - The list keeps at least 5 rows: the stats give way first. The heatmap keeps its height.
 
 ### Heatmap
 
-- The cursor's cell is the selection: on the right a day, further back a cell covers more days.
+- The cursor's cell is the selection, in blue: on the right a day, further back a cell covers
+  more days.
 - `h` / `l` a column, `j` / `k` a row, empty cells too. `H` / `J` / `K` / `L` go on that way to the
   next cell with tasks done. Both stop at the edges and before days after today.
 - The cursor remembers a date: after a resize or a reload it lands on the cell that holds it.
