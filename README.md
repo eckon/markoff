@@ -137,7 +137,7 @@ daily = "daily.md"   # in the root
 https://intranet/menu
 ```
 
-Each `## ` heading is a task. `X` marks it done for today by adding the `[done <date>]` marker, nothing is archived.
+Each `##` heading is a task. `X` marks it done for today by adding the `[done <date>]` marker, nothing is archived.
 
 ## Development
 

@@ -7,3 +7,19 @@ features_always_increment_minor = true
 release_always = false
 # dist uploads the binaries to the draft and publishes it.
 git_release_draft = true
+
+[changelog]
+# Without `## [Unreleased]`: release-plz writes changes straight under the new version, so it would always be empty.
+header = """# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+"""
+# Only user-facing changes, refactors, tests, CI and dependency bumps stay in git log.
+commit_parsers = [
+  { message = "^feat", group = "added" },
+  { message = "^fix", group = "fixed" },
+  { message = ".*", skip = true },
+]
