@@ -314,6 +314,13 @@ impl App {
             Action::FilterBackspace => self.set_filter(|filter| {
                 filter.pop();
             }),
+            // Trailing spaces go with the word before them, so repeating it keeps deleting.
+            Action::FilterDeleteWord => self.set_filter(|filter| {
+                let kept = filter
+                    .trim_end()
+                    .trim_end_matches(|c: char| !c.is_whitespace());
+                filter.truncate(kept.len());
+            }),
             Action::FilterAccept => self.filter_input = false,
             Action::FilterClear => {
                 self.filter_input = false;
@@ -898,6 +905,18 @@ pub mod tests {
         app.cursor = 1;
         app.update(Action::FilterClear);
         assert_eq!(app.selected(), Some(Row::Task(0, 2)));
+    }
+
+    #[test]
+    fn filter_delete_word() {
+        let (_dir, mut app) = app_with_files(&["work/a.md"]);
+        type_filter(&mut app, "a-fix bug ");
+        app.update(Action::FilterDeleteWord);
+        assert_eq!(app.filter, "a-fix ");
+        app.update(Action::FilterDeleteWord);
+        assert_eq!(app.filter, "");
+        app.update(Action::FilterDeleteWord);
+        assert_eq!(app.filter, "");
     }
 
     #[test]

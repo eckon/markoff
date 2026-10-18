@@ -36,6 +36,8 @@ pub enum Action {
     /// A character typed into the filter input.
     FilterType(char),
     FilterBackspace,
+    /// `C-w` in the filter input: deletes the last word, like in a shell.
+    FilterDeleteWord,
     /// `<CR>` in the filter input: closes it, the filter stays.
     FilterAccept,
     /// `Esc`: closes the filter input and clears the filter.
@@ -205,7 +207,11 @@ pub const FILTER_INPUT_HINTS: &[(&str, &str)] = &[("<CR>", "keep filter"), ("Esc
 /// Not in the help, the README lists them. `C-c` still quits.
 pub fn filter_input(key: KeyEvent) -> Option<Action> {
     if key.modifiers.contains(KeyModifiers::CONTROL) {
-        return (key.code == Char('c')).then_some(Action::Quit);
+        return match key.code {
+            Char('c') => Some(Action::Quit),
+            Char('w') => Some(Action::FilterDeleteWord),
+            _ => None,
+        };
     }
     match key.code {
         Char(c) => Some(Action::FilterType(c)),
@@ -372,6 +378,7 @@ mod tests {
         assert_eq!(key(Down), None);
         let ctrl = |c| filter_input(KeyEvent::new(Char(c), KeyModifiers::CONTROL));
         assert_eq!(ctrl('c'), Some(Action::Quit));
+        assert_eq!(ctrl('w'), Some(Action::FilterDeleteWord));
         assert_eq!(ctrl('j'), None);
     }
 }
