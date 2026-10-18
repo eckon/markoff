@@ -19,9 +19,17 @@ use crate::{
     keymap::{self, Action, BINDINGS, FILTER_INPUT_HINTS},
 };
 
-/// Draws the whole screen from the current state. Rendering never mutates the app, it
-/// returns the list's scroll offset for the caller to keep in [`App::list_offset`].
-pub fn render(app: &App, frame: &mut Frame) -> usize {
+/// What a frame leaves for the next one, the caller keeps it in the app.
+pub struct Drawn {
+    /// See [`App::list_offset`].
+    pub list_offset: usize,
+    /// See [`crate::app::archive::ArchivePage::columns`].
+    pub heatmap_columns: usize,
+}
+
+/// Draws the whole screen from the current state. Rendering never mutates the app, what the
+/// next frame needs comes back in [`Drawn`].
+pub fn render(app: &App, frame: &mut Frame) -> Drawn {
     // The header gets a blank line below, like the one above every section. A rule keeps the
     // status line apart, so its messages and hints are not taken for the last list row.
     let [header_area, gap_area, main_area, rule_area, status_area] = Layout::vertical([
@@ -36,18 +44,22 @@ pub fn render(app: &App, frame: &mut Frame) -> usize {
     // Before the preview, so its divider can join it.
     let rule = "─".repeat(rule_area.width as usize).fg(LINE_COLOR);
     frame.render_widget(Line::from(rule), rule_area);
-    let offset = match app.page {
-        Page::Todo => render_todo(app, frame, [header_area, gap_area, main_area, rule_area]),
-        Page::Archive => {
-            archive::render(app, frame, main_area);
-            app.list_offset
-        }
+    let mut drawn = Drawn {
+        list_offset: app.list_offset,
+        heatmap_columns: app.archive.columns,
     };
+    match app.page {
+        Page::Todo => {
+            drawn.list_offset =
+                render_todo(app, frame, [header_area, gap_area, main_area, rule_area]);
+        }
+        Page::Archive => drawn.heatmap_columns = archive::render(app, frame, main_area),
+    }
     render_status(app, frame, status_area);
     if app.show_help {
         help::render(frame, app.page);
     }
-    offset
+    drawn
 }
 
 /// The list, and the preview of a task with a body next to it. Returns the list's offset.
@@ -515,7 +527,9 @@ mod tests {
     fn draw(app: &mut App) -> Vec<String> {
         let mut offset = app.list_offset;
         let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
-        terminal.draw(|frame| offset = render(app, frame)).unwrap();
+        terminal
+            .draw(|frame| offset = render(app, frame).list_offset)
+            .unwrap();
         app.list_offset = offset;
         screen(app).lines().map(str::to_string).collect()
     }

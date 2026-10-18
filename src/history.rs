@@ -50,6 +50,30 @@ impl Column {
     }
 }
 
+/// The column and row of the cell that holds `day`, `None` if no column does.
+pub fn find(columns: &[Column], day: Date) -> Option<(usize, i64)> {
+    columns.iter().enumerate().find_map(|(i, column)| {
+        let row = i64::from((day - column.start).get_days()).div_euclid(column.unit);
+        (0..CELLS).contains(&row).then_some((i, row))
+    })
+}
+
+/// The first day of the cell `columns` and `rows` away from the one that holds `day`. Stays at
+/// the edges and before cells that start after `today`, without a cell for `day` too.
+pub fn step(columns: &[Column], day: Date, (columns_by, rows_by): (i64, i64), today: Date) -> Date {
+    let Some((column, row)) = find(columns, day) else {
+        return day;
+    };
+    let target = usize::try_from(column as i64 + columns_by)
+        .ok()
+        .and_then(|column| columns.get(column))
+        .zip(Some(row + rows_by).filter(|row| (0..CELLS).contains(row)));
+    match target {
+        Some((column, row)) if column.cell(row).0 <= today => column.cell(row).0,
+        _ => day,
+    }
+}
+
 /// Up to `count` columns from the week of `today` back to the first archived day, oldest
 /// first. The cells grow by a constant factor from a day on the right, the smallest factor
 /// that reaches back to the first day: recent days in detail, years back still there.
@@ -238,6 +262,36 @@ mod tests {
         assert_eq!(starts, ["2026-09-28", "2026-10-05", "2026-10-12"]);
         assert!(columns.iter().all(|column| column.unit == 1));
         assert_eq!(columns.last().unwrap().cell(5).0, today);
+    }
+
+    #[test]
+    fn step_over_cells_of_any_size() {
+        // A Saturday: the last column is its week, a day per cell, the one before 2 days each.
+        let today = date("2026-10-17");
+        let columns = [
+            Column {
+                start: date("2026-09-28"),
+                unit: 2,
+            },
+            Column {
+                start: date("2026-10-12"),
+                unit: 1,
+            },
+        ];
+        assert_eq!(find(&columns, today), Some((1, 5)));
+        assert_eq!(find(&columns, date("2026-10-01")), Some((0, 1)));
+        assert_eq!(find(&columns, date("2026-09-27")), None);
+
+        let step = |day: &str, by| step(&columns, date(day), by, today).to_string();
+        // Into the bigger cell on the same row, to its first day, and back.
+        assert_eq!(step("2026-10-13", (-1, 0)), "2026-09-30");
+        assert_eq!(step("2026-10-01", (1, 0)), "2026-10-13");
+        assert_eq!(step("2026-10-13", (0, 1)), "2026-10-14");
+        // Edges and days after today: stays.
+        assert_eq!(step("2026-10-01", (-1, 0)), "2026-10-01");
+        assert_eq!(step("2026-10-12", (0, -1)), "2026-10-12");
+        assert_eq!(step("2026-10-17", (0, 1)), "2026-10-17");
+        assert_eq!(step("2026-10-10", (1, 0)), "2026-10-10");
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! App state, the run loop, and what each [`Action`] does to it and to the disk. What needs
-//! `$EDITOR` is in [`editor`], the experimental daily checklist in [`daily`].
+//! `$EDITOR` is in [`editor`], the archive page in [`archive`], the experimental daily checklist
+//! in [`daily`].
 
 use std::{
     fs,
@@ -16,13 +17,14 @@ use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEventKind},
 };
 
+pub mod archive;
 mod daily;
 mod editor;
 
+use archive::ArchivePage;
 use editor::EditorRequest;
 
 use crate::{
-    archive,
     daily::DailyTask,
     edit, filter, history,
     keymap::{self, Action, Keymap},
@@ -104,6 +106,7 @@ pub struct App {
     /// Help overlay is open.
     pub show_help: bool,
     pub page: Page,
+    pub archive: ArchivePage,
     editor_request: Option<EditorRequest>,
     /// `/` filter, empty for none. Applied in [`App::rows`], so everything that works on rows
     /// sees only what matches.
@@ -141,6 +144,7 @@ impl App {
             status: None,
             show_help: false,
             page: Page::Todo,
+            archive: ArchivePage::default(),
             editor_request: None,
             filter: String::new(),
             filter_input: false,
@@ -173,9 +177,12 @@ impl App {
 
         while self.running {
             if dirty {
-                let mut offset = self.list_offset;
-                terminal.draw(|frame| offset = ui::render(&self, frame))?;
-                self.list_offset = offset;
+                let mut drawn = None;
+                terminal.draw(|frame| drawn = Some(ui::render(&self, frame)))?;
+                if let Some(drawn) = drawn {
+                    self.list_offset = drawn.list_offset;
+                    self.archive.columns = drawn.heatmap_columns;
+                }
                 dirty = false;
             }
 
@@ -270,6 +277,9 @@ impl App {
     }
 
     fn try_update(&mut self, action: Action) -> Result<()> {
+        if self.page == Page::Archive && self.update_archive(action) {
+            return Ok(());
+        }
         // Where a task goes is unclear while tasks in between are hidden, and a new task or
         // section would mostly be hidden right away.
         if !self.filter.is_empty()
@@ -293,6 +303,8 @@ impl App {
             self.normalize_before_action();
         }
         match action {
+            // Only on the archive page, see [`Self::update_archive`].
+            Action::Left | Action::Right => {}
             Action::Up => self.cursor = self.cursor.saturating_sub(1),
             Action::Down => {
                 let last = self.rows().len().saturating_sub(1);
@@ -327,6 +339,9 @@ impl App {
                 };
                 let at = Page::ALL.iter().position(|&page| page == self.page);
                 self.page = Page::ALL[(at.unwrap_or(0) + step) % count];
+                if self.page == Page::Archive {
+                    self.archive.day = Some(self.archive_day());
+                }
             }
             Action::Quit => self.running = false,
             Action::Hint(hint) => self.status = Some(Status::Info(hint.to_string())),
@@ -412,7 +427,7 @@ impl App {
             _ => return Ok(()),
         };
         let date = today();
-        let archive_dir = self.root.join(archive::DIR);
+        let archive_dir = self.root.join(crate::archive::DIR);
         let archive_path = archive_dir.join(&date).with_extension(task::EXTENSION);
         // Not an op: an empty `.archive/` left behind by undo does no harm.
         fs::create_dir_all(&archive_dir)

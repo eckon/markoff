@@ -16,8 +16,8 @@ use super::{DONE_COLOR, LINE_COLOR};
 use crate::app::App;
 use stats::{Stats, stats};
 
-/// The heatmap and the stats in a frame from the top of `area`.
-pub fn render(app: &App, frame: &mut Frame, area: Rect) {
+/// The heatmap and the stats in a frame from the top of `area`. Returns the heatmap's columns.
+pub fn render(app: &App, frame: &mut Frame, area: Rect) -> usize {
     let block = archive_block();
     let inner = block.inner(area);
     let width = inner.width as usize;
@@ -26,7 +26,10 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
             vec![Line::from("nothing archived yet".dim())],
             Stats::default(),
         ),
-        false => (heatmap::lines(&app.days, width), stats(app, width)),
+        false => (
+            heatmap::lines(&app.days, width, app.archive_day()),
+            stats(app, width),
+        ),
     };
     // A blank line above and below the heatmap where there is room: the separator and the
     // stats come on top.
@@ -48,8 +51,9 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     let framed = block.clone().padding(Padding::ZERO).inner(panel);
     let inner = block.inner(panel);
     frame.render_widget(Paragraph::new(lines).block(block), panel);
+    let columns = heatmap::columns(width);
     if !has_stats {
-        return;
+        return columns;
     }
 
     // Lines of the stats, joined to the frame and to each other.
@@ -94,6 +98,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
             buffer[(x(at), bottom)].set_symbol(join);
         }
     }
+    columns
 }
 
 /// The frame of the archive, its title says what it is, the numbers are in the stats.

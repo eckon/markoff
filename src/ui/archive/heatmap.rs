@@ -1,5 +1,6 @@
 //! The heatmap: done tasks per cell over time, see [`history::columns`].
 
+use jiff::civil::Date;
 use ratatui::{
     style::{Style, Stylize},
     text::{Line, Span},
@@ -16,6 +17,11 @@ const WEEKDAYS: usize = 4;
 /// A cell and the space after it.
 const STEP: usize = 2;
 
+/// How many columns fit in `width`, next to the weekdays.
+pub fn columns(width: usize) -> usize {
+    width.saturating_sub(WEEKDAYS) / STEP
+}
+
 /// The glyph per step from little to a lot, see [`history::bounds`]. Only the shade changes:
 /// fonts draw it brighter in order, while dim, light and bold greens often look the same.
 fn steps() -> [Span<'static>; 4] {
@@ -25,10 +31,10 @@ fn steps() -> [Span<'static>; 4] {
 /// The tasks done over time, back to the first archived day, see [`history::columns`]: labels,
 /// 7 rows of cells with today in blue and the weekdays on the right where cells are days, and
 /// a divider through the gap where the cell size changes.
-pub fn lines(days: &history::Days, width: usize) -> Vec<Line<'static>> {
+pub fn lines(days: &history::Days, width: usize, selected: Date) -> Vec<Line<'static>> {
     let today = jiff::Zoned::now().date();
-    let room = width.saturating_sub(WEEKDAYS);
-    let columns = history::columns(days, today, room / STEP);
+    let columns = history::columns(days, today, columns(width));
+    let selected = history::find(&columns, selected);
     let steps = steps();
     let bounds = history::bounds(
         columns.iter().flat_map(|column| {
@@ -57,9 +63,14 @@ pub fn lines(days: &history::Days, width: usize) -> Vec<Line<'static>> {
                 0 => "·".fg(LINE_COLOR),
                 level => steps[level - 1].clone(),
             };
-            // Today in the header's blue.
+            // Today in the header's blue, the cursor reversed.
             let shade = if cell.0 == today {
                 shade.fg(HEADER_COLOR)
+            } else {
+                shade
+            };
+            let shade = if selected == Some((i, row)) {
+                shade.reversed()
             } else {
                 shade
             };
