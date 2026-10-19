@@ -20,8 +20,8 @@ expression: app.state()
 
 
 
-────────────────────────────────────────────────────────────────────────────────
-clear the filter first (Esc)                     Esc clear filter  ? toggle help
+
+── clear the filter first (Esc) ──────────────── Esc clear filter  ? toggle help
 
 --- .order
 # home

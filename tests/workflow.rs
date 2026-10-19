@@ -410,8 +410,8 @@ fn filter_and_help() {
     app.press("1j");
     app.wait_for("│ Ask about the milk frother.");
     app.press("p");
-    // The rule above the status line no longer joins a divider.
-    app.wait_for(&"─".repeat(80));
+    // The status line's rule no longer joins a divider.
+    app.wait_for(&format!("{} ? toggle help", "─".repeat(66)));
     assert!(!app.screen().contains("frother"), "{}", app.screen());
     app.press("p");
     app.wait_for("│ Ask about the milk frother.");
@@ -450,12 +450,12 @@ fn archive() {
     app.press("\tj");
     app.wait_for("│ old notes");
     app.press("p");
-    app.wait_for(&"─".repeat(80));
+    app.wait_for(&format!("{} ? toggle help", "─".repeat(66)));
     assert!(!app.screen().contains("old notes"), "{}", app.screen());
     app.press("p");
     app.wait_for("│ old notes");
     app.press("\t");
-    app.wait_for(&"─".repeat(80));
+    app.wait_for(&format!("{} ? toggle help", "─".repeat(66)));
 
     // Todo keys do nothing on it, `[` goes back to the list.
     app.press("X[");

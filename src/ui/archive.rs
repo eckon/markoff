@@ -106,7 +106,7 @@ mod tests {
     use crate::{
         app::tests::sections,
         keymap::Action,
-        ui::{HEADER_COLOR, render},
+        ui::{KEY_COLOR, render},
     };
 
     /// Renders the app 80 wide and returns the screen as lines.
@@ -155,7 +155,7 @@ mod tests {
         let list = 13..22;
         let blue = |buffer: &ratatui::buffer::Buffer| -> Vec<(u16, u16)> {
             let cells = heatmap.clone().flat_map(|y| (0..80).map(move |x| (x, y)));
-            cells.filter(|&at| buffer[at].fg == HEADER_COLOR).collect()
+            cells.filter(|&at| buffer[at].fg == KEY_COLOR).collect()
         };
 
         // The heatmap has the keys: the selected day blue between brackets, today not blue. The
@@ -200,7 +200,7 @@ mod tests {
         let at = |text: &str| screen.iter().position(|line| line.contains(text));
         let notes = at("## Notes").expect("preview");
         let divider = screen[notes].chars().position(|c| c == '│').unwrap();
-        // The divider joins the double line above and the rule above the status line.
+        // The divider joins the double line above and the status line's rule below.
         let double = at("═").unwrap();
         assert_eq!(
             screen[double].chars().nth(divider),
@@ -208,7 +208,8 @@ mod tests {
             "{screen:#?}"
         );
         assert_eq!(screen[double + 1].chars().nth(divider), Some('│'));
-        assert_eq!(screen[22].chars().nth(divider), Some('┴'), "{screen:#?}");
+        assert_eq!(screen[22].chars().nth(divider), Some('│'), "{screen:#?}");
+        assert_eq!(screen[23].chars().nth(divider), Some('┴'), "{screen:#?}");
         // The list is cut at the split, the date at its end.
         let row = at("a done task").unwrap();
         assert!(screen[row][..screen[row].find('│').unwrap()].contains("today"));
@@ -295,11 +296,12 @@ mod tests {
         // Today the busiest, older days so it is not in the first column.
         app.days = [(today, 3), (today - 10.days(), 1), (today - 20.days(), 2)].into();
 
-        // On the todo page: the list, a rule above the status line, today's done in the header.
+        // On the todo page: the list, the status line as a rule, today's done in the header.
         let screen = lines(&draw(&app));
         assert!(screen[0].ends_with(" 1 open · ✓ 3 done"), "{screen:#?}");
         assert!(!screen.iter().any(|line| line.contains("daily")));
-        assert_eq!(screen[38], "─".repeat(80), "{screen:#?}");
+        assert_eq!(screen[38].trim(), "", "{screen:#?}");
+        assert!(screen[39].starts_with("────"), "{screen:#?}");
 
         // On its page: the selected day in the header, the heatmap from the top.
         app.update(Action::NextPage);
@@ -320,7 +322,7 @@ mod tests {
         // Nothing done yet: the selection is today, the one blue cell, between brackets.
         let row = 3 + today.weekday().to_monday_zero_offset() as u16;
         let blue: Vec<u16> = (0..80)
-            .filter(|&x| buffer[(x, row)].fg == HEADER_COLOR)
+            .filter(|&x| buffer[(x, row)].fg == KEY_COLOR)
             .collect();
         assert_eq!(blue.len(), 1, "{screen:#?}");
         assert_eq!(buffer[(blue[0], row)].symbol(), "█");

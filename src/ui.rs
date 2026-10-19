@@ -33,9 +33,9 @@ pub struct Drawn {
 /// Draws the whole screen from the current state. Rendering never mutates the app, what the
 /// next frame needs comes back in [`Drawn`].
 pub fn render(app: &App, frame: &mut Frame) -> Drawn {
-    // The header gets a blank line below, like the one above every section. A rule keeps the
-    // status line apart, so its messages and hints are not taken for the last list row.
-    let [header_area, gap_area, main_area, rule_area, status_area] = Layout::vertical([
+    // The header gets a blank line below, like the one above every section, the status line one
+    // above, so the two rules frame the page alike.
+    let [header_area, top_gap, main_area, bottom_gap, status_area] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Min(0),
@@ -44,8 +44,7 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
     ])
     .areas(frame.area());
     // Before the preview, so its divider can join it.
-    let rule = "─".repeat(rule_area.width as usize).fg(LINE_COLOR);
-    frame.render_widget(Line::from(rule), rule_area);
+    render_status(app, frame, status_area);
     let mut drawn = Drawn {
         list_offset: app.list_offset,
         heatmap_columns: app.archive.columns,
@@ -60,15 +59,19 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
             let mut count = vec![format!("{open} open · ").dim()];
             count.extend(done_count(app.done_today()));
             render_header(app, frame, header_area, &today, count);
-            drawn.list_offset =
-                render_todo(app, frame, [header_area, gap_area, main_area, rule_area]);
+            let preview;
+            (drawn.list_offset, preview) = render_todo(app, frame, main_area);
+            if let Some(x) = preview {
+                join_divider(frame, x, top_gap.y, header_area.y, "┬");
+                join_divider(frame, x, bottom_gap.y, status_area.y, "┴");
+            }
         }
         Page::Archive => {
             let divider;
             (drawn.heatmap_columns, drawn.archive_offset, divider) =
                 archive::render(app, frame, main_area);
             if let Some(x) = divider {
-                frame.buffer_mut()[(x, rule_area.y)].set_symbol("┴");
+                join_divider(frame, x, bottom_gap.y, status_area.y, "┴");
             }
             // The tasks done in the selected cell.
             let selected = archive::range(app, drawn.heatmap_columns);
@@ -78,19 +81,15 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
             render_header(app, frame, header_area, &selected, done_count(done));
         }
     }
-    render_status(app, frame, status_area);
     if app.show_help {
         help::render(frame, app.page);
     }
     drawn
 }
 
-/// The list, and the preview of a task with a body next to it. Returns the list's offset.
-fn render_todo(
-    app: &App,
-    frame: &mut Frame,
-    [header_area, gap_area, main_area, rule_area]: [Rect; 4],
-) -> usize {
+/// The list, and the preview of a task with a body next to it. Returns the list's offset and
+/// the column of the preview's divider.
+fn render_todo(app: &App, frame: &mut Frame, main_area: Rect) -> (usize, Option<u16>) {
     // The preview only shows up for a task with a body and unless `p` hid it, otherwise the list
     // takes all the width.
     let body = match app.selected() {
@@ -103,10 +102,7 @@ fn render_todo(
         list_with_preview(frame, main_area, body, &app.filter, |frame, area, width| {
             render_list(app, frame, area, width)
         });
-    if let Some(preview) = preview {
-        connect_divider(frame, preview.x, header_area.y, gap_area.y, rule_area.y);
-    }
-    offset
+    (offset, preview.map(|preview| preview.x))
 }
 
 /// A list in `area` drawn by `list`, and next to it the preview of `body` if it has text, with
@@ -137,16 +133,15 @@ fn done_count(done: usize) -> Vec<Span<'static>> {
     vec!["✓".fg(DONE_COLOR), format!(" {done} done").dim()]
 }
 
-/// Joins the preview divider at column `x` to the header: `┬` in the header rule, `│` in the
-/// blank line below. Only where the rule is a line, never over the date or the counts. At the
-/// bottom `┴` in the rule above the status line.
-fn connect_divider(frame: &mut Frame, x: u16, header_y: u16, gap_y: u16, bottom_y: u16) {
+/// Joins the preview divider at column `x` to the rule in row `rule_y`: `│` in the blank line
+/// between, `joint` in the rule. Only where the rule is a line, never over the date, the counts,
+/// the status or the hints.
+fn join_divider(frame: &mut Frame, x: u16, gap_y: u16, rule_y: u16, joint: &str) {
     let buffer = frame.buffer_mut();
-    buffer[(x, bottom_y)].set_symbol("┴");
-    if buffer[(x, header_y)].symbol() == "─" {
-        buffer[(x, header_y)].set_symbol("┬");
-    }
     buffer[(x, gap_y)].set_symbol("│").set_fg(LINE_COLOR);
+    if buffer[(x, rule_y)].symbol() == "─" {
+        buffer[(x, rule_y)].set_symbol(joint);
+    }
 }
 
 /// `── [ todo  archive ] ── Sat 17 Oct ──── 4 open · ✓ 2 done` over the whole width: the pages
@@ -154,7 +149,7 @@ fn connect_divider(frame: &mut Frame, x: u16, header_y: u16, gap_y: u16, bottom_
 /// `count`.
 fn render_header(app: &App, frame: &mut Frame, area: Rect, date: &str, count: Vec<Span<'static>>) {
     // The keys in the style of the hints in the status line.
-    let mut pages = vec!["── ".fg(LINE_COLOR), "[ ".bold().fg(HEADER_COLOR)];
+    let mut pages = vec!["── ".fg(LINE_COLOR), "[ ".bold().fg(KEY_COLOR)];
     for (i, page) in Page::ALL.into_iter().enumerate() {
         if i > 0 {
             pages.push("  ".into());
@@ -164,44 +159,55 @@ fn render_header(app: &App, frame: &mut Frame, area: Rect, date: &str, count: Ve
             false => page.name().dim(),
         });
     }
-    pages.extend([" ]".bold().fg(HEADER_COLOR), " ── ".fg(LINE_COLOR)]);
-    let spans = rule(Some(pages), date, count, HEADER_COLOR, area.width as usize);
+    pages.extend([" ]".bold().fg(KEY_COLOR), " ── ".fg(LINE_COLOR)]);
+    // Only bold, blue is for keys.
+    let spans = rule(Some(pages), date, count, Color::Reset, area.width as usize);
     frame.render_widget(Line::from(spans), area);
 }
 
-/// Left the filter input or what just happened, right the key hints.
+/// `── what just happened ──── hints` over the whole width, a rule like the header: left the
+/// filter input or what just happened, right the key hints. Without either side the rule runs
+/// to the edge.
 fn render_status(app: &App, frame: &mut Frame, area: Rect) {
-    let left = if app.filter_input {
-        let filter = format!("/{}", app.filter);
-        let end = area.x + Line::from(filter.as_str()).width() as u16;
+    let left = match app.filter_input {
+        true => vec![format!("/{}", app.filter).into()],
+        false => status_text(app),
+    };
+    let mut spans = Vec::new();
+    if !left.is_empty() {
+        spans.push("── ".fg(LINE_COLOR));
+        spans.extend(left);
+        spans.push(" ".into());
+    }
+    let used: usize = spans.iter().map(Span::width).sum();
+    if app.filter_input {
+        let end = area.x + used.saturating_sub(1) as u16;
         frame.set_cursor_position((end.min(area.right().saturating_sub(1)), area.y));
-        Line::from(filter)
-    } else {
-        status_text(app)
-    };
-
-    // Between the hints, and at least that much between the two sides.
-    const GAP: &str = "  ";
-    let line = |hints: &[(String, &str)]| {
-        let mut spans = Vec::new();
-        for (i, (key, text)) in hints.iter().enumerate() {
-            if i > 0 {
-                spans.push(GAP.into());
-            }
-            spans.push(key.clone().bold().fg(HEADER_COLOR));
-            spans.push(format!(" {text}").dim());
-        }
-        Line::from(spans)
-    };
-    // Hints give way from the end, the left side is what just happened.
-    let mut hints = hints(app);
-    while !hints.is_empty() && left.width() + GAP.len() + line(&hints).width() > area.width as usize
-    {
-        hints.pop();
     }
 
-    frame.render_widget(left, area);
-    frame.render_widget(line(&hints).right_aligned(), area);
+    // Between the hints, and at least that much rule between the two sides.
+    const GAP: usize = 2;
+    let hint_spans = |hints: &[(String, &str)]| {
+        let mut spans: Vec<Span> = Vec::new();
+        for (i, (key, text)) in hints.iter().enumerate() {
+            spans.push(if i == 0 { " " } else { "  " }.into());
+            spans.push(key.clone().bold().fg(KEY_COLOR));
+            spans.push(format!(" {text}").dim());
+        }
+        spans
+    };
+    let width = |spans: &[Span]| spans.iter().map(Span::width).sum::<usize>();
+    // Hints give way from the end, the left side is what just happened.
+    let mut hints = hints(app);
+    while !hints.is_empty() && used + GAP + width(&hint_spans(&hints)) > area.width as usize {
+        hints.pop();
+    }
+    let hints = hint_spans(&hints);
+
+    let fill = (area.width as usize).saturating_sub(used + width(&hints));
+    spans.push("─".repeat(fill).fg(LINE_COLOR));
+    spans.extend(hints);
+    frame.render_widget(Line::from(spans), area);
 }
 
 /// Key hints per mode: how to get out of the filter, and where to find the rest. Keys from
@@ -230,12 +236,12 @@ fn hints(app: &App) -> Vec<(String, &'static str)> {
         .collect()
 }
 
-/// The left side of the status line when the filter input is closed.
-fn status_text(app: &App) -> Line<'_> {
+/// The left side of the status line when the filter input is closed, empty for nothing.
+fn status_text(app: &App) -> Vec<Span<'_>> {
     match (&app.status, app.keymap.pending()) {
-        (Some(Status::Error(message)), _) => Line::from(message.as_str().red().bold()),
-        (Some(Status::Info(message)), _) => Line::from(message.as_str()),
-        (None, Some(key)) => Line::from(key.to_string()),
+        (Some(Status::Error(message)), _) => vec![message.as_str().red().bold()],
+        (Some(Status::Info(message)), _) => vec![message.as_str().into()],
+        (None, Some(key)) => vec![key.to_string().into()],
         (None, None) if !app.filter.is_empty() => {
             let count = app
                 .rows()
@@ -243,13 +249,13 @@ fn status_text(app: &App) -> Line<'_> {
                 .filter(|row| matches!(row, Row::Task(..)))
                 .count();
             let tasks = if count == 1 { "task" } else { "tasks" };
-            Line::from(vec![
+            vec![
                 "filter: ".dim(),
                 app.filter.as_str().bold(),
                 format!(" · {count} {tasks}").dim(),
-            ])
+            ]
         }
-        (None, None) => Line::default(),
+        (None, None) => Vec::new(),
     }
 }
 
@@ -257,8 +263,8 @@ fn status_text(app: &App) -> Line<'_> {
 /// colors, so they follow the terminal theme.
 const SECTION_COLORS: [Color; 4] = [Color::Blue, Color::Magenta, Color::Green, Color::Yellow];
 
-/// The date in the header.
-const HEADER_COLOR: Color = Color::Blue;
+/// Keys: the hints, the page brackets in the header and the heatmap's cursor.
+const KEY_COLOR: Color = Color::Blue;
 
 /// The check for tasks done today.
 const DONE_COLOR: Color = Color::Green;
@@ -544,14 +550,16 @@ mod tests {
         // 50 wide, the pages and the date in the header cover it, it is never drawn over them.
         assert_eq!(column(&lines[0], '┬'), None, "{lines:#?}");
         assert_eq!(column(&lines[1], '│'), Some(divider), "{lines:#?}");
-        assert_eq!(column(&lines[7], '┴'), Some(divider), "{lines:#?}");
+        assert_eq!(column(&lines[7], '│'), Some(divider), "{lines:#?}");
+        assert_eq!(column(&lines[8], '┴'), Some(divider), "{lines:#?}");
 
         // Without a preview the header and the rule are plain lines.
         app.update(Action::Down);
         let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
         assert!(!lines[0].contains('┬'), "{lines:#?}");
         assert_eq!(lines[1].trim(), "");
-        assert!(!lines[7].contains('┴'), "{lines:#?}");
+        assert_eq!(lines[7].trim(), "");
+        assert!(!lines[8].contains('┴'), "{lines:#?}");
     }
 
     #[test]
@@ -580,14 +588,17 @@ mod tests {
         assert!(lines[2].contains("work"), "{lines:#?}");
         assert!(lines[3].contains("Review"), "{lines:#?}");
         assert!(!lines.join("\n").contains("Fix typo"));
-        assert!(lines[8].starts_with("/rev "), "input at the bottom");
+        assert!(lines[8].starts_with("── /rev ─"), "input at the bottom");
         assert!(lines[8].ends_with("<CR> keep filter  Esc clear filter"));
 
         // Accepted, the filter stays visible in the status line, with its matches.
         app.update(Action::FilterAccept);
         let screen = screen(&app);
         let status = screen.lines().last().unwrap();
-        assert!(status.starts_with("filter: rev · 1 task "), "{status:?}");
+        assert!(
+            status.starts_with("── filter: rev · 1 task ─"),
+            "{status:?}"
+        );
         // `? toggle help` gives way, 50 columns are too narrow for both hints.
         assert!(status.ends_with("Esc clear filter"), "{status:?}");
     }
@@ -606,7 +617,10 @@ mod tests {
         // 50 columns: no room for the hint next to this message.
         let message = "x".repeat(44);
         app.status = Some(Status::Info(message.clone()));
-        assert_eq!(screen(&app).lines().last().unwrap().trim_end(), message);
+        assert_eq!(
+            screen(&app).lines().last().unwrap(),
+            format!("── {message} ──")
+        );
     }
 
     #[test]

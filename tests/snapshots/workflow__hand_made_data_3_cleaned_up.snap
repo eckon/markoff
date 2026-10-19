@@ -20,8 +20,8 @@ expression: app.state()
                                 │
                                 │
                                 │
-────────────────────────────────┴───────────────────────────────────────────────
-1 file renamed to match its title                                  ? toggle help
+                                │
+── 1 file renamed to match its title ───────────────────────────── ? toggle help
 
 --- .order
 # home

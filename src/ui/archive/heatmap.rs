@@ -8,7 +8,7 @@ use ratatui::{
 
 use crate::{
     history,
-    ui::{DONE_COLOR, HEADER_COLOR, LINE_COLOR, spans},
+    ui::{DONE_COLOR, KEY_COLOR, LINE_COLOR, spans},
 };
 
 /// Room for the weekdays on the right, next to the day cells they belong to.
@@ -75,7 +75,7 @@ pub fn lines(
             };
             // The selection in the header's blue, only the color changes.
             let shade = if selected == Some((i, row)) {
-                shade.fg(HEADER_COLOR)
+                shade.fg(KEY_COLOR)
             } else {
                 shade
             };
