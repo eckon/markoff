@@ -426,14 +426,10 @@ impl App {
         };
         if self.sections[s].tasks[t].repeat.is_some() {
             let date = jiff::Zoned::now().date();
-            self.apply(edit::repeat_done(
-                &self.sections,
-                s,
-                t,
-                date,
-                &self.state_file,
-            ))?;
-            self.status = Some(Status::Info("done until next time (u to undo)".to_string()));
+            let ops = edit::repeat_done(&self.sections, s, t, date, &self.state_file);
+            if self.apply(ops)? {
+                self.status = Some(Status::Info("done until next time (u to undo)".to_string()));
+            }
             return Ok(());
         }
         let date = today();
@@ -564,11 +560,17 @@ impl App {
     }
 
     /// Applies ops, records them for undo together with the cursor position, and reloads.
-    fn apply(&mut self, ops: Vec<Op>) -> Result<()> {
+    /// Without ops nothing changed, so there is no undo step either. Returns whether anything
+    /// changed, so the caller only reports what really happened.
+    fn apply(&mut self, ops: Vec<Op>) -> Result<bool> {
+        if ops.is_empty() {
+            return Ok(false);
+        }
         let cursor = self.selected().map(|row| self.row_path(row));
         op::apply_all(&ops)?;
         self.undo.push(UndoEntry { ops, cursor });
-        self.reload(None)
+        self.reload(None)?;
+        Ok(true)
     }
 
     /// Reads the root again and puts the cursor on `select` if it still exists, else keeps the
@@ -1360,6 +1362,20 @@ pub mod tests {
         assert_eq!(content, water);
         assert!(!dir.path().join(".archive").exists());
         assert_eq!(app.done_today(), 0, "not in the archive");
+
+        // Again while `.` shows it: nothing changes, no undo step to take back.
+        app.update(Action::ShowHidden);
+        app.cursor = 2;
+        let steps = app.undo.len();
+        app.update(Action::Done);
+        assert_eq!(app.undo.len(), steps);
+        assert_eq!(
+            app.status,
+            Some(Status::Info("hidden tasks shown (1)".to_string())),
+            "no claim"
+        );
+        assert_eq!(state_file(&dir), format!("# work\na\nwater {today}\n"));
+        app.update(Action::ShowHidden);
 
         app.update(Action::Undo);
         assert_eq!(listing(&app), ["[work]", "a.md", "water.md"]);
