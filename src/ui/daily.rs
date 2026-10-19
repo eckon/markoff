@@ -2,11 +2,11 @@
 //! tasks, on top of the sections.
 
 use ratatui::{
-    style::{Color, Style, Stylize},
+    style::{Color, Style},
     text::Span,
 };
 
-use super::rule;
+use super::rows;
 use crate::{
     app::{self, App},
     daily::DailyTask,
@@ -20,7 +20,7 @@ fn tasks(app: &App) -> &[DailyTask] {
     app.daily.as_deref().unwrap_or_default()
 }
 
-/// `── daily ──── 1/2`: how many are still open today of all.
+/// `────── daily ──── 1/2`: how many are still open today of all.
 pub fn header(app: &App, width: usize) -> Vec<Span<'static>> {
     let today = app::today();
     let open = tasks(app)
@@ -28,7 +28,7 @@ pub fn header(app: &App, width: usize) -> Vec<Span<'static>> {
         .filter(|task| !task.done_on(&today))
         .count();
     let count = format!("{open}/{}", tasks(app).len());
-    rule(None, "daily", vec![count.dim()], COLOR, width)
+    rows::section_rule(None, COLOR, "daily", count, width)
 }
 
 /// Task `i`, crossed out once done today.
@@ -88,6 +88,9 @@ mod tests {
         assert!(lines[4].contains("• Menu"), "{lines:#?}");
         assert!(!buffer[(7, 4)].modifier.contains(Modifier::CROSSED_OUT));
         assert!(lines[6].contains("home"), "{lines:#?}");
+        // A section rule without a key, the names align.
+        let column = |line: &str, name: &str| line[..line.find(name).unwrap()].chars().count();
+        assert_eq!(column(&lines[2], "daily"), column(&lines[6], "home"));
 
         // The body shows in the preview, like for tasks.
         app.cursor = 2;

@@ -301,10 +301,10 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                         .count();
                     let name = &app.sections[s].name;
                     rows::Kind::Header(rows::section_rule(
-                        s,
+                        Some(s),
                         color,
                         name,
-                        count,
+                        count.to_string(),
                         width.saturating_sub(1),
                     ))
                 }

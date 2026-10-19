@@ -134,11 +134,13 @@ pub fn render(
 const KEY_OPEN: &str = "──[";
 
 /// `──[1]─ work ─────── 2` with the key of the `key`th section, in `color`, filled to `width`.
+/// Every header in a list, so they all align: without a key (the daily checklist, sections past
+/// nine) the lead is a plain line as long.
 pub fn section_rule(
-    key: usize,
+    key: Option<usize>,
     color: Color,
     name: &str,
-    count: usize,
+    count: String,
     width: usize,
 ) -> Vec<Span<'static>> {
     // The key that jumps here replaces the leading `── ` of the rule, the key right above the
@@ -151,15 +153,14 @@ pub fn section_rule(
             "]─ ".fg(LINE_COLOR),
         ]
     };
-    let lead = match keymap::jump_key(key) {
+    let lead = match key.and_then(keymap::jump_key) {
         Some(key) => keyed(key),
         None => {
             let lead_width: usize = keyed(' ').iter().map(Span::width).sum();
             vec![format!("{} ", "─".repeat(lead_width - 1)).fg(LINE_COLOR)]
         }
     };
-    let count = vec![count.to_string().dim()];
-    rule(Some(lead), name, count, color, width)
+    rule(Some(lead), name, vec![count.dim()], color, width)
 }
 
 /// Spans split into single styled chars, so they can be cut anywhere.
@@ -221,7 +222,7 @@ mod tests {
     }
 
     fn header(name: &str) -> Row {
-        let rule = section_rule(0, Color::Blue, name, 1, 36);
+        let rule = section_rule(Some(0), Color::Blue, name, "1".to_string(), 36);
         Row {
             color: Color::Blue,
             kind: Kind::Header(rule),

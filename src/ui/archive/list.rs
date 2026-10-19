@@ -59,10 +59,10 @@ fn render_rows(
                         .count();
                     let key = keys.next().unwrap_or_default();
                     let rule = rows::section_rule(
-                        key,
+                        Some(key),
                         color,
                         &sections[s],
-                        count,
+                        count.to_string(),
                         width.saturating_sub(1),
                     );
                     rows::Kind::Header(rule)
