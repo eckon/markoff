@@ -19,7 +19,7 @@ the archive by text is not the goal, the editor does that.
 - The header shows the keys around the pages, `── [ todo  archive ] ──`, the current one bold.
   On the archive page it shows the selected day or range instead of today, and only `✓ N done` of
   the selection.
-- Each page keeps its state within the session (cursor, focus, `p`, `s`).
+- Each page keeps its state within the session (cursor, focus, `p`).
 - `?` shows only the keys of the current page. On the archive page grouped by part: `heatmap`,
   `list`, `other`. `j` / `k` and `1`-`9` are in both parts.
 - Todo keys (`X`, `D`, `o`, `u`, `/`, …) do nothing on the archive page, without a hint.
@@ -28,7 +28,6 @@ the archive by text is not the goal, the editor does that.
 
 ```text
   heatmap: labels + 7 weekday rows, the selection blue, the cursor between brackets: ·[▓]·
-  stats (only with `s`): period table, years, share bars
 
   ════════════════════════╤════════════════════════
                           │
@@ -43,7 +42,7 @@ the archive by text is not the goal, the editor does that.
   with the keys. The selection is apart from it: the selected cell is blue in the heatmap, also
   while the list has the keys (dimmed with the rest). Today has no mark of its own, the page opens
   on the last day with tasks done. Visual mode can make more cells blue the same way.
-- The list keeps at least 5 rows: the stats give way first. The heatmap keeps its height.
+- The heatmap keeps its height, the list gets the rest.
 
 ### Heatmap
 
@@ -54,7 +53,6 @@ the archive by text is not the goal, the editor does that.
 - The cursor remembers a date: after a resize or a reload it lands on the cell that holds it.
 - On first opening: the last day with tasks done, so on a Monday Friday. The heatmap has the keys.
 - `1`-`9` jump into the list, to that section's first task, if it is shown.
-- `s` shows or hides the stats, hidden by default (for now, see below).
 
 ### List
 
@@ -71,25 +69,22 @@ the archive by text is not the goal, the editor does that.
 
 ### Code
 
-- `app/archive.rs` the page's state and actions, `ui/archive/` its heatmap, stats and list.
+- `app/archive.rs` the page's state and actions, `ui/archive/` its heatmap and list.
 - Shared with the todo list: the cursor moves (`cursor.rs`), the list renderer (`ui/rows.rs`) and
   the list with its preview (`list_with_preview` in `ui.rs`). Rows are built per page, writing
   actions and what the cursor follows (file path or position) stay per page.
 
 ## Open points
 
-1. **Stats.** `s` is a stopgap. Open: where they belong (own page, below the list, only on a
-   wide screen), and what they should show. On a small screen `s` shows nothing at all, because the
-   list keeps its 5 rows, which looks like a broken key.
-2. **First open.** The list cursor can land on a section header when the last day with tasks is
+1. **First open.** The list cursor can land on a section header when the last day with tasks is
    in a cell of several days: the heatmap's columns are only known after the first frame.
-3. **Header length.** The page keys made the header longer, at 80 columns the todo preview's
+2. **Header length.** The page keys made the header longer, at 80 columns the todo preview's
    divider no longer joins it (`┬`), the date is in the way.
-4. **Uppercase keys.** AGENTS.md says destructive keys are uppercase. On the read-only archive
+3. **Uppercase keys.** AGENTS.md says destructive keys are uppercase. On the read-only archive
    page `H` / `J` / `K` / `L` are not destructive, and `J` / `K` mean something else than on the
    todo page (move a task). Fine for a read-only page, but the rule in AGENTS.md should say so
    when this file goes.
-5. **Body parsing.** A `# ` heading in a task body becomes `### ` in the archive, so it shows up
+4. **Body parsing.** A `# ` heading in a task body becomes `### ` in the archive, so it shows up
    as a task of its own and cuts the body there. It counted as a task before too. Fixing it means
    changing how tasks are archived.
 

@@ -23,8 +23,6 @@ pub enum Action {
     SkipRight,
     /// `Tab` on the archive page: the heatmap or the list takes the move keys.
     Focus,
-    /// `s` on the archive page: shows or hides the stats below the heatmap.
-    Stats,
     /// `p`: shows or hides the preview of the task at the cursor, on each page of its own.
     Preview,
     Top,
@@ -122,7 +120,6 @@ pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('H'))], A::SkipLeft), (&[Key(Char('L'))], A::SkipRight)], help: "left / right, skip empty", group: "heatmap", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('J'))], A::SkipDown), (&[Key(Char('K'))], A::SkipUp)], help: "down / up, skip empty", group: "heatmap", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section in the list", group: "heatmap", pages: ARCHIVE },
-    Binding { keys: &[(&[Key(Char('s'))], A::Stats)], help: "toggle stats", group: "heatmap", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "list", pages: ARCHIVE },
     Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "list", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('{')), Ctrl('u')], A::PrevSection), (&[Key(Char('}')), Ctrl('d')], A::NextSection)], help: "previous / next section", group: "list", pages: ARCHIVE },

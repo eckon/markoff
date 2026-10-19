@@ -436,7 +436,7 @@ fn archive() {
     app.wait_for("✓ 0 done");
 
     // Recent days one cell each, the cursor on the last day with tasks done and its tasks below,
-    // newest first. 20 rows are too few for the stats.
+    // newest first.
     app.press("]");
     app.wait_for("daily");
     app.wait_for("• Old two");

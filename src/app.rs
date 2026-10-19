@@ -58,7 +58,7 @@ pub enum Row {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     Todo,
-    /// The done tasks: heatmap and stats, see [`crate::ui`].
+    /// The done tasks: heatmap and list, see [`crate::ui`].
     Archive,
 }
 
@@ -127,8 +127,6 @@ pub struct App {
     pub done: history::Archive,
     /// Tasks done per day, from the archive.
     pub days: history::Days,
-    /// The same per section.
-    pub section_days: history::Sections,
 }
 
 impl App {
@@ -159,7 +157,6 @@ impl App {
             daily: None,
             done: history::Archive::new(),
             days: history::Days::new(),
-            section_days: history::Sections::new(),
         }
     }
 
@@ -318,8 +315,7 @@ impl App {
             | Action::SkipDown
             | Action::SkipUp
             | Action::SkipRight
-            | Action::Focus
-            | Action::Stats => {}
+            | Action::Focus => {}
             // A section hidden by the filter has no header to jump to.
             Action::Up
             | Action::Down
@@ -557,7 +553,7 @@ impl App {
         (self.sections, self.order_file) = load::load(&self.root)?;
         self.reload_daily()?;
         self.done = load::archive(&self.root)?;
-        (self.days, self.section_days) = history::split(&self.done);
+        self.days = history::days(&self.done);
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
         let archive_rows = self.archive_rows(self.archive.columns).len();
         self.archive.cursor = self.archive.cursor.min(archive_rows.saturating_sub(1));
