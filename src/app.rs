@@ -609,6 +609,9 @@ impl App {
 }
 
 /// `YYYY-MM-DD`, for the archive file and the daily marker.
+// TODO: after the archive view, read the clock once into an `App.today` that every `now()`
+// uses, so tests can set a fixed date instead of relying on what holds on any day. Open: does
+// it turn over at midnight in the main loop, and do the workflow tests stay on the real clock.
 pub fn today() -> String {
     jiff::Zoned::now().date().to_string()
 }

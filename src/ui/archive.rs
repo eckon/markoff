@@ -294,7 +294,8 @@ mod tests {
         assert!(screen[0].ends_with("─ ✓ 0 done"), "{screen:#?}");
         // Two spaces at the sides, a blank line below the heatmap.
         assert!(screen[2].starts_with("  daily"), "{screen:#?}");
-        assert!(screen[3].contains(" Mon "), "{screen:#?}");
+        // The weekday label at the row's end, on a Monday right after the cursor's `]`.
+        assert!(screen[3].trim_end().ends_with("Mon"), "{screen:#?}");
         assert_eq!(screen[10].trim(), "", "{screen:#?}");
         // Nothing done yet: the selection is today, the one blue cell, between brackets.
         let row = 3 + today.weekday().to_monday_zero_offset() as u16;

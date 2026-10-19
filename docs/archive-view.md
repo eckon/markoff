@@ -126,3 +126,7 @@ Not in this version, the design leaves room for them:
   and small screens, and the archive part of the workflow scenarios (moving, `Tab`, the list, the
   preview).
 - This file goes, what is left of it moves to AGENTS.md.
+
+## After it
+
+- A fixed date for tests: the TODO at `app::today()` in `src/app.rs`.
