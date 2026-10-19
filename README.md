@@ -100,7 +100,7 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 
 | Key         | Action                                      |
 | ----------- | ------------------------------------------- |
-| `h` / `l`   | Heatmap column back / forward, also `←` / `→` |
+| `h` / `l`   | Heatmap left / right, also `←` / `→`        |
 | `j` / `k`   | Heatmap a day down / up, list down / up     |
 | `H` / `L`   | Like `h` / `l`, skips empty cells           |
 | `J` / `K`   | Like `j` / `k` in the heatmap, skips empty  |

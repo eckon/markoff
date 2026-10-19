@@ -63,7 +63,7 @@ pub fn read_if_exists(path: &Path) -> Result<Option<String>> {
     }
 }
 
-/// Tasks done per day, from the archive files in `root`, see [`archive::tasks`]. Files whose
+/// The done tasks per day, from the archive files in `root`, see [`archive::tasks`]. Files whose
 /// name is no date are skipped. No `.archive/` yet means nothing was done.
 pub fn archive(root: &Path) -> Result<history::Archive> {
     let dir = root.join(archive::DIR);

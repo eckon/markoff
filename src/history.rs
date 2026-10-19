@@ -1,4 +1,4 @@
-//! The archive over time, for the archive view: the heatmap's columns and shades. Pure, the
+//! The archive over time, for the archive page: the heatmap's columns and shades. Pure, the
 //! days come from [`crate::load::archive`].
 
 use std::collections::BTreeMap;

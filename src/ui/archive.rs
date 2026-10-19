@@ -20,11 +20,11 @@ use crate::{
     history,
 };
 
-/// Lines between the overview and the list: a double line with a blank line on each side.
+/// Lines between the heatmap and the list: a double line with a blank line on each side.
 const SEPARATOR: usize = 3;
 
-/// The heatmap from the top of `area`, the done tasks of the cursor's cell
-/// below it in the rest, a double line between them. The part without the keys is dimmed.
+/// The heatmap from the top of `area`, the done tasks of the cursor's cell below it in the rest,
+/// a double line between them. The part without the keys is dimmed.
 /// Returns the heatmap's columns, the list's offset and the column of the preview's divider.
 pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option<u16>) {
     // Only the part with the keys shows its cursor.
@@ -39,10 +39,10 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
         false => heatmap::lines(&app.days, width, app.archive_day(), heatmap_keys),
     };
     let height = (lines.len() as u16).min(area.height);
-    let overview = Rect { height, ..area };
-    frame.render_widget(Paragraph::new(lines).block(block.clone()), overview);
+    let heatmap_area = Rect { height, ..area };
+    frame.render_widget(Paragraph::new(lines).block(block.clone()), heatmap_area);
     let gap = Rect {
-        y: overview.bottom(),
+        y: heatmap_area.bottom(),
         height: (SEPARATOR as u16).min(area.height - height),
         ..area
     };
@@ -62,7 +62,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
     {
         // Below the row of labels.
         let y = inner.y + 1 + row as u16;
-        if y < overview.bottom() {
+        if y < heatmap_area.bottom() {
             frame.buffer_mut()[(inner.x - 1, y)]
                 .set_symbol("[")
                 .set_style(Modifier::BOLD);
@@ -72,7 +72,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
     // The part without the keys is dimmed, a double line between the two.
     let dimmed = match app.archive.focus {
         Focus::Heatmap => list_area,
-        Focus::List => overview,
+        Focus::List => heatmap_area,
     };
     frame.buffer_mut().set_style(dimmed, Modifier::DIM);
     let line = "═".repeat(width).fg(LINE_COLOR);

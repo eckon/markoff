@@ -1,4 +1,4 @@
-//! The done tasks of the selected heatmap cell, below the overview. Laid out like the todo
+//! The done tasks of the selected heatmap cell, below the heatmap. Laid out like the todo
 //! list: section rules with their keys, a bullet per task, its day on the right. The day or the
 //! days of the cell are in the header, see [`range`].
 
@@ -18,7 +18,7 @@ use crate::{
     ui::{list_with_preview, rows, section_color},
 };
 
-/// The list below the overview, see [`rows`], with the preview of the task at the cursor like
+/// The list below the heatmap, see [`rows`], with the preview of the task at the cursor like
 /// in the todo list, unless `p` hid it. Returns the scroll offset and where the preview went.
 pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> (usize, Option<Rect>) {
     let rows = app.archive_rows(columns);

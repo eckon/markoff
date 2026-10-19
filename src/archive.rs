@@ -123,9 +123,7 @@ fn entry(task: &Task) -> String {
 }
 
 /// Moves every heading [`HEADING_SHIFT`] levels down, capped at [`MAX_HEADING_LEVEL`].
-/// Lines in fenced code blocks are left alone (`# comment` in a shell snippet). A `# ` heading
-/// lands on the level of a task title and reads as a task of its own, accepted: bodies rarely
-/// go above `## `.
+/// Lines in fenced code blocks are left alone (`# comment` in a shell snippet).
 fn shift_headings(body: &str) -> String {
     let mut fence = Fence::default();
     let mut out = String::new();

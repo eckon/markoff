@@ -53,7 +53,6 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
     };
     match app.page {
         Page::Todo => {
-            // Before the preview, so its divider can join it.
             // The tasks in all sections and those archived today, so done tasks don't just
             // vanish.
             let today = jiff::Zoned::now().strftime("%a %d %b").to_string();
