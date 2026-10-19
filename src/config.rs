@@ -1,8 +1,12 @@
 //! Where markoff finds its data, and the config file.
 //!
 //! ```toml
+//! [general]
 //! dir = "~/notes/todo"
 //! ```
+//!
+//! [`Config`] mirrors the file. Unknown keys are an error, so a typo or a key in the wrong
+//! table is caught instead of silently ignored.
 
 use std::path::{Path, PathBuf};
 
@@ -10,6 +14,8 @@ use color_eyre::{
     Report, Result,
     eyre::{WrapErr, bail, eyre},
 };
+
+use serde::Deserialize;
 
 use crate::{cli::Command, load};
 
@@ -20,8 +26,17 @@ const DIR_ENV: &str = "MARKOFF_DIR";
 const CONFIG_FILE: &str = "markoff/config.toml";
 
 /// What the config file sets, everything is optional.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default)]
+    pub general: General,
+}
+
+/// `[general]`: what is not part of a feature.
+#[derive(Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct General {
     /// The root directory, used when neither `--dir` nor [`DIR_ENV`] is given.
     pub dir: Option<PathBuf>,
 }
@@ -40,7 +55,7 @@ pub fn info(mut args: impl Iterator<Item = String>) -> Option<String> {
              \x20 add <section> <title>  Add a task at the end of a section, print its path\n\
              \n\
              Options:\n\
-             \x20 --dir <path>   Root directory, else ${DIR_ENV}, else `dir` in ~/.config/{CONFIG_FILE}\n\
+             \x20 --dir <path>   Root directory, else ${DIR_ENV}, else `general.dir` in ~/.config/{CONFIG_FILE}\n\
              \x20 -h, --help     Show this help\n\
              \x20 -V, --version  Show the version\n"
         )),
@@ -57,7 +72,7 @@ pub fn usage_error(message: &str) -> Report {
 /// Resolves the root directory, the one with the sections, and the command if one is given.
 ///
 /// Options may stand anywhere, everything else is left to [`Command::parse`], so commands never
-/// see options. Root order: `--dir <path>` / `--dir=<path>`, then [`DIR_ENV`], then `dir` of the
+/// see options. Root order: `--dir <path>` / `--dir=<path>`, then [`DIR_ENV`], then `general.dir` of the
 /// config file.
 /// Args, env and config are parameters so this can be tested without the real process.
 pub fn parse_args(
@@ -89,7 +104,7 @@ pub fn parse_args(
         (None, Some(dir)) => dir,
         (None, None) => bail!(
             "no directory given, use --dir <path>, set {DIR_ENV}, \
-             or set `dir` in ~/.config/{CONFIG_FILE}"
+             or set `general.dir` in ~/.config/{CONFIG_FILE}"
         ),
     };
     Ok((root, command))
@@ -103,7 +118,7 @@ pub fn from_env() -> Result<(PathBuf, Option<Command>)> {
         Some(path) => read_config(&path, home.as_deref())?,
         None => Config::default(),
     };
-    parse_args(std::env::args().skip(1), var(DIR_ENV), config.dir)
+    parse_args(std::env::args().skip(1), var(DIR_ENV), config.general.dir)
 }
 
 /// `$XDG_CONFIG_HOME/markoff/config.toml`, falling back to `~/.config/markoff/config.toml`.
@@ -120,31 +135,26 @@ fn read_config(path: &Path, home: Option<&str>) -> Result<Config> {
     let Some(content) = load::read_if_exists(path)? else {
         return Ok(Config::default());
     };
-    let table: toml::Table = content
-        .parse()
-        .wrap_err_with(|| format!("invalid config {}", path.display()))?;
+    let mut config: Config =
+        toml::from_str(&content).wrap_err_with(|| format!("invalid config {}", path.display()))?;
     let config_dir = path.parent().unwrap_or(Path::new("."));
-    let dir = match table.get("dir") {
-        None => None,
-        Some(value) => match value.as_str() {
-            Some(dir) => Some(resolve(dir, config_dir, home)?),
-            None => bail!("`dir` in {} must be a string", path.display()),
-        },
-    };
-    Ok(Config { dir })
+    if let Some(dir) = &config.general.dir {
+        config.general.dir = Some(resolve(dir, config_dir, home)?);
+    }
+    Ok(config)
 }
 
 /// Expands a leading `~/`, and resolves relative paths against the config file's directory
 /// (not the current directory, so markoff behaves the same wherever it is started).
-fn resolve(dir: &str, config_dir: &Path, home: Option<&str>) -> Result<PathBuf> {
-    let path = match dir.strip_prefix("~/") {
-        Some(rest) => {
+fn resolve(dir: &Path, config_dir: &Path, home: Option<&str>) -> Result<PathBuf> {
+    let path = match dir.strip_prefix("~") {
+        Ok(rest) => {
             let Some(home) = home else {
-                bail!("cannot expand `~` in {dir}, HOME is not set");
+                bail!("cannot expand `~` in {}, HOME is not set", dir.display());
             };
             Path::new(home).join(rest)
         }
-        None => PathBuf::from(dir),
+        Err(_) => dir.to_path_buf(),
     };
     Ok(config_dir.join(path))
 }
@@ -261,22 +271,32 @@ mod tests {
             read_config(&path, Some("/home/me"))
         };
 
-        let dir_of = |content: &str| read(content).unwrap().dir;
+        let dir_of = |dir: &str| {
+            read(&format!("[general]\ndir = {dir}"))
+                .unwrap()
+                .general
+                .dir
+        };
 
-        assert_eq!(dir_of("dir = \"/abs\""), Some(PathBuf::from("/abs")));
-        assert_eq!(
-            dir_of("dir = \"~/notes\""),
-            Some(PathBuf::from("/home/me/notes"))
-        );
-        assert_eq!(dir_of("dir = \"notes\""), Some(dir.path().join("notes")));
+        assert_eq!(dir_of("\"/abs\""), Some(PathBuf::from("/abs")));
+        assert_eq!(dir_of("\"~/notes\""), Some(PathBuf::from("/home/me/notes")));
+        assert_eq!(dir_of("\"notes\""), Some(dir.path().join("notes")));
         assert_eq!(read("").unwrap(), Config::default());
-        assert!(read("dir = 1").is_err());
+        assert_eq!(read("[general]").unwrap(), Config::default());
+        assert!(read("[general]\ndir = 1").is_err());
         assert!(
             read("dir = ")
                 .unwrap_err()
                 .to_string()
                 .contains("invalid config")
         );
+
+        // Unknown keys are errors that name the key: a typo, a key outside its table, or one
+        // written below another table's header.
+        let unknown = |content: &str| format!("{:?}", read(content).unwrap_err());
+        assert!(unknown("[general]\ndri = \"/a\"").contains("unknown field `dri`"));
+        assert!(unknown("dir = \"/a\"").contains("unknown field `dir`"));
+        assert!(unknown("[nope]").contains("unknown field `nope`"));
 
         assert_eq!(
             read_config(&dir.path().join("missing.toml"), None).unwrap(),

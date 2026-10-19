@@ -923,6 +923,7 @@ dependencies = [
  "notify",
  "portable-pty",
  "ratatui",
+ "serde",
  "tempfile",
  "toml",
  "vt100",

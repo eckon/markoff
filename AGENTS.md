@@ -14,6 +14,15 @@ markoff is a Rust TUI for todos stored as markdown files. This file is the sourc
 - Writing text happens in `$EDITOR`, the TUI only has quick actions. Keys are vim-like. Uppercase is a variant of its lowercase key, stronger or turned around (`O` / `o`, `H` / `h`), so the keys stay easy to guess.
 - Every action is one undo step, undo puts the cursor back where it was.
 
+## Config
+
+`~/.config/markoff/config.toml`, parsed with serde into `Config` (`config.rs`), which mirrors the file. Its names are a public API, kept apart from code names. Keep new keys in line:
+
+- `snake_case`. Global keys in `[general]`, everything else in a table per feature (`[archive]`), unfinished features in `[experimental]`.
+- Every key is optional, with its default in the README.
+- Unknown keys are an error, so typos and keys in the wrong table show.
+- Types that can grow: a string over a bool when a third state is plausible, a table over a value that may get fields, units in the name or the value, lists always arrays.
+
 ## Working style
 
 - Work in small steps (one concern at a time). Before each change, say what will change and wait for an ok.

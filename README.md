@@ -39,6 +39,7 @@ MARKOFF_DIR=~/notes/todo markoff
 
 ```toml
 # ~/.config/markoff/config.toml
+[general]
 dir = "~/notes/todo"
 ```
 
