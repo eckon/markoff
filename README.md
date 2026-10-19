@@ -9,6 +9,7 @@ A TUI for todos stored as plain markdown files. Quick actions in the TUI, writin
 - Plain markdown, close to how you would write it by hand.
 - Works without markoff: version it with git, edit it with anything.
 - Fits into other markdown setups, like a personal wiki.
+- Keyboard first, with vim-like keys.
 - Short-term todos only. Keeping the list small is the point, so features like filtering stay minimal.
 
 ## Install
