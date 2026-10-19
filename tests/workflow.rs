@@ -397,8 +397,6 @@ fn filter_and_help() {
 
     app.press("<Esc>");
     app.wait_for("• Review PR");
-    app.press("x");
-    app.wait_for("use X to mark done");
 
     // Other keys do nothing while the help is open, it closes with ? or <Esc>.
     app.press("?");

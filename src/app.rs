@@ -356,7 +356,6 @@ impl App {
                 }
             }
             Action::Quit => self.running = false,
-            Action::Hint(hint) => self.status = Some(Status::Info(hint.to_string())),
             Action::Filter => self.filter_input = true,
             Action::FilterType(c) => self.set_filter(|filter| filter.push(c)),
             Action::FilterBackspace => self.set_filter(|filter| {
@@ -1016,13 +1015,6 @@ pub mod tests {
         assert_eq!(app.editor_request, None);
         app.update(Action::FilterClear);
         assert_eq!(listing(&app), ["[work]", "a.md", "b.md"]);
-    }
-
-    #[test]
-    fn hint_goes_to_status() {
-        let (_dir, mut app) = app_with_files(&[]);
-        app.update(Action::Hint("use X"));
-        assert_eq!(app.status, Some(Status::Info("use X".to_string())));
     }
 
     #[test]

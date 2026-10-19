@@ -45,8 +45,6 @@ pub enum Action {
     PrevPage,
     NextPage,
     Quit,
-    /// A key that is not mapped on purpose, with a hint what to press instead.
-    Hint(&'static str),
     /// `/`: opens the filter input.
     Filter,
     /// A character typed into the filter input.
@@ -132,13 +130,6 @@ pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('?'))], A::Help)], help: "toggle help", group: "other", pages: ALL },
     Binding { keys: &[(&[Key(Char('['))], A::PrevPage), (&[Key(Char(']'))], A::NextPage)], help: "previous / next page", group: "other", pages: ALL },
     Binding { keys: &[(&[Key(Char('q')), Ctrl('c')], A::Quit)], help: "quit", group: "other", pages: ALL },
-];
-
-/// Lowercase keys left unmapped on purpose: the destructive actions are uppercase so they are
-/// not hit by accident. Pressing one of these shows the hint instead. Not in the help overlay.
-const HINTS: &[(char, &str)] = &[
-    ('x', "x does nothing, use X to mark done"),
-    ('d', "d does nothing, use D to delete"),
 ];
 
 impl Binding {
@@ -234,10 +225,7 @@ impl Keymap {
                 _ => {}
             }
         }
-        HINTS
-            .iter()
-            .find(|(c, _)| page == Page::Todo && key.code == Char(*c))
-            .map(|(_, hint)| Action::Hint(hint))
+        None
     }
 
     /// The unfinished sequence, to show in the status line.
@@ -395,19 +383,6 @@ mod tests {
         let ctrl_c = KeyEvent::new(Char('c'), KeyModifiers::CONTROL);
         assert_eq!(keymap.handle(ctrl_c, Page::Todo), Some(Action::Quit));
         assert_eq!(keymap.pending(), None);
-    }
-
-    #[test]
-    fn lowercase_destructive_keys_only_hint() {
-        let mut keymap = Keymap::default();
-        assert_eq!(
-            press(&mut keymap, Char('x')),
-            Some(Action::Hint("x does nothing, use X to mark done"))
-        );
-        assert_eq!(
-            press(&mut keymap, Char('d')),
-            Some(Action::Hint("d does nothing, use D to delete"))
-        );
     }
 
     #[test]
