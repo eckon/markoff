@@ -76,15 +76,13 @@ the archive by text is not the goal, the editor does that.
 
 ## Open points
 
-1. **First open.** The list cursor can land on a section header when the last day with tasks is
-   in a cell of several days: the heatmap's columns are only known after the first frame.
-2. **Header length.** The page keys made the header longer, at 80 columns the todo preview's
+1. **Header length.** The page keys made the header longer, at 80 columns the todo preview's
    divider no longer joins it (`┬`), the date is in the way.
-3. **Uppercase keys.** AGENTS.md says destructive keys are uppercase. On the read-only archive
+2. **Uppercase keys.** AGENTS.md says destructive keys are uppercase. On the read-only archive
    page `H` / `J` / `K` / `L` are not destructive, and `J` / `K` mean something else than on the
    todo page (move a task). Fine for a read-only page, but the rule in AGENTS.md should say so
    when this file goes.
-4. **Body parsing.** A `# ` heading in a task body becomes `### ` in the archive, so it shows up
+3. **Body parsing.** A `# ` heading in a task body becomes `### ` in the archive, so it shows up
    as a task of its own and cuts the body there. It counted as a task before too. Fixing it means
    changing how tasks are archived.
 

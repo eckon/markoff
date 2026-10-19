@@ -48,7 +48,8 @@ impl App {
     pub fn archive_day(&self) -> Date {
         let today = jiff::Zoned::now().date();
         self.archive.day.unwrap_or_else(|| {
-            let last = self.days.range(..=today).next_back();
+            // An archive file can be empty, that is no day with tasks done.
+            let last = self.days.range(..=today).rfind(|(_, done)| **done > 0);
             last.map_or(today, |(&day, _)| day)
         })
     }
@@ -180,5 +181,41 @@ impl App {
             }
         }
         rows
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::{app::tests::sections, archive::Done};
+
+    #[test]
+    fn first_open_skips_empty_archive_files() {
+        let today = jiff::Zoned::now().date();
+        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        let done = |title: &str| Done {
+            section: "work".to_string(),
+            title: title.to_string(),
+            body: String::new(),
+        };
+        // Far back, where a cell covers several days, the newest file without tasks.
+        let day = today - 400.days();
+        app.done = [
+            (day - 1.days(), vec![done("Older")]),
+            (day, vec![done("Newest")]),
+            (day + 1.days(), Vec::new()),
+        ]
+        .into();
+        app.days = history::days(&app.done);
+
+        // Before the first frame the heatmap's columns are not known yet.
+        app.update(Action::NextPage);
+        assert_eq!(app.archive_day(), day);
+        // In the frame the cell covers all three days, the cursor is on the newest task.
+        let rows = app.archive_rows(40);
+        assert!(app.archive_cell(40).1 > 1);
+        assert_eq!(rows[app.archive.cursor], ArchiveRow::Task(0, day, 0));
     }
 }
