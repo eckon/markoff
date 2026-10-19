@@ -1,7 +1,6 @@
 //! Reads the root directory into [`Section`]s, in the order of [`order::FILE`].
 
 use std::{
-    collections::BTreeMap,
     fs, io,
     path::{Path, PathBuf},
 };
@@ -10,7 +9,7 @@ use color_eyre::{Result, eyre::WrapErr};
 use jiff::civil::Date;
 
 use crate::{
-    archive,
+    archive, history,
     order::{self, Order, OrderFile},
     task::{self, Section, Task},
 };
@@ -64,15 +63,14 @@ pub fn read_if_exists(path: &Path) -> Result<Option<String>> {
     }
 }
 
-/// Tasks done per day and section, from the archive files in `root`, see
-/// [`archive::sections`]. Files whose name is no date are skipped. No `.archive/` yet means
-/// nothing was done.
-pub fn archive(root: &Path) -> Result<BTreeMap<Date, Vec<(String, usize)>>> {
+/// The done tasks per day, from the archive files in `root`, see [`archive::tasks`]. Files whose
+/// name is no date are skipped. No `.archive/` yet means nothing was done.
+pub fn archive(root: &Path) -> Result<history::Archive> {
     let dir = root.join(archive::DIR);
     if !dir.is_dir() {
-        return Ok(BTreeMap::new());
+        return Ok(history::Archive::new());
     }
-    let mut days = BTreeMap::new();
+    let mut days = history::Archive::new();
     for path in visible_entries(&dir)? {
         let Some(date) = Some(&path)
             .filter(|path| is_markdown(path))
@@ -82,7 +80,7 @@ pub fn archive(root: &Path) -> Result<BTreeMap<Date, Vec<(String, usize)>>> {
             continue;
         };
         if let Some(content) = read_if_exists(&path)? {
-            days.insert(date, archive::sections(&content));
+            days.insert(date, archive::tasks(&content));
         }
     }
     Ok(days)
@@ -172,8 +170,12 @@ mod tests {
         let days = archive(dir.path()).unwrap();
         let dates: Vec<String> = days.keys().map(Date::to_string).collect();
         assert_eq!(dates, ["2026-10-02", "2026-10-14"]);
-        let fix_bug = [("work".to_string(), 1)];
-        assert_eq!(days[&"2026-10-14".parse().unwrap()], fix_bug);
+        let fix_bug = archive::Done {
+            section: "work".to_string(),
+            title: "Fix bug".to_string(),
+            body: String::new(),
+        };
+        assert_eq!(days[&"2026-10-14".parse().unwrap()], [fix_bug]);
     }
 
     #[test]

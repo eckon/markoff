@@ -9,19 +9,26 @@ use ratatui::{
 };
 
 use super::{LINE_COLOR, rule, section_color};
-use crate::keymap::{BINDINGS, Binding};
+use crate::{
+    app::Page,
+    keymap::{BINDINGS, Binding},
+};
 
-/// A panel on the right listing [`BINDINGS`], so it always matches the real keys. Groups as
-/// rules like the sections in the list, dots lead from the keys to what they do. The rest is
-/// dimmed behind it, the status line stays as it is.
-pub fn render(frame: &mut Frame) {
+/// A panel on the right listing the [`BINDINGS`] of `page`, so it always matches the real keys.
+/// Groups as rules like the sections in the list, dots lead from the keys to what they do. The
+/// rest is dimmed behind it, the status line stays as it is.
+pub fn render(frame: &mut Frame, page: Page) {
+    let bindings: Vec<&Binding> = BINDINGS
+        .iter()
+        .filter(|binding| binding.pages.contains(&page))
+        .collect();
     let label = |binding: &Binding| binding.labels().join(" / ");
-    let label_width = BINDINGS
+    let label_width = bindings
         .iter()
         .map(|binding| label(binding).chars().count())
         .max()
         .unwrap_or(0);
-    let key_lines: Vec<Line> = BINDINGS
+    let key_lines: Vec<Line> = bindings
         .iter()
         .map(|binding| {
             // Only the keys are bold, so the `/` between them is not taken for the filter key.
@@ -43,8 +50,8 @@ pub fn render(frame: &mut Frame) {
 
     let mut lines = vec![Line::from("help".bold())];
     let mut groups = 0;
-    for (i, (binding, line)) in BINDINGS.iter().zip(key_lines).enumerate() {
-        if i == 0 || BINDINGS[i - 1].group != binding.group {
+    for (i, (binding, line)) in bindings.iter().zip(key_lines).enumerate() {
+        if i == 0 || bindings[i - 1].group != binding.group {
             lines.push(Line::default());
             lines.push(Line::from(rule(
                 None,

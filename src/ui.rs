@@ -6,22 +6,33 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph, Wrap},
+    widgets::{Block, Borders, Padding, Paragraph, Wrap},
 };
 
 mod archive;
 mod daily;
 mod help;
+mod rows;
 
 use crate::{
-    app::{App, Row, Status},
+    app::{App, Page, Row, Status, archive::ArchiveRow},
     filter,
-    keymap::{self, Action, BINDINGS, FILTER_INPUT_HINTS},
+    keymap::{Action, BINDINGS, FILTER_INPUT_HINTS},
 };
 
-/// Draws the whole screen from the current state. Rendering never mutates the app, it
-/// returns the list's scroll offset for the caller to keep in [`App::list_offset`].
-pub fn render(app: &App, frame: &mut Frame) -> usize {
+/// What a frame leaves for the next one, the caller keeps it in the app.
+pub struct Drawn {
+    /// See [`App::list_offset`].
+    pub list_offset: usize,
+    /// See [`crate::app::archive::ArchivePage::columns`].
+    pub heatmap_columns: usize,
+    /// See [`crate::app::archive::ArchivePage::offset`].
+    pub archive_offset: usize,
+}
+
+/// Draws the whole screen from the current state. Rendering never mutates the app, what the
+/// next frame needs comes back in [`Drawn`].
+pub fn render(app: &App, frame: &mut Frame) -> Drawn {
     // The header gets a blank line below, like the one above every section. A rule keeps the
     // status line apart, so its messages and hints are not taken for the last list row.
     let [header_area, gap_area, main_area, rule_area, status_area] = Layout::vertical([
@@ -32,46 +43,98 @@ pub fn render(app: &App, frame: &mut Frame) -> usize {
         Constraint::Length(1),
     ])
     .areas(frame.area());
-    render_header(app, frame, header_area);
-    let [list_area, preview_area] =
-        Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
-            .areas(main_area);
-    // Rules keep the split width even when the list gets the whole screen,
-    // so they don't jump while moving between tasks with and without a body.
-    let rule_width = list_block().inner(list_area).width as usize;
-
     // Before the preview, so its divider can join it.
     let rule = "─".repeat(rule_area.width as usize).fg(LINE_COLOR);
     frame.render_widget(Line::from(rule), rule_area);
+    let mut drawn = Drawn {
+        list_offset: app.list_offset,
+        heatmap_columns: app.archive.columns,
+        archive_offset: app.archive.offset,
+    };
+    match app.page {
+        Page::Todo => {
+            // The tasks in all sections and those archived today, so done tasks don't just
+            // vanish.
+            let today = jiff::Zoned::now().strftime("%a %d %b").to_string();
+            let open: usize = app.sections.iter().map(|section| section.tasks.len()).sum();
+            let mut count = vec![format!("{open} open · ").dim()];
+            count.extend(done_count(app.done_today()));
+            render_header(app, frame, header_area, &today, count);
+            drawn.list_offset =
+                render_todo(app, frame, [header_area, gap_area, main_area, rule_area]);
+        }
+        Page::Archive => {
+            let divider;
+            (drawn.heatmap_columns, drawn.archive_offset, divider) =
+                archive::render(app, frame, main_area);
+            if let Some(x) = divider {
+                frame.buffer_mut()[(x, rule_area.y)].set_symbol("┴");
+            }
+            // The tasks done in the selected cell.
+            let selected = archive::range(app, drawn.heatmap_columns);
+            let done = (app.archive_rows(drawn.heatmap_columns).iter())
+                .filter(|row| matches!(row, ArchiveRow::Task(..)))
+                .count();
+            render_header(app, frame, header_area, &selected, done_count(done));
+        }
+    }
+    render_status(app, frame, status_area);
+    if app.show_help {
+        help::render(frame, app.page);
+    }
+    drawn
+}
 
-    // The preview only shows up for a task with a body, otherwise the list takes all the width.
+/// The list, and the preview of a task with a body next to it. Returns the list's offset.
+fn render_todo(
+    app: &App,
+    frame: &mut Frame,
+    [header_area, gap_area, main_area, rule_area]: [Rect; 4],
+) -> usize {
+    // The preview only shows up for a task with a body and unless `p` hid it, otherwise the list
+    // takes all the width.
     let body = match app.selected() {
+        _ if app.hide_preview => None,
         Some(Row::Task(s, t)) => Some(app.sections[s].tasks[t].body.as_str()),
         Some(Row::DailyTask(i)) => Some(daily::body(app, i)),
         _ => None,
     };
-    let offset = match body {
-        Some(body) if !body.trim().is_empty() => {
-            render_preview(app, frame, preview_area, body);
-            connect_divider(
-                frame,
-                preview_area.x,
-                header_area.y,
-                gap_area.y,
-                rule_area.y,
-            );
-            render_list(app, frame, list_area, rule_width)
-        }
-        _ => render_list(app, frame, main_area, rule_width),
-    };
-    render_status(app, frame, status_area);
-    if app.show_help {
-        help::render(frame);
-    }
-    if app.show_archive {
-        archive::render(app, frame, main_area.union(rule_area));
+    let (offset, preview) =
+        list_with_preview(frame, main_area, body, &app.filter, |frame, area, width| {
+            render_list(app, frame, area, width)
+        });
+    if let Some(preview) = preview {
+        connect_divider(frame, preview.x, header_area.y, gap_area.y, rule_area.y);
     }
     offset
+}
+
+/// A list in `area` drawn by `list`, and next to it the preview of `body` if it has text, with
+/// the matches of `filter`. Without one the list takes all the width, but its rules keep the
+/// split width, so they don't jump while moving between tasks with and without a body. Returns
+/// the list's offset and where the preview went.
+fn list_with_preview(
+    frame: &mut Frame,
+    area: Rect,
+    body: Option<&str>,
+    filter: &str,
+    list: impl FnOnce(&mut Frame, Rect, usize) -> usize,
+) -> (usize, Option<Rect>) {
+    let [list_area, preview_area] =
+        Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).areas(area);
+    let rule_width = rows::block().inner(list_area).width as usize;
+    match body {
+        Some(body) if !body.trim().is_empty() => {
+            render_preview(frame, preview_area, body, filter);
+            (list(frame, list_area, rule_width), Some(preview_area))
+        }
+        _ => (list(frame, area, rule_width), None),
+    }
+}
+
+/// `✓ 2 done` for the header.
+fn done_count(done: usize) -> Vec<Span<'static>> {
+    vec!["✓".fg(DONE_COLOR), format!(" {done} done").dim()]
 }
 
 /// Joins the preview divider at column `x` to the header: `┬` in the header rule, `│` in the
@@ -86,19 +149,23 @@ fn connect_divider(frame: &mut Frame, x: u16, header_y: u16, gap_y: u16, bottom_
     buffer[(x, gap_y)].set_symbol("│").set_fg(LINE_COLOR);
 }
 
-/// `── Sat 17 Oct ──────── 4 open · ✓ 2 done` over the whole width: today, the tasks in all
-/// sections and those archived today, so done tasks don't just vanish.
-fn render_header(app: &App, frame: &mut Frame, area: Rect) {
-    let date = jiff::Zoned::now().strftime("%a %d %b").to_string();
-    let open: usize = app.sections.iter().map(|section| section.tasks.len()).sum();
-    let done = app.done_today();
-
-    let count = vec![
-        format!("{open} open · ").dim(),
-        "✓".fg(DONE_COLOR),
-        format!(" {done} done").dim(),
-    ];
-    let spans = rule(None, &date, count, HEADER_COLOR, area.width as usize);
+/// `── [ todo  archive ] ── Sat 17 Oct ──── 4 open · ✓ 2 done` over the whole width: the pages
+/// with the current one bold, between the keys that switch them, then the page's `date` and
+/// `count`.
+fn render_header(app: &App, frame: &mut Frame, area: Rect, date: &str, count: Vec<Span<'static>>) {
+    // The keys in the style of the hints in the status line.
+    let mut pages = vec!["── ".fg(LINE_COLOR), "[ ".bold().fg(HEADER_COLOR)];
+    for (i, page) in Page::ALL.into_iter().enumerate() {
+        if i > 0 {
+            pages.push("  ".into());
+        }
+        pages.push(match page == app.page {
+            true => page.name().bold(),
+            false => page.name().dim(),
+        });
+    }
+    pages.extend([" ]".bold().fg(HEADER_COLOR), " ── ".fg(LINE_COLOR)]);
+    let spans = rule(Some(pages), date, count, HEADER_COLOR, area.width as usize);
     frame.render_widget(Line::from(spans), area);
 }
 
@@ -147,9 +214,7 @@ fn hints(app: &App) -> Vec<(String, &'static str)> {
             .collect();
     }
     let help = (Action::Help, "toggle help");
-    let hints = if app.show_archive {
-        vec![(Action::Archive, "toggle archive")]
-    } else if app.filter.is_empty() || app.show_help {
+    let hints = if app.filter.is_empty() || app.show_help || app.page == Page::Archive {
         vec![help]
     } else {
         vec![(Action::FilterClear, "clear filter"), help]
@@ -205,159 +270,74 @@ fn section_color(index: usize) -> Color {
     SECTION_COLORS[index % SECTION_COLORS.len()]
 }
 
-/// No box around the list. Sections are rules, tasks get a bullet in the section color,
-/// the cursor is a bar in the gutter. Returns the scroll offset.
+/// The todo list: the daily checklist and the sections with their tasks, see [`rows`].
+/// Returns the scroll offset.
 fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize {
-    /// Opens the section key in a section rule: `──[1]─ work`.
-    const KEY_OPEN: &str = "──[";
-
-    let block = list_block();
-    let text_width = block.inner(area).width as usize;
-
-    let mut items: Vec<ListItem> = Vec::new();
-    let mut selected = 0;
     let rows = app.rows();
-    for (i, &row) in rows.iter().enumerate() {
-        let is_cursor = i == app.cursor;
-        let color = match row {
-            Row::Section(s) | Row::Task(s, _) => section_color(s),
-            Row::Daily | Row::DailyTask(_) => daily::COLOR,
-        };
-
-        // Blank line before each section except the first. Not a row, the cursor skips it.
-        if i > 0 && matches!(row, Row::Section(_) | Row::Daily) {
-            items.push(ListItem::new(""));
-        }
-        if is_cursor {
-            selected = items.len();
-        }
-
-        // One column gutter for the cursor bar.
-        let gutter = || -> Span<'static> {
-            if is_cursor {
-                "▌".fg(color)
+    let items: Vec<rows::Row> = (rows.iter().enumerate())
+        .map(|(i, &row)| {
+            let is_cursor = i == app.cursor;
+            let color = match row {
+                Row::Section(s) | Row::Task(s, _) => section_color(s),
+                Row::Daily | Row::DailyTask(_) => daily::COLOR,
+            };
+            let task_style = if is_cursor {
+                Style::new().fg(color)
             } else {
-                " ".into()
-            }
-        };
-        let task_style = if is_cursor {
-            Style::new().fg(color)
-        } else {
-            Style::new()
-        };
-        let title = match row {
-            Row::Section(s) => {
-                let section = &app.sections[s];
-                // Only the shown tasks, so with a filter it says how many match.
-                let count = rows
-                    .iter()
-                    .filter(|row| matches!(row, Row::Task(task_s, _) if *task_s == s))
-                    .count();
-                // The key that jumps here replaces the leading `── ` of the rule, the key right
-                // above the bullets. Dim like the count, so the name stays what stands out.
-                // Without a key the rule is as long, the names align.
-                let keyed = |key: char| {
-                    vec![
-                        KEY_OPEN.fg(LINE_COLOR),
-                        key.to_string().dim(),
-                        "]─ ".fg(LINE_COLOR),
-                    ]
-                };
-                let lead = match keymap::jump_key(s) {
-                    Some(key) => keyed(key),
-                    None => {
-                        let lead_width: usize = keyed(' ').iter().map(Span::width).sum();
-                        vec![format!("{} ", "─".repeat(lead_width - 1)).fg(LINE_COLOR)]
+                Style::new()
+            };
+            let kind = match row {
+                Row::Section(s) => {
+                    // Only the shown tasks, so with a filter it says how many match.
+                    let count = rows
+                        .iter()
+                        .filter(|row| matches!(row, Row::Task(task_s, _) if *task_s == s))
+                        .count();
+                    let name = &app.sections[s].name;
+                    rows::Kind::Header(rows::section_rule(
+                        s,
+                        color,
+                        name,
+                        count,
+                        width.saturating_sub(1),
+                    ))
+                }
+                Row::Daily => rows::Kind::Header(daily::header(app, width.saturating_sub(1))),
+                Row::DailyTask(i) => rows::Kind::Task(daily::task(app, i, task_style), None),
+                Row::Task(s, t) => {
+                    let title = app.sections[s].tasks[t].title();
+                    let mut style = task_style;
+                    // Listed for a match in the body only: weaker, `…` hints at the preview.
+                    let body_only = !filter::matches(&title, &app.filter);
+                    if body_only {
+                        style = style.dim();
                     }
-                };
-                let mut spans = vec![gutter()];
-                spans.extend(rule(
-                    Some(lead),
-                    &section.name,
-                    vec![count.to_string().dim()],
-                    color,
-                    width.saturating_sub(gutter().width()),
-                ));
-                items.push(ListItem::new(Line::from(spans)));
-                continue;
-            }
-            Row::Daily => {
-                let mut spans = vec![gutter()];
-                spans.extend(daily::header(app, width.saturating_sub(gutter().width())));
-                items.push(ListItem::new(Line::from(spans)));
-                continue;
-            }
-            Row::DailyTask(i) => daily::task(app, i, task_style),
-            Row::Task(s, t) => {
-                let title = app.sections[s].tasks[t].title();
-                let mut style = task_style;
-                // Listed for a match in the body only: weaker, `…` hints at the preview.
-                let body_only = !filter::matches(&title, &app.filter);
-                if body_only {
-                    style = style.dim();
+                    let mut spans = highlight(&title, &app.filter, style);
+                    if body_only {
+                        spans.push(" …".dim());
+                    }
+                    rows::Kind::Task(spans, None)
                 }
-                let mut spans = highlight(&title, &app.filter, style);
-                if body_only {
-                    spans.push(" …".dim());
-                }
-                spans
-            }
-        };
+            };
+            rows::Row { color, kind }
+        })
+        .collect();
 
-        // Gutter and indent before the title, the bullet below the key of the section.
-        let prefix = |first: bool| -> Vec<Span<'static>> {
-            let bullet = if first { "• ".fg(color) } else { "  ".into() };
-            vec![
-                gutter(),
-                " ".repeat(KEY_OPEN.chars().count()).into(),
-                bullet,
-            ]
-        };
-        let title_width = text_width.saturating_sub(Line::from(prefix(true)).width());
-        let title_lines = if is_cursor {
-            wrap(title, title_width)
-        } else {
-            vec![truncate(title, title_width)]
-        };
-        let lines: Vec<Line> = title_lines
-            .into_iter()
-            .enumerate()
-            .map(|(n, title)| {
-                let mut spans = prefix(n == 0);
-                spans.extend(title);
-                Line::from(spans)
-            })
-            .collect();
-        items.push(ListItem::new(lines));
-    }
+    let mut notes = Vec::new();
     if items.is_empty() && !app.filter.is_empty() {
-        // Gutter column like the rows, so it lines up with the section rules.
-        items.push(ListItem::new(" no matches".dim()));
+        notes.push("no matches");
     }
     // Tasks only live in sections, so without one there is nowhere to add a task.
     if app.sections.is_empty() {
-        if !items.is_empty() {
-            items.push(ListItem::new(""));
-        }
-        items.push(ListItem::new(" no sections yet, N creates one".dim()));
+        notes.push("no sections yet, N creates one");
     }
-
-    let list = List::new(items).block(block);
-    // Starts from the last offset, ratatui only scrolls when the cursor would leave the
-    // screen. A fresh offset would pin the cursor to the bottom edge while moving up.
-    let mut state = ListState::default()
-        .with_offset(app.list_offset)
-        .with_selected(Some(selected));
-    frame.render_stateful_widget(list, area, &mut state);
-    state.offset()
-}
-
-/// Spans split into single styled chars, so they can be cut anywhere.
-fn chars(spans: Vec<Span<'static>>) -> Vec<(char, Style)> {
-    spans
-        .iter()
-        .flat_map(|span| span.content.chars().map(|c| (c, span.style)))
-        .collect()
+    rows::render(
+        frame,
+        area,
+        items,
+        (Some(app.cursor), app.list_offset),
+        &notes,
+    )
 }
 
 /// Styled chars joined back into spans, one per run of the same style.
@@ -366,39 +346,6 @@ fn spans(chars: &[(char, Style)]) -> Vec<Span<'static>> {
         .chunk_by(|a, b| a.1 == b.1)
         .map(|run| Span::styled(run.iter().map(|(c, _)| c).collect::<String>(), run[0].1))
         .collect()
-}
-
-/// One line of `width`, ending in `…` when cut, so a long title doesn't just stop.
-fn truncate(text: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
-    let chars = chars(text);
-    if chars.len() <= width {
-        return spans(&chars);
-    }
-    let mut line = spans(&chars[..width.saturating_sub(1)]);
-    line.push("…".dim());
-    line
-}
-
-/// Lines of at most `width`, broken at spaces, words longer than a line are split.
-fn wrap(text: Vec<Span<'static>>, width: usize) -> Vec<Vec<Span<'static>>> {
-    let mut rest = chars(text);
-    let mut lines = Vec::new();
-    while rest.len() > width && width > 0 {
-        let space = rest[..=width].iter().rposition(|(c, _)| *c == ' ');
-        let (line, next) = match space {
-            Some(at) if at > 0 => (&rest[..at], &rest[at + 1..]),
-            _ => (&rest[..width], &rest[width..]),
-        };
-        lines.push(spans(line));
-        rest = next.to_vec();
-    }
-    lines.push(spans(&rest));
-    lines
-}
-
-/// Space on the right so rules stop before the preview divider.
-fn list_block<'a>() -> Block<'a> {
-    Block::new().padding(Padding::new(1, 2, 0, 0))
 }
 
 /// `── work ─────── 2`, filled to `width`. Section headers, the date header, help groups.
@@ -422,9 +369,10 @@ fn rule(
     spans
 }
 
-/// Task body as raw text, read only. No title, the cursor row in the list shows it in full.
-fn render_preview(app: &App, frame: &mut Frame, area: Rect, body: &str) {
-    let text = body_text(body, &app.filter);
+/// Task body as raw text, read only, with the matches of `filter`. No title, the cursor row in
+/// the list shows it in full. The todo list and the archive page.
+fn render_preview(frame: &mut Frame, area: Rect, body: &str, filter: &str) {
+    let text = body_text(body, filter);
 
     // No box, a divider on the left.
     let divider = Block::new()
@@ -492,7 +440,9 @@ mod tests {
     fn draw(app: &mut App) -> Vec<String> {
         let mut offset = app.list_offset;
         let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
-        terminal.draw(|frame| offset = render(app, frame)).unwrap();
+        terminal
+            .draw(|frame| offset = render(app, frame).list_offset)
+            .unwrap();
         app.list_offset = offset;
         screen(app).lines().map(str::to_string).collect()
     }
@@ -571,6 +521,12 @@ mod tests {
         }
         // The title is only in the list, the preview starts with the body.
         assert_eq!(screen.matches("Fix typo").count(), 1, "{screen}");
+
+        // `p` hides it, the title gets all the width.
+        app.update(Action::Preview);
+        let hidden = super::tests::screen(&app);
+        assert!(!hidden.contains("line one"), "{hidden}");
+        assert!(!hidden.contains('│'), "{hidden}");
     }
 
     #[test]
@@ -585,7 +541,8 @@ mod tests {
         app.update(Action::Down);
         let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
         let divider = column(&lines[2], '│').expect("preview divider");
-        assert_eq!(column(&lines[0], '┬'), Some(divider), "{lines:#?}");
+        // 50 wide, the pages and the date in the header cover it, it is never drawn over them.
+        assert_eq!(column(&lines[0], '┬'), None, "{lines:#?}");
         assert_eq!(column(&lines[1], '│'), Some(divider), "{lines:#?}");
         assert_eq!(column(&lines[7], '┴'), Some(divider), "{lines:#?}");
 
@@ -659,16 +616,25 @@ mod tests {
             sections(&[("home", &["Fix typo"]), ("work", &["Review", "Deploy"])]),
         );
         app.days = [(jiff::Zoned::now().date(), 2)].into();
-        let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
+        // Wider than the others, the pages take room.
+        let mut terminal = Terminal::new(TestBackend::new(60, 9)).unwrap();
         terminal
             .draw(|frame| {
                 render(&app, frame);
             })
             .unwrap();
-        let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
+        let buffer = terminal.backend().buffer();
+        let lines: Vec<String> = buffer
+            .content()
+            .chunks(buffer.area.width as usize)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+            .collect();
 
         let date = jiff::Zoned::now().strftime("%a %d %b").to_string();
-        assert!(lines[0].starts_with(&format!("── {date} ─")), "{lines:#?}");
+        assert!(
+            lines[0].starts_with(&format!("── [ todo  archive ] ── {date} ─")),
+            "{lines:#?}"
+        );
         assert!(lines[0].ends_with("─ 3 open · ✓ 2 done"), "{lines:#?}");
         let check = lines[0].chars().position(|c| c == '✓').unwrap() as u16;
         assert_eq!(terminal.backend().buffer()[(check, 0)].fg, DONE_COLOR);

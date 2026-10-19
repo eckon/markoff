@@ -372,7 +372,7 @@ fn hand_made_data() {
     app.quit();
 }
 
-/// Filter, help and hints: what only shows or narrows, without changing files.
+/// Filter, help, hints and the preview: what only shows or narrows, without changing files.
 #[test]
 fn filter_and_help() {
     let mut app = Markoff::start_with(&[
@@ -397,8 +397,6 @@ fn filter_and_help() {
 
     app.press("<Esc>");
     app.wait_for("• Review PR");
-    app.press("x");
-    app.wait_for("use X to mark done");
 
     // Other keys do nothing while the help is open, it closes with ? or <Esc>.
     app.press("?");
@@ -408,46 +406,69 @@ fn filter_and_help() {
     app.wait_for("• Buy milk");
     snapshot!("filter_and_help_3_closed", app.state());
 
+    // The preview shows a task's body, `p` hides it and shows it again.
+    app.press("1j");
+    app.wait_for("│ Ask about the milk frother.");
+    app.press("p");
+    // The rule above the status line no longer joins a divider.
+    app.wait_for(&"─".repeat(80));
+    assert!(!app.screen().contains("frother"), "{}", app.screen());
+    app.press("p");
+    app.wait_for("│ Ask about the milk frother.");
+
     app.quit();
 }
 
-/// The archive: a heatmap of done tasks over the list with `a`. It moves with the date (today's
-/// row, the month names), so this one checks what holds on any day instead of snapshots.
+/// The archive: a page of its own with a heatmap of done tasks, `[` / `]` switch to it. It moves
+/// with the date (today's row, the month names), so this one checks what holds on any day
+/// instead of snapshots.
 #[test]
 fn archive() {
     let today = jiff::Zoned::now().date();
     let earlier = today.saturating_sub(jiff::Span::new().days(10));
-    let archive = format!("# {earlier}\n\n## work\n\n### Old one\n\n### Old two\n");
+    let archive = format!("# {earlier}\n\n## work\n\n### Old one\n\nold notes\n\n### Old two\n");
     let mut app = Markoff::start_with(&[
         ("work/fix-bug.md", "# Fix bug\n"),
         (&format!(".archive/{earlier}.md"), &archive),
     ]);
     app.wait_for("✓ 0 done");
 
-    // Closed until `a`: recent days one cell each, the stats below, nothing done this week.
-    app.press("a");
+    // Recent days one cell each, the cursor on the last day with tasks done and its tasks below,
+    // newest first.
+    app.press("]");
     app.wait_for("daily");
-    app.wait_for("done     │     0 ");
+    app.wait_for("• Old two");
+    app.wait_for("• Old one");
     assert!(
-        app.screen().lines().any(|row| row.contains(" Mon ")),
+        app.screen().lines().any(|row| row.ends_with(" Mon")),
         "{}",
         app.screen()
     );
 
-    // Other keys do nothing while it is open, `Esc` closes it.
-    app.press("jX");
-    app.press("<Esc>");
-    app.wait_for("? toggle help");
+    // `Tab` gives the keys to the list, its task shows its body next to it. `p` hides it, so
+    // does `Tab` back to the heatmap.
+    app.press("\tj");
+    app.wait_for("│ old notes");
+    app.press("p");
+    app.wait_for(&"─".repeat(80));
+    assert!(!app.screen().contains("old notes"), "{}", app.screen());
+    app.press("p");
+    app.wait_for("│ old notes");
+    app.press("\t");
+    app.wait_for(&"─".repeat(80));
+
+    // Todo keys do nothing on it, `[` goes back to the list.
+    app.press("X[");
+    app.wait_for("• Fix bug");
     app.wait_for("✓ 0 done");
 
-    // Done shows up in the stats, `a` toggles.
+    // The page stays where it was, the pages wrap around.
     app.press("jX");
     app.wait_for("✓ 1 done");
-    app.press("a");
-    app.wait_for("✓ 1 done");
-    app.wait_for("done     │     1 ");
-    app.press("a");
-    app.wait_for("? toggle help");
+    app.press("]");
+    app.wait_for("• Old two");
+    app.press("]");
+    app.wait_for("──[1]─ work");
 
     app.quit();
 }

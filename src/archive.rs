@@ -57,29 +57,58 @@ pub fn add(archive: Option<&str>, date: &str, section: &str, task: &Task) -> Str
     }
 }
 
-/// How many tasks each `## section` of the archive file holds, in file order: its `### `
+/// The tasks of the archive file in file order, each with its `## section`: the `### `
 /// headings outside code blocks. Tasks above the first section, possible in a file edited by
-/// hand, have an empty name.
+/// hand, have an empty section. The body is what follows up to the next of these headings, its
+/// headings shifted back up as they were in the task.
 ///
-/// A `# ` heading inside a task body is shifted to `### ` as well and counts too. Rare enough
-/// for a number in the header.
-pub fn sections(archive: &str) -> Vec<(String, usize)> {
+/// A `# ` heading inside a task body is shifted to `### ` as well and counts as a task too. Rare
+/// enough for the archive page.
+pub fn tasks(archive: &str) -> Vec<Done> {
     let mut fence = Fence::default();
-    let mut sections: Vec<(String, usize)> = Vec::new();
+    let mut section = "";
+    let mut tasks: Vec<Done> = Vec::new();
+    // Lines go to the body of the last task until the next section, the date heading too.
+    let mut in_task = false;
     for line in archive.split_inclusive('\n') {
-        if fence.update(line) {
-            continue;
-        }
-        match heading_level(line) {
-            Some(SECTION_LEVEL) => sections.push((line[SECTION_LEVEL..].trim().to_string(), 0)),
-            Some(TASK_LEVEL) => match sections.last_mut() {
-                Some((_, done)) => *done += 1,
-                None => sections.push((String::new(), 1)),
-            },
-            _ => {}
+        let level = match fence.update(line) {
+            true => None,
+            false => heading_level(line),
+        };
+        match level {
+            Some(level) if level <= TASK_LEVEL => {
+                in_task = level == TASK_LEVEL;
+                match level {
+                    SECTION_LEVEL => section = line[SECTION_LEVEL..].trim(),
+                    TASK_LEVEL => tasks.push(Done {
+                        section: section.to_string(),
+                        title: line[TASK_LEVEL..].trim().to_string(),
+                        body: String::new(),
+                    }),
+                    _ => {}
+                }
+            }
+            _ if !in_task => {}
+            Some(level) => {
+                let body = &mut tasks.last_mut().expect("in a task").body;
+                body.push_str(&"#".repeat(level - HEADING_SHIFT));
+                body.push_str(&line[level..]);
+            }
+            None => tasks.last_mut().expect("in a task").body.push_str(line),
         }
     }
-    sections
+    for task in &mut tasks {
+        task.body = task.body.trim().to_string();
+    }
+    tasks
+}
+
+/// A task in the archive, see [`tasks`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Done {
+    pub section: String,
+    pub title: String,
+    pub body: String,
 }
 
 /// The task as it appears in the archive: `### Title`, then the body with shifted headings.
@@ -175,11 +204,23 @@ mod tests {
     }
 
     #[test]
-    fn tasks_per_section() {
+    fn task_bodies_with_their_headings_as_before() {
+        let fix = task("# Fix bug\n\n## Notes\n\n```sh\n# comment\n```\n\ndone\n");
+        let archive = add(None, "2026-10-14", "work", &fix);
+        let archive = add(Some(&archive), "2026-10-14", "home", &task("# B\n"));
+        let tasks = tasks(&archive);
+        assert_eq!(tasks[0].body, "## Notes\n\n```sh\n# comment\n```\n\ndone");
+        assert_eq!(tasks[1].body, "", "the next section ends the body");
+    }
+
+    #[test]
+    fn tasks_with_their_section() {
         let archive = "### Loose\n\n## work\n\n### A\n\n```\n### no\n## nor\n```\n\n### B\n\n## home\n\n### C\n";
-        let sections = [("", 1), ("work", 2), ("home", 1)];
-        let sections = sections.map(|(name, done)| (name.to_string(), done));
-        assert_eq!(super::sections(archive), sections);
+        let tasks: Vec<String> = super::tasks(archive)
+            .into_iter()
+            .map(|done| format!("{}/{}", done.section, done.title))
+            .collect();
+        assert_eq!(tasks, ["/Loose", "work/A", "work/B", "home/C"]);
     }
 
     #[test]
@@ -191,7 +232,7 @@ mod tests {
             "home",
             &task("# B\n\n```\n### no\n```\n"),
         );
-        let count = |archive: &str| -> usize { sections(archive).iter().map(|(_, n)| n).sum() };
+        let count = |archive: &str| tasks(archive).len();
         assert_eq!(count(""), 0);
         assert_eq!(count(&one), 1);
         assert_eq!(count(&two), 2);

@@ -1,5 +1,6 @@
 //! App state, the run loop, and what each [`Action`] does to it and to the disk. What needs
-//! `$EDITOR` is in [`editor`], the experimental daily checklist in [`daily`].
+//! `$EDITOR` is in [`editor`], the archive page in [`archive`], the experimental daily checklist
+//! in [`daily`].
 
 use std::{
     fs,
@@ -13,16 +14,18 @@ use color_eyre::{
 };
 use ratatui::{
     DefaultTerminal,
-    crossterm::event::{self, Event, KeyEventKind},
+    crossterm::event::{self, Event, KeyCode, KeyEventKind},
 };
 
+pub mod archive;
 mod daily;
 mod editor;
 
+use archive::ArchivePage;
 use editor::EditorRequest;
 
 use crate::{
-    archive,
+    cursor,
     daily::DailyTask,
     edit, filter, history,
     keymap::{self, Action, Keymap},
@@ -49,6 +52,25 @@ pub enum Row {
     Daily,
     /// Task index in `daily.md`.
     DailyTask(usize),
+}
+
+/// A screen of its own, switched with `[` / `]` in this order. The help is an overlay on top.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Page {
+    Todo,
+    /// The done tasks: heatmap and list, see [`crate::ui`].
+    Archive,
+}
+
+impl Page {
+    pub const ALL: [Page; 2] = [Page::Todo, Page::Archive];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Page::Todo => "todo",
+            Page::Archive => "archive",
+        }
+    }
 }
 
 /// Message for the status line, cleared on the next key press.
@@ -84,8 +106,10 @@ pub struct App {
     pub status: Option<Status>,
     /// Help overlay is open.
     pub show_help: bool,
-    /// The heatmap of done tasks is open over the list.
-    pub show_archive: bool,
+    /// `p` hid the preview next to the list.
+    pub hide_preview: bool,
+    pub page: Page,
+    pub archive: ArchivePage,
     editor_request: Option<EditorRequest>,
     /// `/` filter, empty for none. Applied in [`App::rows`], so everything that works on rows
     /// sees only what matches.
@@ -99,10 +123,10 @@ pub struct App {
     daily_path: Option<PathBuf>,
     /// The tasks of the daily checklist, `None` if it is not set or the file does not exist.
     pub daily: Option<Vec<DailyTask>>,
+    /// The done tasks, from the archive.
+    pub done: history::Archive,
     /// Tasks done per day, from the archive.
     pub days: history::Days,
-    /// The same per section.
-    pub section_days: history::Sections,
 }
 
 impl App {
@@ -122,15 +146,17 @@ impl App {
             undo: Vec::new(),
             status: None,
             show_help: false,
-            show_archive: false,
+            hide_preview: false,
+            page: Page::Todo,
+            archive: ArchivePage::default(),
             editor_request: None,
             filter: String::new(),
             filter_input: false,
             list_offset: 0,
             daily_path: None,
             daily: None,
+            done: history::Archive::new(),
             days: history::Days::new(),
-            section_days: history::Sections::new(),
         }
     }
 
@@ -155,9 +181,13 @@ impl App {
 
         while self.running {
             if dirty {
-                let mut offset = self.list_offset;
-                terminal.draw(|frame| offset = ui::render(&self, frame))?;
-                self.list_offset = offset;
+                let mut drawn = None;
+                terminal.draw(|frame| drawn = Some(ui::render(&self, frame)))?;
+                if let Some(drawn) = drawn {
+                    self.list_offset = drawn.list_offset;
+                    self.archive.columns = drawn.heatmap_columns;
+                    self.archive.offset = drawn.archive_offset;
+                }
                 dirty = false;
             }
 
@@ -217,7 +247,7 @@ impl App {
             let action = if self.filter_input {
                 keymap::filter_input(key)
             } else {
-                self.keymap.handle(key)
+                self.keymap.handle(key, self.page)
             };
             // The quit keys quit everywhere, also from the help.
             if action == Some(Action::Quit) {
@@ -225,17 +255,11 @@ impl App {
                 return;
             }
             // Only `?` and `Esc` close the help, other keys do nothing, so a stray key cannot
-            // change tasks that are dimmed behind it.
+            // change tasks that are dimmed behind it. `Esc` by its code, on the archive page it
+            // has no binding.
             if self.show_help {
-                if matches!(action, Some(Action::Help | Action::FilterClear)) {
+                if action == Some(Action::Help) || key.code == KeyCode::Esc {
                     self.show_help = false;
-                }
-                return;
-            }
-            // The same for the archive with `a` and `Esc`.
-            if self.show_archive {
-                if matches!(action, Some(Action::Archive | Action::FilterClear)) {
-                    self.show_archive = false;
                 }
                 return;
             }
@@ -258,6 +282,9 @@ impl App {
     }
 
     fn try_update(&mut self, action: Action) -> Result<()> {
+        if self.page == Page::Archive && self.update_archive(action) {
+            return Ok(());
+        }
         // Where a task goes is unclear while tasks in between are hidden, and a new task or
         // section would mostly be hidden right away.
         if !self.filter.is_empty()
@@ -281,22 +308,30 @@ impl App {
             self.normalize_before_action();
         }
         match action {
-            Action::Up => self.cursor = self.cursor.saturating_sub(1),
-            Action::Down => {
-                let last = self.rows().len().saturating_sub(1);
-                self.cursor = (self.cursor + 1).min(last);
-            }
-            Action::Top => self.cursor = 0,
-            Action::Bottom => self.cursor = self.rows().len().saturating_sub(1),
-            Action::PrevSection => self.cursor = self.prev_section_row(),
-            Action::NextSection => self.cursor = self.next_section_row(),
-            Action::JumpSection(s) => {
-                // Nothing if the section does not exist or the filter hides it.
-                let rows = self.rows();
-                if let Some(header) = rows.iter().position(|&row| row == Row::Section(s)) {
-                    let has_task = matches!(rows.get(header + 1), Some(Row::Task(..)));
-                    self.cursor = header + usize::from(has_task);
-                }
+            // Only on the archive page, see [`Self::update_archive`].
+            Action::Left
+            | Action::Right
+            | Action::SkipLeft
+            | Action::SkipDown
+            | Action::SkipUp
+            | Action::SkipRight
+            | Action::Focus => {}
+            // A section hidden by the filter has no header to jump to.
+            Action::Up
+            | Action::Down
+            | Action::Top
+            | Action::Bottom
+            | Action::PrevSection
+            | Action::NextSection
+            | Action::JumpSection(_) => {
+                let lines: Vec<cursor::Line> = (self.rows().into_iter())
+                    .map(|row| match row {
+                        Row::Section(s) => cursor::Line::Header(Some(s)),
+                        Row::Daily => cursor::Line::Header(None),
+                        Row::Task(..) | Row::DailyTask(_) => cursor::Line::Item,
+                    })
+                    .collect();
+                self.cursor = cursor::moved(&lines, self.cursor, action);
             }
             Action::MoveDown | Action::MoveUp => self.move_selected(action == Action::MoveDown)?,
             Action::Open => self.open(),
@@ -306,9 +341,21 @@ impl App {
             Action::Delete => self.delete()?,
             Action::Undo => self.undo()?,
             Action::Help => self.show_help = true,
-            Action::Archive => self.show_archive = true,
+            Action::Preview => self.hide_preview = !self.hide_preview,
+            Action::PrevPage | Action::NextPage => {
+                let count = Page::ALL.len();
+                let step = if action == Action::NextPage {
+                    1
+                } else {
+                    count - 1
+                };
+                let at = Page::ALL.iter().position(|&page| page == self.page);
+                self.page = Page::ALL[(at.unwrap_or(0) + step) % count];
+                if self.page == Page::Archive {
+                    self.open_archive();
+                }
+            }
             Action::Quit => self.running = false,
-            Action::Hint(hint) => self.status = Some(Status::Info(hint.to_string())),
             Action::Filter => self.filter_input = true,
             Action::FilterType(c) => self.set_filter(|filter| filter.push(c)),
             Action::FilterBackspace => self.set_filter(|filter| {
@@ -391,7 +438,7 @@ impl App {
             _ => return Ok(()),
         };
         let date = today();
-        let archive_dir = self.root.join(archive::DIR);
+        let archive_dir = self.root.join(crate::archive::DIR);
         let archive_path = archive_dir.join(&date).with_extension(task::EXTENSION);
         // Not an op: an empty `.archive/` left behind by undo does no harm.
         fs::create_dir_all(&archive_dir)
@@ -432,23 +479,6 @@ impl App {
         self.apply(ops)?;
         self.select_path(&moved_to);
         Ok(())
-    }
-
-    /// `{`: the nearest section header above the cursor. On a task that is its own section.
-    fn prev_section_row(&self) -> usize {
-        let rows = self.rows();
-        (0..self.cursor)
-            .rev()
-            .find(|&i| matches!(rows[i], Row::Section(_) | Row::Daily))
-            .unwrap_or(0)
-    }
-
-    /// `}`: the next section header below the cursor, the cursor stays if there is none.
-    fn next_section_row(&self) -> usize {
-        let rows = self.rows();
-        (self.cursor + 1..rows.len())
-            .find(|&i| matches!(rows[i], Row::Section(_) | Row::Daily))
-            .unwrap_or(self.cursor)
     }
 
     /// Where `J` / `K` put task `t` of section `s`, as section and index among the other
@@ -521,8 +551,11 @@ impl App {
     fn reload(&mut self, select: Option<&Path>) -> Result<()> {
         (self.sections, self.order_file) = load::load(&self.root)?;
         self.reload_daily()?;
-        (self.days, self.section_days) = history::split(&load::archive(&self.root)?);
+        self.done = load::archive(&self.root)?;
+        self.days = history::days(&self.done);
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
+        let archive_rows = self.archive_rows(self.archive.columns).len();
+        self.archive.cursor = self.archive.cursor.min(archive_rows.saturating_sub(1));
         if let Some(path) = select {
             self.select_path(path);
         }
@@ -575,6 +608,9 @@ impl App {
 }
 
 /// `YYYY-MM-DD`, for the archive file and the daily marker.
+// TODO: read the clock once into an `App.today` that every `now()` uses, so tests can set a
+// fixed date instead of relying on what holds on any day. Open: does it turn over at midnight in
+// the main loop, and do the workflow tests stay on the real clock.
 pub fn today() -> String {
     jiff::Zoned::now().date().to_string()
 }
@@ -591,7 +627,7 @@ fn renamed_message(count: usize) -> String {
 pub mod tests {
     use std::fs;
 
-    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::crossterm::event::{KeyEvent, KeyModifiers};
     use tempfile::TempDir;
 
     use super::*;
@@ -717,22 +753,35 @@ pub mod tests {
     }
 
     #[test]
-    fn only_a_and_esc_close_the_archive() {
+    fn pages_wrap_around_and_keep_todo_keys_to_the_list() {
         let (_dir, mut app) = app_with_files(&["work/a.md"]);
         app.cursor = 1;
-        app.handle_event(Event::Key(KeyCode::Char('a').into()));
-        assert!(app.show_archive);
+        app.handle_event(Event::Key(KeyCode::Char(']').into()));
+        assert_eq!(app.page, Page::Archive);
 
         app.handle_event(Event::Key(KeyCode::Char('X').into()));
-        assert!(app.show_archive, "other keys keep the archive open");
         assert_eq!(listing(&app), ["[work]", "a.md"], "X did not archive");
 
-        for code in [KeyCode::Char('a'), KeyCode::Esc] {
-            app.update(Action::Archive);
-            app.handle_event(Event::Key(code.into()));
-            assert!(!app.show_archive, "{code:?} closes the archive");
-            assert!(app.running, "{code:?} does not quit");
-        }
+        app.handle_event(Event::Key(KeyCode::Char(']').into()));
+        assert_eq!(app.page, Page::Todo, "wraps around");
+        app.handle_event(Event::Key(KeyCode::Char('[').into()));
+        assert_eq!(app.page, Page::Archive);
+    }
+
+    #[test]
+    fn preview_toggles_on_each_page_of_its_own() {
+        let (_dir, mut app) = app_with_files(&["work/a.md"]);
+        app.update(Action::Preview);
+        assert!(app.hide_preview);
+
+        // On the archive page only in the list, and not the todo list's.
+        app.update(Action::NextPage);
+        app.update(Action::Preview);
+        assert!(!app.archive.hide_preview, "not in the heatmap");
+        app.update(Action::Focus);
+        app.update(Action::Preview);
+        assert!(app.archive.hide_preview);
+        assert!(app.hide_preview, "the todo list's stays");
     }
 
     #[test]
@@ -966,13 +1015,6 @@ pub mod tests {
         assert_eq!(app.editor_request, None);
         app.update(Action::FilterClear);
         assert_eq!(listing(&app), ["[work]", "a.md", "b.md"]);
-    }
-
-    #[test]
-    fn hint_goes_to_status() {
-        let (_dir, mut app) = app_with_files(&[]);
-        app.update(Action::Hint("use X"));
-        assert_eq!(app.status, Some(Status::Info("use X".to_string())));
     }
 
     #[test]

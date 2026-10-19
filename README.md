@@ -60,7 +60,7 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 - Filenames follow the title. Files added or edited by hand are renamed on start and before the next change.
 - `.order` is written by markoff. New files go to the end, deleted ones are dropped. Add it to `.gitignore` to keep order changes out of git.
 - Done tasks (`X`) are appended to `.archive/YYYY-MM-DD.md` under their section.
-- `a` shows a heatmap of the done tasks back to the first archived day: recent days one by one, further back each cell covers more. Brighter means more tasks per day, ranked in quarters of the days with anything done. Dividers in the top row mark where a cell starts to cover more: daily, weekly, monthly, yearly. Below it, a table compares this week, month and year with the same stretch before, the years are bars, and a bar per period shows the share of each section.
+- The archive page (`]`) shows a heatmap of the done tasks back to the first archived day: recent days one by one, further back each cell covers more. Brighter means more tasks per day, ranked in quarters of the days with anything done. Dividers in the top row mark where a cell starts to cover more: daily, weekly, monthly, yearly. The cursor in the heatmap picks a cell, the header shows its days and how many tasks were done, the list below them by section, newest first, with the body of the task at the cursor next to it while the list has the keys.
 
 ## Keys
 
@@ -89,11 +89,25 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 
 | Key         | Action                                      |
 | ----------- | ------------------------------------------- |
+| `p`         | Toggle the preview next to the list         |
 | `/`         | Filter titles and bodies, `<CR>` keeps it   |
-| `Esc`       | Clear filter, close help or archive         |
+| `Esc`       | Clear filter, close help                    |
 | `?`         | Toggle help                                 |
-| `a`         | Toggle archive, a heatmap of done tasks     |
+| `[` / `]`   | Previous / next page: todo list, archive    |
 | `q` / `C-c` | Quit                                        |
+
+### Archive page
+
+| Key         | Action                                      |
+| ----------- | ------------------------------------------- |
+| `h` / `l`   | Heatmap left / right, also `←` / `→`        |
+| `j` / `k`   | Heatmap a day down / up, list down / up     |
+| `H` / `L`   | Like `h` / `l`, skips empty cells           |
+| `J` / `K`   | Like `j` / `k` in the heatmap, skips empty  |
+| `Tab`       | Move keys to the heatmap or the list        |
+| `p`         | Toggle the preview, in the list             |
+
+In the list `gg` / `G`, `{` / `}` and `1`-`9` work like in the todo list, the numbers count the sections shown. `1`-`9` in the heatmap jump into the list. The other todo keys do nothing on the archive page.
 
 In the filter, `C-w` deletes the last word. While a filter is set, moving and adding tasks is off.
 

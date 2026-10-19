@@ -2,6 +2,8 @@
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use crate::app::Page;
+
 /// Everything the user can ask the app to do.
 ///
 /// Input is translated into actions here, so [`crate::app::App::update`] never sees raw keys.
@@ -10,6 +12,19 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub enum Action {
     Up,
     Down,
+    /// `h` / `l` on the archive page: a heatmap column back or forward.
+    Left,
+    Right,
+    /// `H` / `J` / `K` / `L` on the archive page: like `h` / `j` / `k` / `l` to the next cell
+    /// with tasks done.
+    SkipLeft,
+    SkipDown,
+    SkipUp,
+    SkipRight,
+    /// `Tab` on the archive page: the heatmap or the list takes the move keys.
+    Focus,
+    /// `p`: shows or hides the preview of the task at the cursor, on each page of its own.
+    Preview,
     Top,
     Bottom,
     PrevSection,
@@ -26,11 +41,10 @@ pub enum Action {
     Delete,
     Undo,
     Help,
-    /// `a`: the heatmap of done tasks, from the bottom over the list.
-    Archive,
+    /// `[` / `]`: the page before or after the current one, see [`Page`].
+    PrevPage,
+    NextPage,
     Quit,
-    /// A key that is not mapped on purpose, with a hint what to press instead.
-    Hint(&'static str),
     /// `/`: opens the filter input.
     Filter,
     /// A character typed into the filter input.
@@ -65,39 +79,57 @@ pub struct Binding {
     pub help: &'static str,
     /// Heading in the help overlay. Bindings of a group stay together in [`BINDINGS`].
     pub group: &'static str,
+    /// Where the keys work. The help shows only those of the current page.
+    pub pages: &'static [Page],
 }
 
+/// Bindings of the todo list only.
+const TODO: &[Page] = &[Page::Todo];
+
+/// Bindings of the archive page only.
+const ARCHIVE: &[Page] = &[Page::Archive];
+
+/// Bindings that work on every page.
+const ALL: &[Page] = &[Page::Todo, Page::Archive];
+
 use Action as A;
-use KeyCode::{Backspace, Char, Down, End, Enter, Esc, Home, Up};
+use KeyCode::{Backspace, Char, Down, End, Enter, Esc, Home, Left, Right, Tab, Up};
 use Trigger::{Ctrl, Key, Seq, Shift};
 
 /// The single source of truth for keys: [`Keymap::handle`] reads it and so does the help
-/// overlay, so the two can never disagree. One line per binding, hence no rustfmt.
+/// overlay, so the two can never disagree. A key may be in several groups of a page, like `j` in
+/// the archive's heatmap and list, it does the same there. One line per binding, hence no
+/// rustfmt.
 #[rustfmt::skip]
 pub const BINDINGS: &[Binding] = &[
-    Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "move" },
-    Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "move" },
-    Binding { keys: &[(&[Key(Char('{')), Ctrl('u')], A::PrevSection), (&[Key(Char('}')), Ctrl('d')], A::NextSection)], help: "previous / next section", group: "move" },
-    Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section", group: "move" },
-    Binding { keys: &[(&[Key(Char('J')), Shift(Down)], A::MoveDown), (&[Key(Char('K')), Shift(Up)], A::MoveUp)], help: "move down / up", group: "change" },
-    Binding { keys: &[(&[Key(Enter)], A::Open)], help: "open in $EDITOR", group: "change" },
-    Binding { keys: &[(&[Key(Char('o'))], A::NewBelow), (&[Key(Char('O'))], A::NewAbove)], help: "new task below / above", group: "change" },
-    Binding { keys: &[(&[Key(Char('N'))], A::NewSection)], help: "new section", group: "change" },
-    Binding { keys: &[(&[Key(Char('X'))], A::Done)], help: "done (archive)", group: "change" },
-    Binding { keys: &[(&[Key(Char('D'))], A::Delete)], help: "delete", group: "change" },
-    Binding { keys: &[(&[Key(Char('u'))], A::Undo)], help: "undo", group: "change" },
-    Binding { keys: &[(&[Key(Char('/'))], A::Filter)], help: "filter", group: "other" },
-    Binding { keys: &[(&[Key(Esc)], A::FilterClear)], help: "clear filter / close view", group: "other" },
-    Binding { keys: &[(&[Key(Char('?'))], A::Help)], help: "toggle help", group: "other" },
-    Binding { keys: &[(&[Key(Char('a'))], A::Archive)], help: "toggle archive", group: "other" },
-    Binding { keys: &[(&[Key(Char('q')), Ctrl('c')], A::Quit)], help: "quit", group: "other" },
-];
-
-/// Lowercase keys left unmapped on purpose: the destructive actions are uppercase so they are
-/// not hit by accident. Pressing one of these shows the hint instead. Not in the help overlay.
-const HINTS: &[(char, &str)] = &[
-    ('x', "x does nothing, use X to mark done"),
-    ('d', "d does nothing, use D to delete"),
+    Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "move", pages: TODO },
+    Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "move", pages: TODO },
+    Binding { keys: &[(&[Key(Char('{')), Ctrl('u')], A::PrevSection), (&[Key(Char('}')), Ctrl('d')], A::NextSection)], help: "previous / next section", group: "move", pages: TODO },
+    Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section", group: "move", pages: TODO },
+    Binding { keys: &[(&[Key(Char('J')), Shift(Down)], A::MoveDown), (&[Key(Char('K')), Shift(Up)], A::MoveUp)], help: "move down / up", group: "change", pages: TODO },
+    Binding { keys: &[(&[Key(Enter)], A::Open)], help: "open in $EDITOR", group: "change", pages: TODO },
+    Binding { keys: &[(&[Key(Char('o'))], A::NewBelow), (&[Key(Char('O'))], A::NewAbove)], help: "new task below / above", group: "change", pages: TODO },
+    Binding { keys: &[(&[Key(Char('N'))], A::NewSection)], help: "new section", group: "change", pages: TODO },
+    Binding { keys: &[(&[Key(Char('X'))], A::Done)], help: "done (archive)", group: "change", pages: TODO },
+    Binding { keys: &[(&[Key(Char('D'))], A::Delete)], help: "delete", group: "change", pages: TODO },
+    Binding { keys: &[(&[Key(Char('u'))], A::Undo)], help: "undo", group: "change", pages: TODO },
+    Binding { keys: &[(&[Key(Char('h')), Key(Left)], A::Left), (&[Key(Char('l')), Key(Right)], A::Right)], help: "left / right", group: "heatmap", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "heatmap", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('H'))], A::SkipLeft), (&[Key(Char('L'))], A::SkipRight)], help: "left / right, skip empty", group: "heatmap", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('J'))], A::SkipDown), (&[Key(Char('K'))], A::SkipUp)], help: "down / up, skip empty", group: "heatmap", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section in the list", group: "heatmap", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "list", pages: ARCHIVE },
+    Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "list", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('{')), Ctrl('u')], A::PrevSection), (&[Key(Char('}')), Ctrl('d')], A::NextSection)], help: "previous / next section", group: "list", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section", group: "list", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('p'))], A::Preview)], help: "toggle preview", group: "list", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('p'))], A::Preview)], help: "toggle preview", group: "other", pages: TODO },
+    Binding { keys: &[(&[Key(Char('/'))], A::Filter)], help: "filter", group: "other", pages: TODO },
+    Binding { keys: &[(&[Key(Esc)], A::FilterClear)], help: "clear filter", group: "other", pages: TODO },
+    Binding { keys: &[(&[Key(Tab)], A::Focus)], help: "keys to heatmap / list", group: "other", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('?'))], A::Help)], help: "toggle help", group: "other", pages: ALL },
+    Binding { keys: &[(&[Key(Char('['))], A::PrevPage), (&[Key(Char(']'))], A::NextPage)], help: "previous / next page", group: "other", pages: ALL },
+    Binding { keys: &[(&[Key(Char('q')), Ctrl('c')], A::Quit)], help: "quit", group: "other", pages: ALL },
 ];
 
 impl Binding {
@@ -112,7 +144,9 @@ impl Binding {
                     Some(format!("{}-{last}", jump_key(0)?))
                 }
                 (_, Action::JumpSection(_))
-                | (Key(Up | Down | Home | End) | Shift(_) | Ctrl('u' | 'd'), _) => None,
+                | (Key(Up | Down | Left | Right | Home | End) | Shift(_) | Ctrl('u' | 'd'), _) => {
+                    None
+                }
                 (Key(Char(c)), _) => Some(c.to_string()),
                 (Key(Enter), _) => Some("<CR>".to_string()),
                 (Key(other), _) => Some(format!("{other:?}")),
@@ -148,10 +182,13 @@ pub struct Keymap {
 }
 
 impl Keymap {
-    /// Returns `None` while a sequence is incomplete and for unmapped keys. `Esc` during a
-    /// sequence only cancels it.
-    pub fn handle(&mut self, key: KeyEvent) -> Option<Action> {
-        let triggers = BINDINGS.iter().flat_map(Binding::triggers);
+    /// Returns `None` while a sequence is incomplete and for keys not mapped on `page`. `Esc`
+    /// during a sequence only cancels it.
+    pub fn handle(&mut self, key: KeyEvent, page: Page) -> Option<Action> {
+        let triggers = BINDINGS
+            .iter()
+            .filter(|binding| binding.pages.contains(&page))
+            .flat_map(Binding::triggers);
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
 
         if ctrl {
@@ -188,10 +225,7 @@ impl Keymap {
                 _ => {}
             }
         }
-        HINTS
-            .iter()
-            .find(|(c, _)| key.code == Char(*c))
-            .map(|(_, hint)| Action::Hint(hint))
+        None
     }
 
     /// The unfinished sequence, to show in the status line.
@@ -227,7 +261,7 @@ mod tests {
     use super::*;
 
     fn press(keymap: &mut Keymap, code: KeyCode) -> Option<Action> {
-        keymap.handle(KeyEvent::from(code))
+        keymap.handle(KeyEvent::from(code), Page::Todo)
     }
 
     #[test]
@@ -235,7 +269,7 @@ mod tests {
         let mut keymap = Keymap::default();
         assert_eq!(press(&mut keymap, KeyCode::Char('q')), Some(Action::Quit));
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
-        assert_eq!(keymap.handle(ctrl_c), Some(Action::Quit));
+        assert_eq!(keymap.handle(ctrl_c, Page::Todo), Some(Action::Quit));
     }
 
     #[test]
@@ -265,18 +299,25 @@ mod tests {
 
     #[test]
     fn every_binding_is_reachable() {
-        for (trigger, expected) in BINDINGS.iter().flat_map(Binding::triggers) {
-            let mut keymap = Keymap::default();
-            let action = match trigger {
-                Key(code) => press(&mut keymap, code),
-                Ctrl(c) => keymap.handle(KeyEvent::new(Char(c), KeyModifiers::CONTROL)),
-                Shift(code) => keymap.handle(KeyEvent::new(code, KeyModifiers::SHIFT)),
-                Seq(a, b) => {
-                    press(&mut keymap, Char(a));
-                    press(&mut keymap, Char(b))
-                }
-            };
-            assert_eq!(action, Some(expected), "trigger {trigger:?}");
+        for binding in BINDINGS {
+            for (&page, (trigger, expected)) in binding
+                .pages
+                .iter()
+                .flat_map(|page| binding.triggers().map(move |t| (page, t)))
+            {
+                let mut keymap = Keymap::default();
+                let mut press = |event| keymap.handle(event, page);
+                let action = match trigger {
+                    Key(code) => press(KeyEvent::from(code)),
+                    Ctrl(c) => press(KeyEvent::new(Char(c), KeyModifiers::CONTROL)),
+                    Shift(code) => press(KeyEvent::new(code, KeyModifiers::SHIFT)),
+                    Seq(a, b) => {
+                        press(KeyEvent::from(Char(a)));
+                        press(KeyEvent::from(Char(b)))
+                    }
+                };
+                assert_eq!(action, Some(expected), "trigger {trigger:?} on {page:?}");
+            }
         }
     }
 
@@ -296,10 +337,13 @@ mod tests {
     fn shift_arrow_moves_instead_of_cursor() {
         let mut keymap = Keymap::default();
         let shift_down = KeyEvent::new(Down, KeyModifiers::SHIFT);
-        assert_eq!(keymap.handle(shift_down), Some(Action::MoveDown));
+        assert_eq!(
+            keymap.handle(shift_down, Page::Todo),
+            Some(Action::MoveDown)
+        );
         // Terminals send `J` with the shift modifier set, it still is `J`.
         let shift_j = KeyEvent::new(Char('J'), KeyModifiers::SHIFT);
-        assert_eq!(keymap.handle(shift_j), Some(Action::MoveDown));
+        assert_eq!(keymap.handle(shift_j, Page::Todo), Some(Action::MoveDown));
         assert_eq!(press(&mut keymap, Down), Some(Action::Down));
     }
 
@@ -307,7 +351,7 @@ mod tests {
     fn ctrl_does_not_trigger_plain_keys() {
         let mut keymap = Keymap::default();
         let ctrl_j = KeyEvent::new(Char('j'), KeyModifiers::CONTROL);
-        assert_eq!(keymap.handle(ctrl_j), None);
+        assert_eq!(keymap.handle(ctrl_j, Page::Todo), None);
     }
 
     #[test]
@@ -337,21 +381,8 @@ mod tests {
         let mut keymap = Keymap::default();
         press(&mut keymap, Char('g'));
         let ctrl_c = KeyEvent::new(Char('c'), KeyModifiers::CONTROL);
-        assert_eq!(keymap.handle(ctrl_c), Some(Action::Quit));
+        assert_eq!(keymap.handle(ctrl_c, Page::Todo), Some(Action::Quit));
         assert_eq!(keymap.pending(), None);
-    }
-
-    #[test]
-    fn lowercase_destructive_keys_only_hint() {
-        let mut keymap = Keymap::default();
-        assert_eq!(
-            press(&mut keymap, Char('x')),
-            Some(Action::Hint("x does nothing, use X to mark done"))
-        );
-        assert_eq!(
-            press(&mut keymap, Char('d')),
-            Some(Action::Hint("d does nothing, use D to delete"))
-        );
     }
 
     #[test]
