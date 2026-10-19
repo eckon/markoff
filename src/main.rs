@@ -44,13 +44,12 @@ fn run() -> Result<()> {
     color_eyre::install()?;
 
     // Load before entering the TUI, so errors print to a normal terminal.
-    let (root, config, command) = config::from_env()?;
+    let (root, command) = config::from_env()?;
     if let Some(command) = command {
         print!("{}", cli::run(command, &root)?);
         return Ok(());
     }
-    let daily = config.daily.map(|name| root.join(name));
-    let app = App::load(root, daily)?;
+    let app = App::load(root)?;
 
     // `ratatui::run` sets up the terminal, restores it on exit and installs a panic hook.
     ratatui::run(|terminal| app.run(terminal))

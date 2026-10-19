@@ -50,6 +50,7 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
   .order               <- order of sections and tasks
   .archive/
     2026-10-14.md      <- tasks done that day
+  daily.md             <- daily checklist (experimental)
   notes.md             <- ignored, files in the root are not tasks
   work/                <- section "work"
     fix-login-bug.md   <- task "# Fix login bug"
@@ -134,12 +135,7 @@ Commands for scripts, `--dir` works with them as usual:
 
 ## Daily checklist (experimental)
 
-A checklist that starts fresh every day, shown above the sections:
-
-```toml
-[experimental]
-daily = "daily.md"   # in the root
-```
+A checklist that starts fresh every day, shown above the sections when the root has a `daily.md`:
 
 ```markdown
 # Daily

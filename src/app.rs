@@ -119,9 +119,7 @@ pub struct App {
     /// First list line on screen. Kept between frames so the view only scrolls when the
     /// cursor would leave it, see [`ui::render`].
     pub list_offset: usize,
-    /// The daily checklist file from the config, `None` if not set.
-    daily_path: Option<PathBuf>,
-    /// The tasks of the daily checklist, `None` if it is not set or the file does not exist.
+    /// The tasks of the daily checklist, `None` if the file does not exist.
     pub daily: Option<Vec<DailyTask>>,
     /// The done tasks, from the archive.
     pub done: history::Archive,
@@ -153,18 +151,15 @@ impl App {
             filter: String::new(),
             filter_input: false,
             list_offset: 0,
-            daily_path: None,
             daily: None,
             done: history::Archive::new(),
             days: history::Days::new(),
         }
     }
 
-    /// Loads `root` and normalizes it, renames are mentioned in the status line. `daily` is
-    /// the daily checklist file, if set.
-    pub fn load(root: PathBuf, daily: Option<PathBuf>) -> Result<Self> {
+    /// Loads `root` and normalizes it, renames are mentioned in the status line.
+    pub fn load(root: PathBuf) -> Result<Self> {
         let mut app = Self::new(root, Vec::new());
-        app.daily_path = daily;
         app.reload(None)?;
         app.normalize_before_action();
         Ok(app)
@@ -680,7 +675,7 @@ pub mod tests {
             group.unwrap().tasks.push(stem.to_string());
         }
         fs::write(root.join(order::FILE), order.format()).unwrap();
-        let app = App::load(root.to_path_buf(), None).unwrap();
+        let app = App::load(root.to_path_buf()).unwrap();
         (dir, app)
     }
 
@@ -1027,7 +1022,7 @@ pub mod tests {
         fs::write(work.join("02-b.md"), "# b").unwrap();
         fs::write(work.join("01-a.md"), "# a").unwrap();
         fs::write(dir.path().join("01-home/old.md"), "# Old task").unwrap();
-        let app = App::load(dir.path().to_path_buf(), None).unwrap();
+        let app = App::load(dir.path().to_path_buf()).unwrap();
 
         assert_eq!(
             listing(&app),
@@ -1052,7 +1047,7 @@ pub mod tests {
         .unwrap();
 
         // Not listed: to the end, by name. Listed but gone: dropped. No rename, no message.
-        let app = App::load(dir.path().to_path_buf(), None).unwrap();
+        let app = App::load(dir.path().to_path_buf()).unwrap();
         assert_eq!(listing(&app), ["[x]", "[work]", "b.md", "a.md", "[home]"]);
         assert_eq!(order_file(&dir), "# x\n\n# work\nb\na\n\n# home\n");
         assert_eq!(app.status, None);

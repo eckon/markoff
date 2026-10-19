@@ -10,12 +10,10 @@ use super::{App, Row, today};
 use crate::{daily, load, op::Op};
 
 impl App {
-    /// Reads the checklist file, `None` if it is not set or does not exist.
+    /// Reads the checklist file, `None` if it does not exist.
     pub(super) fn reload_daily(&mut self) -> Result<()> {
-        self.daily = match &self.daily_path {
-            Some(path) => load::read_if_exists(path)?.map(|content| daily::parse(&content)),
-            None => None,
-        };
+        let path = self.root.join(daily::FILE);
+        self.daily = load::read_if_exists(&path)?.map(|content| daily::parse(&content));
         Ok(())
     }
 
@@ -35,7 +33,7 @@ impl App {
     /// The path behind the header, or task `i`: they share one file, so a task gets
     /// `daily.md#<i>`.
     pub(super) fn daily_row_path(&self, task: Option<usize>) -> PathBuf {
-        let path = self.daily_path.clone().unwrap_or_default();
+        let path = self.root.join(daily::FILE);
         match task {
             Some(i) => PathBuf::from(format!("{}#{i}", path.display())),
             None => path,
@@ -44,9 +42,7 @@ impl App {
 
     /// `X` on a daily task: done for today, or open again. The task stays in the list.
     pub(super) fn toggle_daily(&mut self, i: usize) -> Result<()> {
-        let Some(path) = self.daily_path.clone() else {
-            return Ok(());
-        };
+        let path = self.root.join(daily::FILE);
         let before = fs::read_to_string(&path)
             .wrap_err_with(|| format!("failed to read {}", path.display()))?;
         let after = daily::toggle(&before, i, &today());
@@ -70,12 +66,10 @@ pub(in crate::app) mod tests {
         keymap::Action,
     };
 
-    /// `app_with_files` plus a `daily.md` with `content`, set as the daily checklist.
+    /// `app_with_files` plus a `daily.md` with `content`.
     pub(in crate::app) fn app_with_daily(files: &[&str], content: &str) -> (TempDir, App) {
         let (dir, mut app) = app_with_files(files);
-        let path = dir.path().join("daily.md");
-        fs::write(&path, content).unwrap();
-        app.daily_path = Some(path);
+        fs::write(dir.path().join(daily::FILE), content).unwrap();
         app.reload(None).unwrap();
         (dir, app)
     }

@@ -2,10 +2,6 @@
 //!
 //! ```toml
 //! dir = "~/notes/todo"
-//!
-//! # Not hardened yet, may change.
-//! [experimental]
-//! daily = "daily.md"
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -28,9 +24,6 @@ const CONFIG_FILE: &str = "markoff/config.toml";
 pub struct Config {
     /// The root directory, used when neither `--dir` nor [`DIR_ENV`] is given.
     pub dir: Option<PathBuf>,
-    /// `[experimental] daily`: file name of the daily checklist in the root, see
-    /// [`crate::daily`]. Without it there is no checklist.
-    pub daily: Option<String>,
 }
 
 /// The text for `--help` / `--version`, if one is anywhere in the args. Checked before the
@@ -102,17 +95,15 @@ pub fn parse_args(
     Ok((root, command))
 }
 
-/// Reads the real process args, env and config file. Returns the root, the config and the
-/// command.
-pub fn from_env() -> Result<(PathBuf, Config, Option<Command>)> {
+/// Reads the real process args, env and config file. Returns the root and the command.
+pub fn from_env() -> Result<(PathBuf, Option<Command>)> {
     let var = |name| std::env::var(name).ok().filter(|v: &String| !v.is_empty());
     let home = var("HOME");
     let config = match config_path(var("XDG_CONFIG_HOME"), home.clone()) {
         Some(path) => read_config(&path, home.as_deref())?,
         None => Config::default(),
     };
-    let (root, command) = parse_args(std::env::args().skip(1), var(DIR_ENV), config.dir.clone())?;
-    Ok((root, config, command))
+    parse_args(std::env::args().skip(1), var(DIR_ENV), config.dir)
 }
 
 /// `$XDG_CONFIG_HOME/markoff/config.toml`, falling back to `~/.config/markoff/config.toml`.
@@ -132,27 +123,15 @@ fn read_config(path: &Path, home: Option<&str>) -> Result<Config> {
     let table: toml::Table = content
         .parse()
         .wrap_err_with(|| format!("invalid config {}", path.display()))?;
-    let string = |table: &toml::Table, key: &str| match table.get(key) {
-        None => Ok(None),
-        Some(value) => match value.as_str() {
-            Some(text) => Ok(Some(text.to_string())),
-            None => bail!("`{key}` in {} must be a string", path.display()),
-        },
-    };
-
     let config_dir = path.parent().unwrap_or(Path::new("."));
-    let dir = match string(&table, "dir")? {
-        Some(dir) => Some(resolve(&dir, config_dir, home)?),
+    let dir = match table.get("dir") {
         None => None,
-    };
-    let daily = match table.get("experimental") {
-        None => None,
-        Some(value) => match value.as_table() {
-            Some(experimental) => string(experimental, "daily")?,
-            None => bail!("`experimental` in {} must be a table", path.display()),
+        Some(value) => match value.as_str() {
+            Some(dir) => Some(resolve(dir, config_dir, home)?),
+            None => bail!("`dir` in {} must be a string", path.display()),
         },
     };
-    Ok(Config { dir, daily })
+    Ok(Config { dir })
 }
 
 /// Expands a leading `~/`, and resolves relative paths against the config file's directory
@@ -259,27 +238,6 @@ mod tests {
         assert_eq!(info(args(&["-V"])), Some(version));
         assert_eq!(info(args(&["--dir", "/a"])), None);
         assert_eq!(info(args(&["--nope"])), None, "left to parse_args");
-    }
-
-    #[test]
-    fn read_config_experimental_daily() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("config.toml");
-        let read = |content: &str| {
-            fs::write(&path, content).unwrap();
-            read_config(&path, None)
-        };
-
-        let config = read("[experimental]\ndaily = \"daily.md\"").unwrap();
-        assert_eq!(config.daily.as_deref(), Some("daily.md"));
-        assert_eq!(read("[experimental]").unwrap().daily, None);
-        assert!(read("[experimental]\ndaily = true").is_err());
-        assert!(read("experimental = 1").is_err());
-        assert_eq!(
-            read("daily = \"daily.md\"").unwrap().daily,
-            None,
-            "only under [experimental]"
-        );
     }
 
     #[test]
