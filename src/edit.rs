@@ -553,7 +553,7 @@ mod tests {
     }
 
     #[test]
-    fn normalize_writes_a_missing_or_stale_order_file() {
+    fn normalize_writes_a_missing_or_stale_state_file() {
         let s = tree(&[("work", &["a.md"]), ("home", &[])]);
         let ops = |content: Option<&str>| {
             let file = StateFile {
