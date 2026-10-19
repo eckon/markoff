@@ -4,9 +4,10 @@ expression: app.state()
 ---
 ── [ todo  archive ] ── [date] ─ 2 open · ✓ 1 done
 
-  ──[1]─ house ───────────── 2
- ▌   • Call mom
-     • Write report
+  ──[1]─ house ───────────── 3
+     • Call mom
+ ▌   • Write report
+     • Water plants                                                      * * *
 
 
 
@@ -20,8 +21,7 @@ expression: app.state()
 
 
 
-
-── task deleted (u to undo) ────────────────────────────────────── ? toggle help
+── hidden tasks shown (1) ──────────────────────────────────────── ? toggle help
 
 --- .archive/
 
@@ -32,15 +32,19 @@ expression: app.state()
 
 ### Pay rent
 
---- .order
+--- .markoff
 # house
 call-mom
 write-report
+water-plants [date]
 
 --- house/
 
 --- house/call-mom.md
 # Call mom
+
+--- house/water-plants.md
+# Water plants `* * *`
 
 --- house/write-report.md
 # Write report

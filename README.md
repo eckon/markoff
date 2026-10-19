@@ -49,10 +49,9 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 
 ```text
 <root>/
-  .order               <- order of sections and tasks
+  .markoff             <- order, when repeating tasks were last done
   .archive/
     2026-10-14.md      <- tasks done that day
-  daily.md             <- daily checklist (experimental)
   notes.md             <- ignored, files in the root are not tasks
   work/                <- section "work"
     fix-login-bug.md   <- task "# Fix login bug"
@@ -61,9 +60,29 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 
 - A section is a directory, a task is a `.md` file in it starting with `# Title`.
 - Filenames follow the title. Files added or edited by hand are renamed on start and before the next change.
-- `.order` is written by markoff. New files go to the end, deleted ones are dropped. Add it to `.gitignore` to keep order changes out of git.
+- `.markoff` is written by markoff. New files go to the end, deleted ones are dropped. Add it to `.gitignore` to keep order changes and done dates out of git.
 - Done tasks (`X`) are appended to `.archive/YYYY-MM-DD.md` under their section.
 - The archive page (`]`) shows a heatmap of the done tasks back to the first archived day: recent days one by one, further back each cell covers more. Brighter means more tasks per day, ranked in quarters of the days with anything done. Dividers in the top row mark where a cell starts to cover more: daily, weekly, monthly, yearly. The cursor in the heatmap picks a cell, the header shows its days and how many tasks were done, the list below them by section, newest first, with the body of the task at the cursor next to it while the list has the keys.
+
+## Repeating tasks
+
+A rule as inline code at the end of the heading makes a task repeat:
+
+```markdown
+# Water plants `* * mon`
+```
+
+The rule is the day part of cron: day of month, month, day of week. Both day fields have to match, `1 * mon` is a Monday the 1st.
+
+| Rule          | Repeats                   |
+| ------------- | ------------------------- |
+| `* * *`       | Every day                 |
+| `* * mon-fri` | Every weekday             |
+| `* * thu`     | Every Thursday            |
+| `1 * *`       | On the 1st of every month |
+| `1 1 *`       | Every year on January 1st |
+
+`X` on a repeating task keeps the task and notes the date in `.markoff`. The task hides until a day of its rule comes, a missed day stays until it is done. `.` shows the hidden ones. Code that is no rule (`` `cargo test` ``) stays part of the title.
 
 ## Keys
 
@@ -84,7 +103,7 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 | `<CR>`      | Open task in `$EDITOR`, or rename section   |
 | `o` / `O`   | New task below / above                      |
 | `N`         | New section                                 |
-| `X`         | Done, moves the task to the archive         |
+| `X`         | Done: archived, a repeating task hides      |
 | `D`         | Delete task, or empty section               |
 | `u`         | Undo                                        |
 
@@ -93,6 +112,7 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 | Key         | Action                                      |
 | ----------- | ------------------------------------------- |
 | `p`         | Toggle the preview next to the list         |
+| `.`         | Toggle hidden tasks: repeating, not due     |
 | `/`         | Filter titles and bodies, `<CR>` keeps it   |
 | `Esc`       | Clear filter, close help                    |
 | `?`         | Toggle help                                 |
@@ -134,22 +154,6 @@ Commands for scripts, `--dir` works with them as usual:
 
 ## home
 ```
-
-## Daily checklist (experimental)
-
-A checklist that starts fresh every day, shown above the sections when the root has a `daily.md`:
-
-```markdown
-# Daily
-
-## Book time in Jira [done 2026-10-17]
-
-## Check the canteen menu
-
-https://intranet/menu
-```
-
-Each `##` heading is a task. The keys work like on the sections: `J` / `K` move a task within the checklist, `o` / `O` add one, `D` deletes it, `<CR>` opens `daily.md`. Only `X` differs: it marks the task done for today by adding the `[done <date>]` marker, nothing is archived.
 
 ## Development
 

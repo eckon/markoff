@@ -52,13 +52,15 @@ pub fn run(command: Command, root: &Path) -> Result<String> {
 }
 
 /// Sections as `## name` with their task titles as list items, in the order of the TUI.
-/// Read-only, so no normalize: that would rename files behind an editor.
+/// Like the TUI without `.`, repeating tasks only while they are due. Read-only, so no
+/// normalize: that would rename files behind an editor.
 pub fn list(sections: &[Section]) -> String {
+    let today = jiff::Zoned::now().date();
     sections
         .iter()
         .map(|section| {
             let mut text = format!("## {}\n", section.name);
-            for task in &section.tasks {
+            for task in section.tasks.iter().filter(|task| task.due(today)) {
                 text.push_str(&format!("- {}\n", task.title()));
             }
             text
@@ -110,7 +112,7 @@ mod tests {
         fs::write(root.join("work/fix-the-bug.md"), "# Fix the bug\n\nbody\n").unwrap();
         fs::write(root.join("work/call-bob.md"), "no heading\n").unwrap();
         fs::write(
-            root.join(".order"),
+            root.join(".markoff"),
             "# work\nfix-the-bug\ncall-bob\n\n# home\n",
         )
         .unwrap();
@@ -159,6 +161,18 @@ mod tests {
             "## work\n- Fix the bug\n- call bob\n\n## home\n"
         );
         assert_eq!(list(&[]), "");
+
+        // Repeating tasks only while due, like the TUI.
+        let root = dir.path();
+        fs::write(root.join("home/water.md"), "# Water `* * *`\n").unwrap();
+        fs::write(root.join("home/dust.md"), "# Dust `* * *`\n").unwrap();
+        let today = jiff::Zoned::now().date();
+        let state = format!("# work\nfix-the-bug\ncall-bob\n\n# home\nwater\ndust {today}\n");
+        fs::write(root.join(".markoff"), state).unwrap();
+        assert_eq!(
+            run(Command::List, root).unwrap(),
+            "## work\n- Fix the bug\n- call bob\n\n## home\n- Water\n"
+        );
     }
 
     #[test]
@@ -172,7 +186,7 @@ mod tests {
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), "# New thing\n");
         assert_eq!(
-            fs::read_to_string(root.join(".order")).unwrap(),
+            fs::read_to_string(root.join(".markoff")).unwrap(),
             "# work\nfix-the-bug\ncall-bob\nnew-thing\n\n# home\n"
         );
 
@@ -195,7 +209,7 @@ mod tests {
         add(root, "work", "New").unwrap();
         assert!(root.join("work/renamed.md").exists());
         assert_eq!(
-            fs::read_to_string(root.join(".order")).unwrap(),
+            fs::read_to_string(root.join(".markoff")).unwrap(),
             "# work\nrenamed\ncall-bob\nnew\n\n# home\n"
         );
     }

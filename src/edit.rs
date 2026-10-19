@@ -1,43 +1,45 @@
 //! Turns user actions into [`Op`]s. Decides what should happen, applying is up to the caller.
 //!
-//! Every action writes the new order into the order file (see [`crate::order`]) along with its
+//! Every action writes the new order into the state file (see [`crate::state`]) along with its
 //! file ops, so one undo reverts both. Files are only renamed when their title changes or they
 //! move to another section.
 
 use std::path::{Path, PathBuf};
 
+use jiff::civil::Date;
+
 use crate::{
     archive,
     name::slugify,
     op::Op,
-    order::{Group, Order, OrderFile},
+    state::{Group, Item, State, StateFile},
     task::{EXTENSION, HEADING, Section, Task, split_heading},
 };
 
 /// `D`: removes task `t` of section `s`.
-pub fn delete(sections: &[Section], s: usize, t: usize, file: &OrderFile) -> Vec<Op> {
+pub fn delete(sections: &[Section], s: usize, t: usize, file: &StateFile) -> Vec<Op> {
     let task = &sections[s].tasks[t];
-    let mut order = Order::of(sections);
-    order.sections[s].tasks.remove(t);
+    let mut state = State::of(sections);
+    state.sections[s].tasks.remove(t);
 
     let mut ops = vec![Op::Remove {
         path: task.path.clone(),
         content: task.content.clone(),
     }];
-    ops.extend(file.write(&order));
+    ops.extend(file.write(&state));
     ops
 }
 
 /// `D` on a section header: removes the directory of section `s`. Only for an empty section,
 /// the caller checks.
-pub fn delete_section(sections: &[Section], s: usize, file: &OrderFile) -> Vec<Op> {
-    let mut order = Order::of(sections);
-    order.sections.remove(s);
+pub fn delete_section(sections: &[Section], s: usize, file: &StateFile) -> Vec<Op> {
+    let mut state = State::of(sections);
+    state.sections.remove(s);
 
     let mut ops = vec![Op::RemoveDir {
         path: sections[s].dir.clone(),
     }];
-    ops.extend(file.write(&order));
+    ops.extend(file.write(&state));
     ops
 }
 
@@ -63,19 +65,33 @@ pub fn rename_section(
     sections: &[Section],
     s: usize,
     slug: &str,
-    file: &OrderFile,
+    file: &StateFile,
 ) -> (Vec<Op>, PathBuf) {
     let from = sections[s].dir.clone();
     let to = from.with_file_name(slug);
-    let mut order = Order::of(sections);
-    order.sections[s].name = slug.to_string();
+    let mut state = State::of(sections);
+    state.sections[s].name = slug.to_string();
 
     let mut ops = vec![Op::Rename {
         from,
         to: to.clone(),
     }];
-    ops.extend(file.write(&order));
+    ops.extend(file.write(&state));
     (ops, to)
+}
+
+/// `X` on a repeating task: `date` becomes its last done in the state file. The task file
+/// stays as it is and nothing is archived, see [`crate::repeat`].
+pub fn repeat_done(
+    sections: &[Section],
+    s: usize,
+    t: usize,
+    date: Date,
+    file: &StateFile,
+) -> Vec<Op> {
+    let mut state = State::of(sections);
+    state.sections[s].tasks[t].done = Some(date);
+    file.write(&state).into_iter().collect()
 }
 
 /// `X`: adds task `t` of section `s` to today's archive file, then removes it like [`delete`].
@@ -89,7 +105,7 @@ pub fn archive(
     archive_path: &Path,
     existing: Option<&str>,
     date: &str,
-    file: &OrderFile,
+    file: &StateFile,
 ) -> Vec<Op> {
     let section = &sections[s];
     let after = archive::add(existing, date, &section.name, &section.tasks[t]);
@@ -120,6 +136,8 @@ struct Entry {
     current: Option<String>,
     /// The name it should have: from the heading, the current one without heading.
     slug: String,
+    /// Goes along with the name, see [`Task::done`].
+    done: Option<Date>,
 }
 
 impl Entry {
@@ -128,6 +146,7 @@ impl Entry {
             path: task.path.clone(),
             current: Some(task.stem().to_string()),
             slug: wanted_slug(task),
+            done: task.done,
         }
     }
 }
@@ -145,18 +164,18 @@ fn wanted_slug(task: &Task) -> String {
     }
 }
 
-/// Renames tasks whose filename does not match their heading, and writes the order file so
+/// Renames tasks whose filename does not match their heading, and writes the state file so
 /// it lists exactly what is on disk. Tasks without heading keep their name. Returns no ops
 /// if everything already matches.
-pub fn normalize(sections: &[Section], file: &OrderFile) -> Vec<Op> {
-    let mut order = Order::of(sections);
+pub fn normalize(sections: &[Section], file: &StateFile) -> Vec<Op> {
+    let mut state = State::of(sections);
     let mut ops = Vec::new();
     for (s, section) in sections.iter().enumerate() {
-        let (renames, names) = renames(&task_entries(section), &section.dir);
+        let (renames, items) = renames(&task_entries(section), &section.dir);
         ops.extend(renames);
-        order.sections[s].tasks = names;
+        state.sections[s].tasks = items;
     }
-    ops.extend(file.write(&order));
+    ops.extend(file.write(&state));
     ops
 }
 
@@ -168,7 +187,7 @@ pub fn insert(
     index: usize,
     title: &str,
     content: &str,
-    file: &OrderFile,
+    file: &StateFile,
 ) -> (Vec<Op>, PathBuf) {
     let section = &sections[s];
     let taken: Vec<String> = section
@@ -178,14 +197,16 @@ pub fn insert(
         .collect();
     let name = unique_slug(&taken, slugify(title));
     let path = section.dir.join(&name).with_extension(EXTENSION);
-    let mut order = Order::of(sections);
-    order.sections[s].tasks.insert(index, name);
+    let mut state = State::of(sections);
+    state.sections[s]
+        .tasks
+        .insert(index, Item { name, done: None });
 
     let mut ops = vec![Op::Create {
         path: path.clone(),
         content: content.to_string(),
     }];
-    ops.extend(file.write(&order));
+    ops.extend(file.write(&state));
     (ops, path)
 }
 
@@ -196,11 +217,11 @@ pub fn insert_section(
     root: &Path,
     index: usize,
     slug: &str,
-    file: &OrderFile,
+    file: &StateFile,
 ) -> (Vec<Op>, PathBuf) {
     let path = root.join(slug);
-    let mut order = Order::of(sections);
-    order.sections.insert(
+    let mut state = State::of(sections);
+    state.sections.insert(
         index,
         Group {
             name: slug.to_string(),
@@ -209,7 +230,7 @@ pub fn insert_section(
     );
 
     let mut ops = vec![Op::CreateDir { path: path.clone() }];
-    ops.extend(file.write(&order));
+    ops.extend(file.write(&state));
     (ops, path)
 }
 
@@ -224,15 +245,15 @@ pub fn move_task(
     t: usize,
     to: usize,
     index: usize,
-    file: &OrderFile,
+    file: &StateFile,
 ) -> (Vec<Op>, PathBuf) {
     let task = &sections[from].tasks[t];
-    let mut order = Order::of(sections);
-    let name = order.sections[from].tasks.remove(t);
+    let mut state = State::of(sections);
+    let item = state.sections[from].tasks.remove(t);
 
     let mut ops = Vec::new();
     let path = if from == to {
-        order.sections[to].tasks.insert(index, name);
+        state.sections[to].tasks.insert(index, item);
         task.path.clone()
     } else {
         // Coming from another section: give way to the names already there.
@@ -242,13 +263,13 @@ pub fn move_task(
         target.insert(index, moved);
 
         let dir = &sections[to].dir;
-        let (renames, names) = renames(&target, dir);
+        let (renames, items) = renames(&target, dir);
         ops.extend(renames);
-        let path = dir.join(&names[index]).with_extension(EXTENSION);
-        order.sections[to].tasks = names;
+        let path = dir.join(&items[index].name).with_extension(EXTENSION);
+        state.sections[to].tasks = items;
         path
     };
-    ops.extend(file.write(&order));
+    ops.extend(file.write(&state));
     (ops, path)
 }
 
@@ -260,20 +281,21 @@ pub fn move_section(
     sections: &[Section],
     s: usize,
     down: bool,
-    file: &OrderFile,
+    file: &StateFile,
 ) -> Option<(Vec<Op>, PathBuf)> {
     let other = if down { s + 1 } else { s.checked_sub(1)? };
     if other >= sections.len() {
         return None;
     }
-    let mut order = Order::of(sections);
-    order.sections.swap(s, other);
-    let ops = file.write(&order).into_iter().collect();
+    let mut state = State::of(sections);
+    state.sections.swap(s, other);
+    let ops = file.write(&state).into_iter().collect();
     Some((ops, sections[s].dir.clone()))
 }
 
-/// The renames that give `entries` in `dir` their wanted names, and the names of all entries.
-fn renames(entries: &[Entry], dir: &Path) -> (Vec<Op>, Vec<String>) {
+/// The renames that give `entries` in `dir` their wanted names, and the order items of all
+/// entries.
+fn renames(entries: &[Entry], dir: &Path) -> (Vec<Op>, Vec<Item>) {
     let names = target_names(entries);
     let renames = entries
         .iter()
@@ -283,7 +305,13 @@ fn renames(entries: &[Entry], dir: &Path) -> (Vec<Op>, Vec<String>) {
             (entry.path != to).then(|| (entry.path.clone(), to))
         })
         .collect();
-    (order_renames(renames), names)
+    let items = (entries.iter().zip(names))
+        .map(|(entry, name)| Item {
+            name,
+            done: entry.done,
+        })
+        .collect();
+    (order_renames(renames), items)
 }
 
 /// Names for all entries, with their wanted slug.
@@ -376,26 +404,26 @@ mod tests {
         tree_with(&spec)
     }
 
-    /// The order file holding exactly the order of `sections`, as after a normalize.
-    fn file_for(sections: &[Section]) -> OrderFile {
-        OrderFile {
-            path: PathBuf::from("root/.order"),
-            content: Some(Order::of(sections).format()),
+    /// The state file holding exactly the order of `sections`, as after a normalize.
+    fn file_for(sections: &[Section]) -> StateFile {
+        StateFile {
+            path: PathBuf::from("root/.markoff"),
+            content: Some(State::of(sections).format()),
         }
     }
 
-    /// Ops as short strings with file names only: `rename a.md -> b.md`. An order file
-    /// write shows the new content on one line: `order # work a b | # home c`.
+    /// Ops as short strings with file names only: `rename a.md -> b.md`. A state file
+    /// write shows the new content on one line: `state # work a b | # home c`.
     fn describe(ops: &[Op]) -> Vec<String> {
         let file = |path: &Path| path.file_name().unwrap().to_str().unwrap().to_string();
-        let order = |content: &str| {
+        let state = |content: &str| {
             let content = content.trim_end().replace("\n\n", " | ").replace('\n', " ");
-            format!("order {content}")
+            format!("state {content}")
         };
         ops.iter()
             .map(|op| match op {
-                Op::Create { path, content } if file(path) == ".order" => order(content),
-                Op::Update { path, after, .. } if file(path) == ".order" => order(after),
+                Op::Create { path, content } if file(path) == ".markoff" => state(content),
+                Op::Update { path, after, .. } if file(path) == ".markoff" => state(after),
                 Op::Create { path, .. } => format!("create {}", file(path)),
                 Op::Remove { path, .. } => format!("remove {}", file(path)),
                 Op::Rename { from, to } => format!("rename {} -> {}", file(from), file(to)),
@@ -417,7 +445,7 @@ mod tests {
                 content: "# Fix bug\n\nbody".to_string()
             }
         );
-        assert_eq!(describe(&ops[1..]), ["order # work b"]);
+        assert_eq!(describe(&ops[1..]), ["state # work b"]);
     }
 
     #[test]
@@ -425,7 +453,7 @@ mod tests {
         let s = tree(&[("a", &[]), ("b", &[]), ("c", &[])]);
         assert_eq!(
             describe(&delete_section(&s, 1, &file_for(&s))),
-            ["rmdir b", "order # a | # c"]
+            ["rmdir b", "state # a | # c"]
         );
     }
 
@@ -451,19 +479,19 @@ mod tests {
         let s = tree(&[("a", &[]), ("b", &[])]);
         let root = Path::new("root");
         let (ops, path) = insert_section(&s, root, 1, "new", &file_for(&s));
-        assert_eq!(describe(&ops), ["mkdir new", "order # a | # new | # b"]);
+        assert_eq!(describe(&ops), ["mkdir new", "state # a | # new | # b"]);
         assert_eq!(path, Path::new("root/new"));
 
         let (ops, _) = insert_section(&s, root, 0, "new", &file_for(&s));
-        assert_eq!(describe(&ops), ["mkdir new", "order # new | # a | # b"]);
+        assert_eq!(describe(&ops), ["mkdir new", "state # new | # a | # b"]);
 
-        // The very first section creates the order file.
-        let none = OrderFile {
-            path: PathBuf::from("root/.order"),
+        // The very first section creates the state file.
+        let none = StateFile {
+            path: PathBuf::from("root/.markoff"),
             content: None,
         };
         let (ops, _) = insert_section(&[], root, 0, "new", &none);
-        assert_eq!(describe(&ops), ["mkdir new", "order # new"]);
+        assert_eq!(describe(&ops), ["mkdir new", "state # new"]);
     }
 
     #[test]
@@ -472,7 +500,7 @@ mod tests {
         let (ops, to) = rename_section(&s, 1, "home", &file_for(&s));
         assert_eq!(
             describe(&ops),
-            ["rename work -> home", "order # a | # home x"]
+            ["rename work -> home", "state # a | # home x"]
         );
         assert_eq!(to, Path::new("root/home"));
     }
@@ -489,7 +517,7 @@ mod tests {
             [
                 "create 2026-10-14.md",
                 "remove fix-bug.md",
-                "order # work b"
+                "state # work b"
             ]
         );
 
@@ -507,14 +535,19 @@ mod tests {
     fn normalize_syncs_name_to_heading_and_order() {
         let s = tree_with(&[
             ("work", &[("01-a.md", "# A"), ("old.md", "# New title")]),
-            ("home", &[("Call Bob.md", "no heading")]),
+            (
+                "home",
+                &[("Call Bob.md", "no heading"), ("x.md", "# Water `* * mon`")],
+            ),
         ]);
         assert_eq!(
             describe(&normalize(&s, &file_for(&s))),
             [
                 "rename 01-a.md -> a.md",
                 "rename old.md -> new-title.md",
-                "order # work a new-title | # home Call Bob",
+                // The repeat rule stays out of the filename.
+                "rename x.md -> water.md",
+                "state # work a new-title | # home Call Bob water",
             ]
         );
     }
@@ -523,16 +556,16 @@ mod tests {
     fn normalize_writes_a_missing_or_stale_order_file() {
         let s = tree(&[("work", &["a.md"]), ("home", &[])]);
         let ops = |content: Option<&str>| {
-            let file = OrderFile {
-                path: PathBuf::from("root/.order"),
+            let file = StateFile {
+                path: PathBuf::from("root/.markoff"),
                 content: content.map(str::to_string),
             };
             describe(&normalize(&s, &file))
         };
-        assert_eq!(ops(None), ["order # work a | # home"]);
+        assert_eq!(ops(None), ["state # work a | # home"]);
         assert_eq!(
             ops(Some("x\n# work\ngone\na\n# old\n")),
-            ["order # work a | # home"]
+            ["state # work a | # home"]
         );
     }
 
@@ -545,7 +578,7 @@ mod tests {
         )]);
         assert_eq!(
             describe(&normalize(&s, &file_for(&s))),
-            ["rename old.md -> x-3.md", "order # work x-2 x x-3"]
+            ["rename old.md -> x-3.md", "state # work x-2 x x-3"]
         );
     }
 
@@ -558,7 +591,7 @@ mod tests {
             [
                 "rename b.md -> c.md",
                 "rename a.md -> b.md",
-                "order # work b c"
+                "state # work b c"
             ]
         );
     }
@@ -579,9 +612,9 @@ mod tests {
         let s = tree(&[("work", &["a.md", "b.md"])]);
         let insert_at = |index| describe(&insert(&s, 0, index, "New", "# New", &file_for(&s)).0);
 
-        assert_eq!(insert_at(0), ["create new.md", "order # work new a b"]);
-        assert_eq!(insert_at(1), ["create new.md", "order # work a new b"]);
-        assert_eq!(insert_at(2), ["create new.md", "order # work a b new"]);
+        assert_eq!(insert_at(0), ["create new.md", "state # work new a b"]);
+        assert_eq!(insert_at(1), ["create new.md", "state # work a new b"]);
+        assert_eq!(insert_at(2), ["create new.md", "state # work a b new"]);
     }
 
     #[test]
@@ -590,7 +623,7 @@ mod tests {
         let (ops, path) = insert(&s, 0, 2, "New", "# New", &file_for(&s));
         assert_eq!(
             describe(&ops),
-            ["create new-3.md", "order # work new new-2 new-3"]
+            ["create new-3.md", "state # work new new-2 new-3"]
         );
         assert_eq!(path, Path::new("root/work/new-3.md"));
     }
@@ -601,12 +634,12 @@ mod tests {
 
         // `a` down, after `b`.
         let (ops, path) = move_task(&s, 0, 0, 0, 1, &file_for(&s));
-        assert_eq!(describe(&ops), ["order # work b a c"]);
+        assert_eq!(describe(&ops), ["state # work b a c"]);
         assert_eq!(path, Path::new("root/work/a.md"));
 
         // `c` up, before `b`.
         let (ops, _) = move_task(&s, 0, 2, 0, 1, &file_for(&s));
-        assert_eq!(describe(&ops), ["order # work a c b"]);
+        assert_eq!(describe(&ops), ["state # work a c b"]);
     }
 
     #[test]
@@ -620,7 +653,7 @@ mod tests {
                 to: "root/home/a.md".into()
             }
         );
-        assert_eq!(describe(&ops[1..]), ["order # work b | # home a c"]);
+        assert_eq!(describe(&ops[1..]), ["state # work b | # home a c"]);
         assert_eq!(path, Path::new("root/home/a.md"));
     }
 
@@ -630,7 +663,7 @@ mod tests {
         let (ops, _) = move_task(&s, 0, 0, 1, 1, &file_for(&s));
         assert_eq!(
             describe(&ops),
-            ["rename a.md -> a-2.md", "order # work | # home a a-2"]
+            ["rename a.md -> a-2.md", "state # work | # home a a-2"]
         );
     }
 
@@ -639,11 +672,11 @@ mod tests {
         let s = tree(&[("work", &[]), ("home", &[]), ("x", &[])]);
 
         let (ops, path) = move_section(&s, 0, true, &file_for(&s)).unwrap();
-        assert_eq!(describe(&ops), ["order # home | # work | # x"]);
+        assert_eq!(describe(&ops), ["state # home | # work | # x"]);
         assert_eq!(path, Path::new("root/work"));
 
         let (ops, _) = move_section(&s, 2, false, &file_for(&s)).unwrap();
-        assert_eq!(describe(&ops), ["order # work | # x | # home"]);
+        assert_eq!(describe(&ops), ["state # work | # x | # home"]);
     }
 
     #[test]

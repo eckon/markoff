@@ -231,7 +231,7 @@ fn write(path: &Path, content: &str) {
     fs::write(path, content).unwrap();
 }
 
-/// Everything below `dir`, sorted, hidden entries included (`.order`, `.archive`).
+/// Everything below `dir`, sorted, hidden entries included (`.markoff`, `.archive`).
 fn entries(dir: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
     for entry in fs::read_dir(dir).unwrap() {
@@ -319,9 +319,25 @@ fn lifecycle() {
     app.wait_for("✓ 1 done");
     app.press("D");
     app.wait_for("2 open");
+
+    // A repeating task: `X` keeps it, only its date goes into `.markoff`, and hides it until
+    // it is due again. `.` shows it.
+    app.press("G");
+    app.wait_for("▌   • Write report");
+    app.edit("# Water plants `* * *`\n");
+    app.press("o");
+    app.wait_for("3 open");
+    app.press("X");
+    app.wait_for("done until next time");
+    app.press(".");
+    app.wait_for("• Water plants");
     snapshot!("lifecycle_4_done_and_deleted", app.state());
 
-    // Undo all three, newest first.
+    // Undo all five, newest first.
+    app.press("u");
+    app.wait_for("3 open");
+    app.press("u");
+    app.wait_for("2 open");
     app.press("u");
     app.wait_for("3 open");
     app.press("u");
@@ -345,7 +361,7 @@ fn hand_made_data() {
         ("work/.scratch.md", "# Hidden, ignored\n"),
         // A stale entry, and todo.md is not listed at all.
         (
-            ".order",
+            ".markoff",
             "# home\nwater-plants\ngone\n\n# work\nreview-pr\n",
         ),
     ]);
@@ -410,8 +426,7 @@ fn filter_and_help() {
     app.press("1j");
     app.wait_for("│ Ask about the milk frother.");
     app.press("p");
-    // The status line's rule no longer joins a divider.
-    app.wait_for(&format!("{} ? toggle help", "─".repeat(66)));
+    app.wait_for("preview off");
     assert!(!app.screen().contains("frother"), "{}", app.screen());
     app.press("p");
     app.wait_for("│ Ask about the milk frother.");
@@ -450,7 +465,7 @@ fn archive() {
     app.press("\tj");
     app.wait_for("│ old notes");
     app.press("p");
-    app.wait_for(&format!("{} ? toggle help", "─".repeat(66)));
+    app.wait_for("preview off");
     assert!(!app.screen().contains("old notes"), "{}", app.screen());
     app.press("p");
     app.wait_for("│ old notes");
