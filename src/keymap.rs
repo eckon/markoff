@@ -25,6 +25,8 @@ pub enum Action {
     Focus,
     /// `p`: shows or hides the preview of the task at the cursor, on each page of its own.
     Preview,
+    /// `.`: shows or hides the repeating tasks that are not due, like hidden files.
+    ShowHidden,
     Top,
     Bottom,
     PrevSection,
@@ -124,6 +126,7 @@ pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section", group: "list", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('p'))], A::Preview)], help: "toggle preview", group: "list", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('p'))], A::Preview)], help: "toggle preview", group: "other", pages: TODO },
+    Binding { keys: &[(&[Key(Char('.'))], A::ShowHidden)], help: "toggle hidden tasks", group: "other", pages: TODO },
     Binding { keys: &[(&[Key(Char('/'))], A::Filter)], help: "filter", group: "other", pages: TODO },
     Binding { keys: &[(&[Key(Esc)], A::FilterClear)], help: "clear filter", group: "other", pages: TODO },
     Binding { keys: &[(&[Key(Tab)], A::Focus)], help: "keys to heatmap / list", group: "other", pages: ARCHIVE },

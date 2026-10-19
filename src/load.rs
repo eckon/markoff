@@ -1,4 +1,4 @@
-//! Reads the root directory into [`Section`]s, in the order of [`order::FILE`].
+//! Reads the root directory into [`Section`]s, in the order of [`state::FILE`].
 
 use std::{
     fs, io,
@@ -10,23 +10,23 @@ use jiff::civil::Date;
 
 use crate::{
     archive, history,
-    order::{self, Order, OrderFile},
+    state::{self, State, StateFile},
     task::{self, Section, Task},
 };
 
-/// Loads the sections and their tasks in the order file's order. Also returns the order file
+/// Loads the sections and their tasks in the state file's order. Also returns the state file
 /// as read, so actions never write over a change made outside markoff.
-pub fn load(root: &Path) -> Result<(Vec<Section>, OrderFile)> {
-    let path = root.join(order::FILE);
-    let file = OrderFile {
+pub fn load(root: &Path) -> Result<(Vec<Section>, StateFile)> {
+    let path = root.join(state::FILE);
+    let file = StateFile {
         content: read_if_exists(&path)?,
         path,
     };
-    // A missing order file is an empty order: everything sorted by name.
-    let order = file
+    // A missing state file is an empty order: everything sorted by name.
+    let state = file
         .content
         .as_deref()
-        .map(Order::parse)
+        .map(State::parse)
         .unwrap_or_default();
 
     let mut section_dirs: Vec<PathBuf> = visible_entries(root)?
@@ -34,7 +34,7 @@ pub fn load(root: &Path) -> Result<(Vec<Section>, OrderFile)> {
         .filter(|path| path.is_dir())
         .collect();
     sort_by_order(&mut section_dirs, |dir| {
-        order.section_position(file_name(dir))
+        state.section_position(file_name(dir))
     });
 
     let mut sections = Vec::new();
@@ -45,7 +45,7 @@ pub fn load(root: &Path) -> Result<(Vec<Section>, OrderFile)> {
             .filter(|path| path.is_file() && is_markdown(path))
             .collect();
         sections.push(Section {
-            tasks: load_tasks(task_paths, &order, &name)?,
+            tasks: load_tasks(task_paths, &state, &name)?,
             name,
             dir,
         });
@@ -86,25 +86,27 @@ pub fn archive(root: &Path) -> Result<history::Archive> {
     Ok(days)
 }
 
-fn load_tasks(mut paths: Vec<PathBuf>, order: &Order, section: &str) -> Result<Vec<Task>> {
+fn load_tasks(mut paths: Vec<PathBuf>, state: &State, section: &str) -> Result<Vec<Task>> {
     sort_by_order(&mut paths, |path| {
         let stem = path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or_default();
-        order.task_position(section, stem)
+        state.task_position(section, stem)
     });
     paths
         .into_iter()
         .map(|path| {
             let content = fs::read_to_string(&path)
                 .wrap_err_with(|| format!("failed to read {}", path.display()))?;
-            Ok(Task::parse(path, &content))
+            let mut task = Task::parse(path, &content);
+            task.done = state.done(section, task.stem());
+            Ok(task)
         })
         .collect()
 }
 
-/// Directory entries without hidden ones (`.git`, `.order`, `.archive`, editor swap files).
+/// Directory entries without hidden ones (`.git`, `.markoff`, `.archive`, editor swap files).
 fn visible_entries(dir: &Path) -> Result<Vec<PathBuf>> {
     let read_dir =
         fs::read_dir(dir).wrap_err_with(|| format!("failed to read {}", dir.display()))?;
@@ -205,7 +207,10 @@ mod tests {
     #[test]
     fn sections_and_tasks_in_order_file_order() {
         let dir = fixture(&[
-            (".order", "# work\nreview-pr\nfix-login-bug\n\n# private\n"),
+            (
+                ".markoff",
+                "# work\nreview-pr\nfix-login-bug\n\n# private\n",
+            ),
             ("private/call-bob.md", "# Call Bob"),
             ("work/fix-login-bug.md", "# Fix login bug"),
             ("work/review-pr.md", "# Review PR"),
@@ -225,7 +230,7 @@ mod tests {
     #[test]
     fn unlisted_go_last_by_name_stale_are_ignored() {
         let dir = fixture(&[
-            (".order", "# work\nb\ngone\n# gone\n"),
+            (".markoff", "# work\nb\ngone\n# gone\n"),
             ("work/c.md", ""),
             ("work/a.md", ""),
             ("work/b.md", ""),
@@ -250,7 +255,6 @@ mod tests {
     #[test]
     fn ignores_root_files_hidden_non_markdown_and_nested() {
         let dir = fixture(&[
-            ("daily.md", "## Jira"),
             ("readme.md", "# Notes"),
             (".git/config", ""),
             (".archive/2026-10-14.md", ""),

@@ -1,5 +1,5 @@
 //! Rendering: header, list, preview and status line. The help is in [`help`], the archive in
-//! [`archive`], the experimental daily checklist in [`daily`]. Reads the app, never changes it.
+//! [`archive`]. Reads the app, never changes it.
 
 use ratatui::{
     Frame,
@@ -10,7 +10,6 @@ use ratatui::{
 };
 
 mod archive;
-mod daily;
 mod help;
 mod rows;
 
@@ -55,7 +54,11 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
             // The tasks in all sections and those archived today, so done tasks don't just
             // vanish.
             let today = jiff::Zoned::now().strftime("%a %d %b").to_string();
-            let open: usize = app.sections.iter().map(|section| section.tasks.len()).sum();
+            // Hidden tasks are not open, even while `.` shows them.
+            let date = jiff::Zoned::now().date();
+            let open = (app.sections.iter().flat_map(|section| &section.tasks))
+                .filter(|task| task.due(date))
+                .count();
             let mut count = vec![format!("{open} open · ").dim()];
             count.extend(done_count(app.done_today()));
             render_header(app, frame, header_area, &today, count);
@@ -82,7 +85,7 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
         }
     }
     if app.show_help {
-        help::render(frame, app.page, app.daily.is_some());
+        help::render(frame, app.page);
     }
     drawn
 }
@@ -95,7 +98,6 @@ fn render_todo(app: &App, frame: &mut Frame, main_area: Rect) -> (usize, Option<
     let body = match app.selected() {
         _ if app.hide_preview => None,
         Some(Row::Task(s, t)) => Some(app.sections[s].tasks[t].body.as_str()),
-        Some(Row::DailyTask(i)) => Some(daily::body(app, i)),
         _ => None,
     };
     let (offset, preview) =
@@ -276,7 +278,7 @@ fn section_color(index: usize) -> Color {
     SECTION_COLORS[index % SECTION_COLORS.len()]
 }
 
-/// The todo list: the daily checklist and the sections with their tasks, see [`rows`].
+/// The todo list: the sections with their tasks, see [`rows`].
 /// Returns the scroll offset.
 fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize {
     let rows = app.rows();
@@ -285,7 +287,6 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
             let is_cursor = i == app.cursor;
             let color = match row {
                 Row::Section(s) | Row::Task(s, _) => section_color(s),
-                Row::Daily | Row::DailyTask(_) => daily::COLOR,
             };
             let task_style = if is_cursor {
                 Style::new().fg(color)
@@ -301,28 +302,30 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                         .count();
                     let name = &app.sections[s].name;
                     rows::Kind::Header(rows::section_rule(
-                        Some(s),
+                        s,
                         color,
                         name,
-                        count.to_string(),
+                        count,
                         width.saturating_sub(1),
                     ))
                 }
-                Row::Daily => rows::Kind::Header(daily::header(app, width.saturating_sub(1))),
-                Row::DailyTask(i) => rows::Kind::Task(daily::task(app, i, task_style), None),
                 Row::Task(s, t) => {
-                    let title = app.sections[s].tasks[t].title();
+                    let task = &app.sections[s].tasks[t];
+                    let title = task.title();
                     let mut style = task_style;
                     // Listed for a match in the body only: weaker, `…` hints at the preview.
                     let body_only = !filter::matches(&title, &app.filter);
-                    if body_only {
+                    // Shown by `.` only: weaker too, it is not due.
+                    if body_only || !task.due(jiff::Zoned::now().date()) {
                         style = style.dim();
                     }
                     let mut spans = highlight(&title, &app.filter, style);
                     if body_only {
                         spans.push(" …".dim());
                     }
-                    rows::Kind::Task(spans, None)
+                    // Why it is there, where the archive puts the day.
+                    let rule = task.repeat.as_ref().map(|repeat| repeat.rule.clone().dim());
+                    rows::Kind::Task(spans, rule)
                 }
             };
             rows::Row { color, kind }
@@ -659,6 +662,42 @@ mod tests {
     }
 
     #[test]
+    fn repeating_task_shows_its_rule_while_due() {
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("home", &["Water `* * mon-fri`", "Dust `* * *`", "Fix typo"])]),
+        );
+        app.sections[0].tasks[1].done = Some(jiff::Zoned::now().date());
+        let mut terminal = Terminal::new(TestBackend::new(60, 9)).unwrap();
+        terminal.draw(|frame| _ = render(&app, frame)).unwrap();
+        let lines: Vec<String> = (terminal.backend().buffer().content())
+            .chunks(60)
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+            .collect();
+
+        // Never done, so due: the rule on the right. Done today: hidden, also from the counts.
+        assert!(lines[3].contains("• Water"), "{lines:#?}");
+        assert!(lines[3].trim_end().ends_with("* * mon-fri"), "{lines:#?}");
+        assert!(lines[4].contains("• Fix typo"), "{lines:#?}");
+        assert!(lines[2].trim_end().ends_with(" 2"), "{lines:#?}");
+        assert!(lines[0].contains(" 2 open "), "{lines:#?}");
+
+        // `.` shows it dimmed, with its rule. Not open, the section counts what it shows.
+        app.show_hidden = true;
+        terminal.draw(|frame| _ = render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let lines: Vec<String> = (buffer.content().chunks(60))
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+            .collect();
+        assert!(lines[4].contains("• Dust"), "{lines:#?}");
+        assert!(lines[4].trim_end().ends_with("* * *"), "{lines:#?}");
+        assert!(buffer[(7, 4)].modifier.contains(Modifier::DIM));
+        assert!(!buffer[(7, 3)].modifier.contains(Modifier::DIM), "due");
+        assert!(lines[2].trim_end().ends_with(" 3"), "{lines:#?}");
+        assert!(lines[0].contains(" 2 open "), "{lines:#?}");
+    }
+
+    #[test]
     fn filter_without_matches_says_so() {
         let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
         assert!(!screen(&app).contains("no matches"), "not without a filter");
@@ -673,12 +712,6 @@ mod tests {
     fn hint_without_sections() {
         let mut app = App::new(PathBuf::new(), sections(&[]));
         assert!(screen(&app).contains("no sections yet, N creates one"));
-
-        // Below the daily checklist, if there is one.
-        app.daily = Some(crate::daily::parse("## Jira\n"));
-        let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
-        assert!(lines[3].contains("• Jira"), "{lines:#?}");
-        assert!(lines[5].contains("no sections yet"), "{lines:#?}");
 
         app.sections = sections(&[("work", &[])]);
         assert!(!screen(&app).contains("no sections yet"));

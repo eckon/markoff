@@ -1,6 +1,5 @@
 //! App state, the run loop, and what each [`Action`] does to it and to the disk. What needs
-//! `$EDITOR` is in [`editor`], the archive page in [`archive`], the experimental daily checklist
-//! in [`daily`].
+//! `$EDITOR` is in [`editor`], the archive page in [`archive`].
 
 use std::{
     fs,
@@ -18,21 +17,18 @@ use ratatui::{
 };
 
 pub mod archive;
-mod daily;
 mod editor;
 
 use archive::ArchivePage;
 use editor::EditorRequest;
 
 use crate::{
-    cursor,
-    daily::DailyTask,
-    edit, filter, history,
+    cursor, edit, filter, history,
     keymap::{self, Action, Keymap},
     load,
     op::{self, Op},
-    order::{self, OrderFile},
-    task::{self, Section},
+    state::{self, StateFile},
+    task::{self, Section, Task},
     ui,
     watch::TodoWatcher,
 };
@@ -48,10 +44,6 @@ pub enum Row {
     Section(usize),
     /// Section index, task index within that section.
     Task(usize, usize),
-    /// The `daily` header, on top of the sections, see [`daily`] (experimental).
-    Daily,
-    /// Task index in `daily.md`.
-    DailyTask(usize),
 }
 
 /// A screen of its own, switched with `[` / `]` in this order. The help is an overlay on top.
@@ -93,11 +85,11 @@ struct UndoEntry {
 #[derive(Debug)]
 pub struct App {
     running: bool,
-    /// Directory with the sections, `.order` and `.archive/`.
+    /// Directory with the sections, `.markoff` and `.archive/`.
     root: PathBuf,
     pub sections: Vec<Section>,
-    /// `.order` as read with `sections`, the base for the order an action writes.
-    order_file: OrderFile,
+    /// `.markoff` as read with `sections`, the base for the order an action writes.
+    state_file: StateFile,
     /// Index into [`App::rows`].
     pub cursor: usize,
     pub keymap: Keymap,
@@ -108,6 +100,8 @@ pub struct App {
     pub show_help: bool,
     /// `p` hid the preview next to the list.
     pub hide_preview: bool,
+    /// `.` shows the tasks that are not due, see [`Task::due`].
+    pub show_hidden: bool,
     pub page: Page,
     pub archive: ArchivePage,
     editor_request: Option<EditorRequest>,
@@ -119,8 +113,6 @@ pub struct App {
     /// First list line on screen. Kept between frames so the view only scrolls when the
     /// cursor would leave it, see [`ui::render`].
     pub list_offset: usize,
-    /// The tasks of the daily checklist, `None` if the file does not exist.
-    pub daily: Option<Vec<DailyTask>>,
     /// The done tasks, from the archive.
     pub done: history::Archive,
     /// Tasks done per day, from the archive.
@@ -128,30 +120,30 @@ pub struct App {
 }
 
 impl App {
-    /// Without an order file, [`App::load`] reads the real one.
+    /// Without a state file, [`App::load`] reads the real one.
     pub fn new(root: PathBuf, sections: Vec<Section>) -> Self {
-        let order_file = OrderFile {
-            path: root.join(order::FILE),
+        let state_file = StateFile {
+            path: root.join(state::FILE),
             content: None,
         };
         Self {
             running: true,
             root,
             sections,
-            order_file,
+            state_file,
             cursor: 0,
             keymap: Keymap::default(),
             undo: Vec::new(),
             status: None,
             show_help: false,
             hide_preview: false,
+            show_hidden: false,
             page: Page::Todo,
             archive: ArchivePage::default(),
             editor_request: None,
             filter: String::new(),
             filter_input: false,
             list_offset: 0,
-            daily: None,
             done: history::Archive::new(),
             days: history::Days::new(),
         }
@@ -228,8 +220,6 @@ impl App {
         match row {
             Row::Section(s) => self.sections[s].dir.clone(),
             Row::Task(s, t) => self.sections[s].tasks[t].path.clone(),
-            Row::Daily => self.daily_row_path(None),
-            Row::DailyTask(i) => self.daily_row_path(Some(i)),
         }
     }
 
@@ -295,17 +285,6 @@ impl App {
             self.status = Some(Status::Info("clear the filter first (Esc)".to_string()));
             return Ok(());
         }
-        // The header stands for the checklist file, which is the user's: it stays on top and is
-        // never removed. Said, so the key is not taken for broken.
-        if self.selected() == Some(Row::Daily)
-            && matches!(
-                action,
-                Action::MoveDown | Action::MoveUp | Action::Done | Action::Delete
-            )
-        {
-            self.status = Some(Status::Info("not on the daily header".to_string()));
-            return Ok(());
-        }
         // Writing actions see clean names. Not undo: its inverse fits the files as they are.
         if matches!(
             action,
@@ -332,9 +311,8 @@ impl App {
             | Action::JumpSection(_) => {
                 let lines: Vec<cursor::Line> = (self.rows().into_iter())
                     .map(|row| match row {
-                        Row::Section(s) => cursor::Line::Header(Some(s)),
-                        Row::Daily => cursor::Line::Header(None),
-                        Row::Task(..) | Row::DailyTask(_) => cursor::Line::Item,
+                        Row::Section(s) => cursor::Line::Header(s),
+                        Row::Task(..) => cursor::Line::Item,
                     })
                     .collect();
                 self.cursor = cursor::moved(&lines, self.cursor, action);
@@ -347,7 +325,11 @@ impl App {
             Action::Delete => self.delete()?,
             Action::Undo => self.undo()?,
             Action::Help => self.show_help = true,
-            Action::Preview => self.hide_preview = !self.hide_preview,
+            Action::Preview => {
+                self.hide_preview = !self.hide_preview;
+                self.status = Some(preview_status(self.hide_preview));
+            }
+            Action::ShowHidden => self.toggle_hidden(),
             Action::PrevPage | Action::NextPage => {
                 let count = Page::ALL.len();
                 let step = if action == Action::NextPage {
@@ -394,13 +376,13 @@ impl App {
         }
     }
 
-    /// Renames all tasks into shape and cleans the order file with [`edit::normalize`].
+    /// Renames all tasks into shape and cleans the state file with [`edit::normalize`].
     /// Returns the renames.
     ///
     /// Not added to undo: undoing it would only be redone by the next action. The cursor
     /// follows a renamed task.
     fn normalize(&mut self) -> Result<Vec<(PathBuf, PathBuf)>> {
-        let ops = edit::normalize(&self.sections, &self.order_file);
+        let ops = edit::normalize(&self.sections, &self.state_file);
         if ops.is_empty() {
             return Ok(Vec::new());
         }
@@ -440,9 +422,20 @@ impl App {
     fn done(&mut self) -> Result<()> {
         let (s, t) = match self.selected() {
             Some(Row::Task(s, t)) => (s, t),
-            Some(Row::DailyTask(i)) => return self.toggle_daily(i),
             _ => return Ok(()),
         };
+        if self.sections[s].tasks[t].repeat.is_some() {
+            let date = jiff::Zoned::now().date();
+            self.apply(edit::repeat_done(
+                &self.sections,
+                s,
+                t,
+                date,
+                &self.state_file,
+            ))?;
+            self.status = Some(Status::Info("done until next time (u to undo)".to_string()));
+            return Ok(());
+        }
         let date = today();
         let archive_dir = self.root.join(crate::archive::DIR);
         let archive_path = archive_dir.join(&date).with_extension(task::EXTENSION);
@@ -458,7 +451,7 @@ impl App {
             &archive_path,
             existing.as_deref(),
             &date,
-            &self.order_file,
+            &self.state_file,
         );
         self.apply(ops)?;
         self.status = Some(Status::Info("task archived (u to undo)".to_string()));
@@ -468,7 +461,7 @@ impl App {
     /// `J` / `K`: moves the task or section under the cursor one place, the cursor follows.
     /// Nothing happens at the edges.
     fn move_selected(&mut self, down: bool) -> Result<()> {
-        let file = &self.order_file;
+        let file = &self.state_file;
         let (ops, moved_to) = match self.selected() {
             Some(Row::Task(s, t)) => {
                 let Some((to, index)) = self.task_target(s, t, down) else {
@@ -480,8 +473,7 @@ impl App {
                 Some(result) => result,
                 None => return Ok(()),
             },
-            Some(Row::DailyTask(i)) => return self.move_daily(i, down),
-            Some(Row::Daily) | None => return Ok(()),
+            None => return Ok(()),
         };
         self.apply(ops)?;
         self.select_path(&moved_to);
@@ -491,19 +483,45 @@ impl App {
     /// Where `J` / `K` put task `t` of section `s`, as section and index among the other
     /// tasks there. At a section edge it goes into the neighbouring section, first or last.
     /// `None` at the very top or bottom.
+    ///
+    /// Hidden tasks are stepped over, so the task always passes one that can be seen.
     fn task_target(&self, s: usize, t: usize, down: bool) -> Option<(usize, usize)> {
+        let tasks = &self.sections[s].tasks;
+        let shown = |&i: &usize| self.shown(&tasks[i]);
         if down {
-            if t + 1 < self.sections[s].tasks.len() {
-                Some((s, t + 1))
-            } else {
-                (s + 1 < self.sections.len()).then_some((s + 1, 0))
+            match (t + 1..tasks.len()).find(shown) {
+                Some(next) => Some((s, next)),
+                None => (s + 1 < self.sections.len()).then_some((s + 1, 0)),
             }
-        } else if t > 0 {
-            Some((s, t - 1))
         } else {
-            let previous = s.checked_sub(1)?;
-            Some((previous, self.sections[previous].tasks.len()))
+            match (0..t).rev().find(shown) {
+                Some(previous) => Some((s, previous)),
+                None => {
+                    let previous = s.checked_sub(1)?;
+                    Some((previous, self.sections[previous].tasks.len()))
+                }
+            }
         }
+    }
+
+    /// `.`: says what changed, the list alone does not show it when nothing is hidden.
+    fn toggle_hidden(&mut self) {
+        self.show_hidden = !self.show_hidden;
+        let today = jiff::Zoned::now().date();
+        let hidden = (self.sections.iter().flat_map(|section| &section.tasks))
+            .filter(|task| !task.due(today))
+            .count();
+        let message = match (hidden, self.show_hidden) {
+            (0, _) => "no hidden tasks".to_string(),
+            (_, true) => format!("hidden tasks shown ({hidden})"),
+            (_, false) => "hidden tasks hidden".to_string(),
+        };
+        self.status = Some(Status::Info(message));
+    }
+
+    /// Whether `task` is in the list: when it is due, or `.` shows the hidden ones.
+    fn shown(&self, task: &Task) -> bool {
+        self.show_hidden || task.due(jiff::Zoned::now().date())
     }
 
     /// `D`: deletes the task without archiving. Undo brings it back.
@@ -511,11 +529,10 @@ impl App {
         let (s, t) = match self.selected() {
             Some(Row::Task(s, t)) => (s, t),
             Some(Row::Section(s)) => return self.delete_section(s),
-            Some(Row::DailyTask(i)) => return self.delete_daily(i),
-            Some(Row::Daily) | None => return Ok(()),
+            None => return Ok(()),
         };
         // Cursor stays on the same row, which is now the next task (like vim).
-        let ops = edit::delete(&self.sections, s, t, &self.order_file);
+        let ops = edit::delete(&self.sections, s, t, &self.state_file);
         self.apply(ops)?;
         self.status = Some(Status::Info("task deleted (u to undo)".to_string()));
         Ok(())
@@ -529,7 +546,7 @@ impl App {
             return Err(eyre!("{title} is not empty"));
         }
         // Cursor stays on the same row, which is now the next section.
-        let ops = edit::delete_section(&self.sections, s, &self.order_file);
+        let ops = edit::delete_section(&self.sections, s, &self.state_file);
         self.apply(ops)?;
         self.status = Some(Status::Info("section deleted (u to undo)".to_string()));
         Ok(())
@@ -557,8 +574,7 @@ impl App {
     /// Reads the root again and puts the cursor on `select` if it still exists, else keeps the
     /// row number, clamped. The disk is the source of truth, `sections` is only a view of it.
     fn reload(&mut self, select: Option<&Path>) -> Result<()> {
-        (self.sections, self.order_file) = load::load(&self.root)?;
-        self.reload_daily()?;
+        (self.sections, self.state_file) = load::load(&self.root)?;
         self.done = load::archive(&self.root)?;
         self.days = history::days(&self.done);
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
@@ -581,17 +597,18 @@ impl App {
         }
     }
 
-    /// All rows in display order: the daily checklist, then each section header with its tasks.
-    /// A filter keeps matching tasks under their header and hides the rest, daily included.
+    /// All rows in display order: each section header with its tasks. A filter keeps matching
+    /// tasks under their header and hides the rest.
     /// Computed on demand, so it never gets out of sync with `sections`.
     pub fn rows(&self) -> Vec<Row> {
-        let mut rows = self.daily_rows();
+        let mut rows = Vec::new();
         for (s, section) in self.sections.iter().enumerate() {
             let tasks: Vec<Row> = (0..section.tasks.len())
                 .filter(|&t| {
                     let task = &section.tasks[t];
-                    filter::matches(&task.title(), &self.filter)
-                        || filter::matches(&task.body, &self.filter)
+                    self.shown(task)
+                        && (filter::matches(&task.title(), &self.filter)
+                            || filter::matches(&task.body, &self.filter))
                 })
                 .map(|t| Row::Task(s, t))
                 .collect();
@@ -615,7 +632,12 @@ impl App {
     }
 }
 
-/// `YYYY-MM-DD`, for the archive file and the daily marker.
+/// `p` on either page: a task without a body shows no change, so it is said.
+fn preview_status(hidden: bool) -> Status {
+    Status::Info(format!("preview {}", if hidden { "off" } else { "on" }))
+}
+
+/// `YYYY-MM-DD`, for the archive file.
 // TODO: read the clock once into an `App.today` that every `now()` uses, so tests can set a
 // fixed date instead of relying on what holds on any day. Open: does it turn over at midnight in
 // the main loop, and do the workflow tests stay on the real clock.
@@ -640,7 +662,7 @@ pub mod tests {
 
     use super::*;
     use crate::{
-        order::{Group, Order},
+        state::{Group, Item, State},
         task::Task,
     };
 
@@ -660,15 +682,15 @@ pub mod tests {
 
     /// An app on a temp root with the given files, each in a section: `work/a.md`. Paths
     /// ending in `/` become empty sections. Each file gets its name as heading: `a.md` ->
-    /// `# a`. The order file lists everything in the given order.
+    /// `# a`. The state file lists everything in the given order.
     pub(super) fn app_with_files(files: &[&str]) -> (TempDir, App) {
         let dir = TempDir::new().unwrap();
         let root = dir.path();
-        let mut order = Order::default();
+        let mut state = State::default();
         for file in files {
             let (section, name) = file.split_once('/').expect("tasks live in a section");
-            if order.section_position(section).is_none() {
-                order.sections.push(Group {
+            if state.section_position(section).is_none() {
+                state.sections.push(Group {
                     name: section.to_string(),
                     tasks: Vec::new(),
                 });
@@ -681,19 +703,22 @@ pub mod tests {
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             let stem = name.trim_end_matches(".md");
             fs::write(&path, format!("# {stem}")).unwrap();
-            let group = order
+            let group = state
                 .sections
                 .iter_mut()
                 .find(|group| group.name == section);
-            group.unwrap().tasks.push(stem.to_string());
+            group.unwrap().tasks.push(Item {
+                name: stem.to_string(),
+                done: None,
+            });
         }
-        fs::write(root.join(order::FILE), order.format()).unwrap();
+        fs::write(root.join(state::FILE), state.format()).unwrap();
         let app = App::load(root.to_path_buf()).unwrap();
         (dir, app)
     }
 
-    pub(super) fn order_file(dir: &TempDir) -> String {
-        fs::read_to_string(dir.path().join(order::FILE)).unwrap()
+    pub(super) fn state_file(dir: &TempDir) -> String {
+        fs::read_to_string(dir.path().join(state::FILE)).unwrap()
     }
 
     /// File names on disk in row order, sections as `[name]`.
@@ -702,8 +727,6 @@ pub mod tests {
             .into_iter()
             .map(|row| match row {
                 Row::Section(s) => format!("[{}]", app.sections[s].name),
-                Row::Daily => "[daily]".to_string(),
-                Row::DailyTask(i) => app.daily.as_ref().unwrap()[i].title.clone(),
                 Row::Task(s, t) => {
                     let path = &app.sections[s].tasks[t].path;
                     path.file_name().unwrap().to_str().unwrap().to_string()
@@ -779,8 +802,13 @@ pub mod tests {
     #[test]
     fn preview_toggles_on_each_page_of_its_own() {
         let (_dir, mut app) = app_with_files(&["work/a.md"]);
+        let info = |text: &str| Some(Status::Info(text.to_string()));
         app.update(Action::Preview);
         assert!(app.hide_preview);
+        assert_eq!(app.status, info("preview off"), "a.md has no body to hide");
+        app.update(Action::Preview);
+        assert_eq!(app.status, info("preview on"));
+        app.update(Action::Preview);
 
         // On the archive page only in the list, and not the todo list's.
         app.update(Action::NextPage);
@@ -789,6 +817,7 @@ pub mod tests {
         app.update(Action::Focus);
         app.update(Action::Preview);
         assert!(app.archive.hide_preview);
+        assert_eq!(app.status, info("preview off"));
         assert!(app.hide_preview, "the todo list's stays");
     }
 
@@ -812,7 +841,7 @@ pub mod tests {
 
         assert_eq!(listing(&app), ["[work]", "a.md"]);
         assert!(dir.path().join("notes.md").exists(), "never renamed");
-        assert_eq!(order_file(&dir), "# work\na\n");
+        assert_eq!(state_file(&dir), "# work\na\n");
     }
 
     #[test]
@@ -825,11 +854,41 @@ pub mod tests {
         fs::write(work.join("z.md"), "# z").unwrap();
         fs::write(work.join("y.md"), "# y").unwrap();
         fs::remove_file(work.join("a.md")).unwrap();
-        fs::write(dir.path().join(order::FILE), "# work\ny\nz\nb\n").unwrap();
+        fs::write(dir.path().join(state::FILE), "# work\ny\nz\nb\n").unwrap();
         app.reload_keep_selection().unwrap();
 
         assert_eq!(listing(&app), ["[work]", "y.md", "z.md", "b.md"]);
         assert_eq!(app.cursor, 3, "still on b.md");
+    }
+
+    #[test]
+    fn done_dates_go_where_the_task_goes() {
+        let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md", "home/c.md"]);
+        let state = "# work\na 2026-10-01\nb\n\n# home\nc 2026-10-02\n";
+        fs::write(dir.path().join(state::FILE), state).unwrap();
+        app.reload(None).unwrap();
+
+        // Into the next section: the line moves along.
+        app.cursor = 1;
+        app.update(Action::MoveDown);
+        app.update(Action::MoveDown);
+        assert_eq!(
+            state_file(&dir),
+            "# work\nb\n\n# home\na 2026-10-01\nc 2026-10-02\n"
+        );
+
+        // A new title renames the file, the date follows on the next write.
+        fs::write(dir.path().join("home/c.md"), "# d").unwrap();
+        app.reload_keep_selection().unwrap();
+        app.update(Action::MoveDown);
+        assert_eq!(
+            state_file(&dir),
+            "# work\nb\n\n# home\nd 2026-10-02\na 2026-10-01\n"
+        );
+
+        // Deleted, its date goes with it.
+        app.update(Action::Delete);
+        assert_eq!(state_file(&dir), "# work\nb\n\n# home\nd 2026-10-02\n");
     }
 
     #[test]
@@ -855,7 +914,7 @@ pub mod tests {
 
         app.update(Action::Delete);
         assert_eq!(listing(&app), ["[work]", "b.md"]);
-        assert_eq!(order_file(&dir), "# work\nb\n");
+        assert_eq!(state_file(&dir), "# work\nb\n");
         assert_eq!(app.cursor, 1, "cursor moves onto the next task");
         assert_eq!(
             app.status,
@@ -864,7 +923,7 @@ pub mod tests {
 
         app.update(Action::Undo);
         assert_eq!(listing(&app), ["[work]", "a.md", "b.md"]);
-        assert_eq!(order_file(&dir), "# work\na\nb\n");
+        assert_eq!(state_file(&dir), "# work\na\nb\n");
         assert_eq!(app.cursor, 1, "cursor is on the restored task");
 
         app.update(Action::Undo);
@@ -891,7 +950,7 @@ pub mod tests {
         app.update(Action::Delete);
         assert_eq!(listing(&app), ["[work]", "a.md", "[x]", "b.md"]);
         assert!(!dir.path().join("home").exists());
-        assert_eq!(order_file(&dir), "# work\na\n\n# x\nb\n");
+        assert_eq!(state_file(&dir), "# work\na\n\n# x\nb\n");
         assert_eq!(app.selected(), Some(Row::Section(1)));
         assert_eq!(
             app.status,
@@ -1027,7 +1086,7 @@ pub mod tests {
 
     #[test]
     fn startup_normalizes_and_mentions_renames() {
-        // Old numbered names, no order file yet.
+        // Old numbered names, no state file yet.
         let dir = TempDir::new().unwrap();
         let work = dir.path().join("work");
         fs::create_dir_all(dir.path().join("01-home")).unwrap();
@@ -1041,7 +1100,7 @@ pub mod tests {
             listing(&app),
             ["[01-home]", "old-task.md", "[work]", "a.md", "b.md"]
         );
-        assert_eq!(order_file(&dir), "# 01-home\nold-task\n\n# work\na\nb\n");
+        assert_eq!(state_file(&dir), "# 01-home\nold-task\n\n# work\na\nb\n");
         assert_eq!(
             app.status,
             Some(Status::Info(
@@ -1054,7 +1113,7 @@ pub mod tests {
     fn startup_cleans_the_order_file() {
         let (dir, _) = app_with_files(&["work/a.md", "work/b.md", "home/", "x/"]);
         fs::write(
-            dir.path().join(order::FILE),
+            dir.path().join(state::FILE),
             "# x\n# work\ngone\nb\n# gone\n",
         )
         .unwrap();
@@ -1062,7 +1121,7 @@ pub mod tests {
         // Not listed: to the end, by name. Listed but gone: dropped. No rename, no message.
         let app = App::load(dir.path().to_path_buf()).unwrap();
         assert_eq!(listing(&app), ["[x]", "[work]", "b.md", "a.md", "[home]"]);
-        assert_eq!(order_file(&dir), "# x\n\n# work\nb\na\n\n# home\n");
+        assert_eq!(state_file(&dir), "# x\n\n# work\nb\na\n\n# home\n");
         assert_eq!(app.status, None);
     }
 
@@ -1072,7 +1131,7 @@ pub mod tests {
         fs::write(dir.path().join("work/draft.md"), "# New").unwrap();
         app.reload_keep_selection().unwrap();
         assert_eq!(listing(&app), ["[work]", "a.md", "draft.md"]);
-        assert_eq!(order_file(&dir), "# work\na\n");
+        assert_eq!(state_file(&dir), "# work\na\n");
     }
 
     #[test]
@@ -1103,7 +1162,7 @@ pub mod tests {
 
         app.update(Action::MoveDown);
         assert_eq!(listing(&app), ["[work]", "b.md", "a.md", "[home]", "c.md"]);
-        assert_eq!(order_file(&dir), "# work\nb\na\n\n# home\nc\n");
+        assert_eq!(state_file(&dir), "# work\nb\na\n\n# home\nc\n");
         assert_eq!(app.cursor, 2, "cursor follows the task");
 
         app.update(Action::MoveDown);
@@ -1188,7 +1247,7 @@ pub mod tests {
         app.update(Action::MoveDown);
         assert_eq!(listing(&app), ["[home]", "b.md", "[work]", "a.md", "[x]"]);
         assert_eq!(app.cursor, 2, "cursor follows the section");
-        assert_eq!(order_file(&dir), "# home\nb\n\n# work\na\n\n# x\n");
+        assert_eq!(state_file(&dir), "# home\nb\n\n# work\na\n\n# x\n");
 
         app.update(Action::Undo);
         assert_eq!(app.sections[0].name, "work");
@@ -1216,7 +1275,7 @@ pub mod tests {
         );
         assert_eq!(app.done_today(), 2);
         assert_eq!(listing(&app), ["[work]", "[home]"]);
-        assert_eq!(order_file(&dir), "# work\n\n# home\n");
+        assert_eq!(state_file(&dir), "# work\n\n# home\n");
         assert_eq!(
             fs::read_to_string(&archive_path).unwrap(),
             format!("# {today}\n\n## work\n\n### a\n\n## home\n\n### b\n")
@@ -1233,5 +1292,88 @@ pub mod tests {
         app.update(Action::Undo);
         assert_eq!(listing(&app), ["[work]", "a.md", "[home]", "b.md"]);
         assert!(!archive_path.exists());
+    }
+    #[test]
+    fn hidden_tasks_only_with_dot() {
+        let (dir, mut app) = app_with_files(&["work/a.md", "work/water.md", "work/b.md"]);
+        fs::write(dir.path().join("work/water.md"), "# Water `* * *`\n").unwrap();
+        let today = jiff::Zoned::now().date();
+        let state = format!("# work\na\nwater {today}\nb\n");
+        fs::write(dir.path().join(state::FILE), &state).unwrap();
+        app.reload(None).unwrap();
+        assert_eq!(listing(&app), ["[work]", "a.md", "b.md"]);
+
+        // `.` says what it did, the list alone would not when nothing is hidden.
+        let info = |text: &str| Some(Status::Info(text.to_string()));
+        app.update(Action::ShowHidden);
+        assert_eq!(app.status, info("hidden tasks shown (1)"));
+        app.update(Action::ShowHidden);
+        assert_eq!(app.status, info("hidden tasks hidden"));
+        let (_empty_dir, mut empty) = app_with_files(&["work/a.md"]);
+        empty.update(Action::ShowHidden);
+        assert_eq!(empty.status, info("no hidden tasks"));
+
+        // `J` / `K` step over it, so the task visibly moves.
+        app.cursor = 1;
+        app.update(Action::MoveDown);
+        assert_eq!(state_file(&dir), format!("# work\nwater {today}\nb\na\n"));
+        app.update(Action::MoveUp);
+        assert_eq!(state_file(&dir), format!("# work\nwater {today}\na\nb\n"));
+        app.update(Action::Undo);
+        app.update(Action::Undo);
+
+        // The filter does not find it, unless `.` shows it.
+        type_filter(&mut app, "water");
+        assert_eq!(listing(&app), Vec::<String>::new());
+        app.update(Action::ShowHidden);
+        assert_eq!(listing(&app), ["[work]", "water.md"]);
+        app.update(Action::FilterClear);
+        assert_eq!(listing(&app), ["[work]", "a.md", "water.md", "b.md"]);
+
+        // While shown, `J` / `K` take it like any task.
+        app.cursor = 1;
+        app.update(Action::MoveDown);
+        assert_eq!(state_file(&dir), format!("# work\nwater {today}\na\nb\n"));
+        app.update(Action::ShowHidden);
+        assert_eq!(listing(&app), ["[work]", "a.md", "b.md"]);
+    }
+
+    #[test]
+    fn repeating_task_done_until_next_time() {
+        let (dir, mut app) = app_with_files(&["work/a.md", "work/water.md"]);
+        let water = "# Water `* * *`\n";
+        fs::write(dir.path().join("work/water.md"), water).unwrap();
+        app.reload(None).unwrap();
+        let today = jiff::Zoned::now().date();
+
+        // Never done: due.
+        app.cursor = 2;
+        app.update(Action::Done);
+        assert_eq!(
+            app.status,
+            Some(Status::Info("done until next time (u to undo)".to_string()))
+        );
+        // Hidden, the date in the state file, the task and the archive untouched.
+        assert_eq!(listing(&app), ["[work]", "a.md"]);
+        assert_eq!(state_file(&dir), format!("# work\na\nwater {today}\n"));
+        let content = fs::read_to_string(dir.path().join("work/water.md")).unwrap();
+        assert_eq!(content, water);
+        assert!(!dir.path().join(".archive").exists());
+        assert_eq!(app.done_today(), 0, "not in the archive");
+
+        app.update(Action::Undo);
+        assert_eq!(listing(&app), ["[work]", "a.md", "water.md"]);
+        assert_eq!(app.selected(), Some(Row::Task(0, 1)), "back on it");
+        assert_eq!(state_file(&dir), "# work\na\nwater\n");
+
+        // Done yesterday: due again today.
+        let yesterday = today.yesterday().unwrap();
+        fs::write(
+            dir.path().join(state::FILE),
+            format!("# work\na\nwater {yesterday}\n"),
+        )
+        .unwrap();
+        app.reload(None).unwrap();
+        assert_eq!(listing(&app), ["[work]", "a.md", "water.md"]);
     }
 }

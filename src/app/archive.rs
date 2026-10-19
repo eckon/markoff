@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use jiff::{ToSpan, civil::Date};
 
-use super::App;
+use super::{App, preview_status};
 use crate::{cursor, history, keymap::Action};
 
 /// Where the archive page is, kept while switching pages.
@@ -71,6 +71,7 @@ impl App {
             }
             (Action::Preview, Focus::List) => {
                 self.archive.hide_preview = !self.archive.hide_preview;
+                self.status = Some(preview_status(self.archive.hide_preview));
                 return true;
             }
             // Like in the todo list, `h` / `l` do nothing. A section key from the heatmap goes
@@ -80,13 +81,15 @@ impl App {
                 let lines: Vec<cursor::Line> = (self.archive_rows(self.archive.columns))
                     .into_iter()
                     .map(|row| match row {
-                        ArchiveRow::Section(_) => cursor::Line::Header(keys.next()),
+                        ArchiveRow::Section(_) => {
+                            cursor::Line::Header(keys.next().unwrap_or_default())
+                        }
                         ArchiveRow::Task(..) => cursor::Line::Item,
                     })
                     .collect();
                 // Only to a section that is there, otherwise the heatmap keeps the keys.
                 if let Action::JumpSection(s) = action
-                    && !lines.contains(&cursor::Line::Header(Some(s)))
+                    && !lines.contains(&cursor::Line::Header(s))
                 {
                     return true;
                 }

@@ -9,7 +9,7 @@ use ratatui::DefaultTerminal;
 
 use super::{App, Row, Status};
 use crate::{
-    daily, edit, editor,
+    edit, editor,
     task::{HEADING, split_heading},
 };
 
@@ -25,8 +25,6 @@ pub(super) enum EditorRequest {
     CreateSection(usize),
     /// `<CR>` on a section header: rename section `section`.
     RenameSection(usize),
-    /// `o` / `O` on the daily checklist: write a new daily task, inserted at `index`.
-    CreateDaily(usize),
 }
 
 impl App {
@@ -55,11 +53,6 @@ impl App {
                 editor::rename(terminal, &self.root, &draft)
                     .and_then(|content| self.after_rename_section(section, &content))
             }
-            EditorRequest::CreateDaily(index) => {
-                let draft = format!("{HEADING}\n");
-                editor::create(terminal, &self.root, &draft)
-                    .and_then(|content| self.after_create_daily(index, &content))
-            }
         }
     }
 
@@ -71,17 +64,12 @@ impl App {
                 self.editor_request = Some(EditorRequest::Open(path));
             }
             Some(Row::Section(s)) => self.editor_request = Some(EditorRequest::RenameSection(s)),
-            // One file for all daily tasks.
-            Some(Row::Daily | Row::DailyTask(_)) => {
-                let path = self.root.join(daily::FILE);
-                self.editor_request = Some(EditorRequest::Open(path));
-            }
             None => {}
         }
     }
 
     /// `o` / `O`: a new task next to the cursor's task. From a header both put it first in the
-    /// section, so an empty section can get its first task. The same in the daily checklist.
+    /// section, so an empty section can get its first task.
     pub(super) fn new_task(&mut self, below: bool) {
         self.editor_request = match self.selected() {
             Some(Row::Task(section, task)) => Some(EditorRequest::Create {
@@ -89,18 +77,16 @@ impl App {
                 index: task + usize::from(below),
             }),
             Some(Row::Section(section)) => Some(EditorRequest::Create { section, index: 0 }),
-            Some(Row::DailyTask(i)) => Some(EditorRequest::CreateDaily(i + usize::from(below))),
-            Some(Row::Daily) => Some(EditorRequest::CreateDaily(0)),
             None => None,
         };
     }
 
-    /// `N`: a new section after the cursor's section. On top from the daily checklist, or if
-    /// there are no rows at all, so the first section can always be created.
+    /// `N`: a new section after the cursor's section. On top if there are no rows at all, so the
+    /// first section can always be created.
     pub(super) fn new_section(&mut self) {
         let index = match self.selected() {
             Some(Row::Section(section) | Row::Task(section, _)) => section + 1,
-            Some(Row::Daily | Row::DailyTask(_)) | None => 0,
+            None => 0,
         };
         self.editor_request = Some(EditorRequest::CreateSection(index));
     }
@@ -127,7 +113,7 @@ impl App {
             index,
             &title,
             content,
-            &self.order_file,
+            &self.state_file,
         );
         self.apply(ops)
             .map_err(|err| eyre!("task not added: {err}"))?;
@@ -143,7 +129,7 @@ impl App {
         // Normalizing keeps the order of sections, so `index` stays valid.
         self.normalize_before_action();
         let (ops, created) =
-            edit::insert_section(&self.sections, &self.root, index, &slug, &self.order_file);
+            edit::insert_section(&self.sections, &self.root, index, &slug, &self.state_file);
         self.apply(ops)?;
         self.select_path(&created);
         if more {
@@ -172,7 +158,7 @@ impl App {
         self.ensure_no_section(&slug)?;
         // Normalizing keeps the order of sections, so `s` stays valid.
         self.normalize_before_action();
-        let (ops, to) = edit::rename_section(&self.sections, s, &slug, &self.order_file);
+        let (ops, to) = edit::rename_section(&self.sections, s, &slug, &self.state_file);
         self.apply(ops)?;
         self.select_path(&to);
         if more {
@@ -190,12 +176,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        app::{
-            daily::tests::app_with_daily,
-            tests::{app_with_files, listing, order_file},
-        },
+        app::tests::{app_with_files, listing, state_file},
         keymap::Action,
-        order,
+        state,
     };
 
     #[test]
@@ -254,7 +237,7 @@ mod tests {
         app.cursor = 2;
         app.after_create(0, 2, "# New task\n\nnotes\n").unwrap();
         assert_eq!(listing(&app), ["[work]", "a.md", "b.md", "new-task.md"]);
-        assert_eq!(order_file(&dir), "# work\na\nb\nnew-task\n");
+        assert_eq!(state_file(&dir), "# work\na\nb\nnew-task\n");
         assert_eq!(app.cursor, 3, "cursor is on the new task");
 
         app.update(Action::Undo);
@@ -271,13 +254,13 @@ mod tests {
         app.cursor = 1;
         app.after_create(0, 0, "# New").unwrap();
         assert_eq!(listing(&app), ["[work]", "new.md", "a.md", "b.md", "c.md"]);
-        assert_eq!(order_file(&dir), "# work\nnew\na\nb\nc\n");
+        assert_eq!(state_file(&dir), "# work\nnew\na\nb\nc\n");
         assert_eq!(app.cursor, 1, "cursor is on the new task");
 
         // One undo reverts the file and the order.
         app.update(Action::Undo);
         assert_eq!(listing(&app), ["[work]", "a.md", "b.md", "c.md"]);
-        assert_eq!(order_file(&dir), "# work\na\nb\nc\n");
+        assert_eq!(state_file(&dir), "# work\na\nb\nc\n");
     }
 
     #[test]
@@ -295,12 +278,12 @@ mod tests {
         let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
         app.cursor = 1;
         // A sync reorders while the editor is open. That order must not be overwritten.
-        fs::write(dir.path().join(order::FILE), "# work\nb\na\n").unwrap();
+        fs::write(dir.path().join(state::FILE), "# work\nb\na\n").unwrap();
 
         let err = app.after_create(0, 1, "# New").unwrap_err();
         assert!(err.to_string().starts_with("task not added: "), "{err}");
         assert!(!dir.path().join("work/new.md").exists(), "nothing written");
-        assert_eq!(order_file(&dir), "# work\nb\na\n");
+        assert_eq!(state_file(&dir), "# work\nb\na\n");
     }
 
     #[test]
@@ -329,7 +312,7 @@ mod tests {
         app.after_create_section(1, &content).unwrap();
         assert_eq!(listing(&app), ["[work]", "a.md", "[garden]", "[home]"]);
         assert!(dir.path().join("garden").is_dir());
-        assert_eq!(order_file(&dir), "# work\na\n\n# garden\n\n# home\n");
+        assert_eq!(state_file(&dir), "# work\na\n\n# garden\n\n# home\n");
         assert_eq!(app.cursor, 2, "cursor on the new section");
         assert_eq!(
             app.status,
@@ -353,15 +336,15 @@ mod tests {
         app.after_create_section(0, &edit::section_draft("Work"))
             .unwrap();
         assert_eq!(listing(&app), ["[work]"]);
-        assert_eq!(order_file(&dir), "# work\n");
+        assert_eq!(state_file(&dir), "# work\n");
         assert_eq!(app.cursor, 0);
     }
 
     #[test]
     fn new_section_requests_create_after_cursor_section() {
-        let (_dir, mut app) = app_with_daily(&["work/a.md", "home/b.md"], "## Jira\n");
-        // Rows: daily, Jira, work, a, home, b. From the daily checklist on top.
-        for (cursor, index) in [(0, 0), (1, 0), (2, 1), (3, 1), (4, 2), (5, 2)] {
+        let (_dir, mut app) = app_with_files(&["work/a.md", "home/b.md"]);
+        // Rows: work, a, home, b.
+        for (cursor, index) in [(0, 1), (1, 1), (2, 2), (3, 2)] {
             app.cursor = cursor;
             app.update(Action::NewSection);
             assert_eq!(
@@ -398,7 +381,7 @@ mod tests {
         let renamed = format!("{}\nnotes", draft("# Work Stuff"));
         app.after_rename_section(0, &renamed).unwrap();
         assert!(dir.path().join("work-stuff/a.md").exists());
-        assert_eq!(order_file(&dir), "# work-stuff\na\n\n# home\n");
+        assert_eq!(state_file(&dir), "# work-stuff\na\n\n# home\n");
         assert_eq!(
             app.selected(),
             Some(Row::Section(0)),
@@ -428,7 +411,7 @@ mod tests {
 
         assert_eq!(listing(&app), ["[work]", "renamed-task.md", "b.md"]);
         assert_eq!(
-            order_file(&dir),
+            state_file(&dir),
             "# work\nrenamed-task\nb\n",
             "keeps its place"
         );

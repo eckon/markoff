@@ -4,6 +4,10 @@
 
 use std::path::{Path, PathBuf};
 
+use jiff::civil::Date;
+
+use crate::repeat::{self, Repeat};
+
 /// Extension of task files. Archive files and drafts have it too, for markdown highlighting.
 pub const EXTENSION: &str = "md";
 
@@ -14,22 +18,33 @@ pub const HEADING: &str = "# ";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Task {
     pub path: PathBuf,
-    /// Text of the `# Heading`, `None` if the file has none.
+    /// Text of the `# Heading` without a [`Repeat`] rule, `None` if the file has none.
     pub heading: Option<String>,
+    /// The rule at the end of the heading, if it repeats.
+    pub repeat: Option<Repeat>,
     /// Everything after the heading. The whole file if there is no heading.
     pub body: String,
     /// The file exactly as read. Used when the file is removed or written somewhere else.
     pub content: String,
+    /// When it was last done, from the state file, not the task file.
+    pub done: Option<Date>,
 }
 
 impl Task {
     pub fn parse(path: PathBuf, content: &str) -> Self {
         let (heading, body) = split_heading(content);
+        // The rule is no part of the title, so the filename and the list leave it out.
+        let (heading, repeat) = match heading.as_deref().map(repeat::split) {
+            Some((title, repeat)) => (Some(title.to_string()), repeat),
+            None => (None, None),
+        };
         Self {
             path,
             heading,
+            repeat,
             body: body.to_string(),
             content: content.to_string(),
+            done: None,
         }
     }
 
@@ -41,7 +56,13 @@ impl Task {
         }
     }
 
-    /// The filename without `.md`, also its name in the order file.
+    /// A repeating task only while one of its days came, any other task always, see
+    /// [`crate::repeat`]. The rest is hidden.
+    pub fn due(&self, today: Date) -> bool {
+        (self.repeat.as_ref()).is_none_or(|repeat| repeat.due(self.done, today))
+    }
+
+    /// The filename without `.md`, also its name in the state file.
     pub fn stem(&self) -> &str {
         stem(&self.path).unwrap_or_default()
     }
@@ -98,6 +119,17 @@ mod tests {
         assert_eq!(t.heading.as_deref(), Some("Fix login bug"));
         assert_eq!(t.body, "some body\n");
         assert_eq!(t.title(), "Fix login bug");
+    }
+
+    #[test]
+    fn repeat_rule_is_no_part_of_the_title() {
+        let t = task("todo/water.md", "# Water plants `* * mon`\n");
+        assert_eq!(t.title(), "Water plants");
+        assert_eq!(t.repeat.unwrap().rule, "* * mon");
+
+        let t = task("todo/run.md", "# Run `cargo test`\n");
+        assert_eq!(t.title(), "Run `cargo test`", "no rule");
+        assert_eq!(t.repeat, None);
     }
 
     #[test]

@@ -6,8 +6,8 @@ use crate::keymap::Action;
 /// What a row is to the cursor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Line {
-    /// The header of the section with this index, `None` for one without a key (daily).
-    Header(Option<usize>),
+    /// The header of the section with this index.
+    Header(usize),
     Item,
 }
 
@@ -25,7 +25,7 @@ pub fn moved(lines: &[Line], cursor: usize, action: Action) -> usize {
         Action::PrevSection => (0..cursor).rev().find(header).unwrap_or(0),
         Action::NextSection => (cursor + 1..lines.len()).find(header).unwrap_or(cursor),
         // The first item of the section, its header if it has none. Stays if it is not there.
-        Action::JumpSection(s) => match lines.iter().position(|&l| l == Line::Header(Some(s))) {
+        Action::JumpSection(s) => match lines.iter().position(|&l| l == Line::Header(s)) {
             Some(at) => at + usize::from(lines.get(at + 1) == Some(&Line::Item)),
             None => cursor,
         },

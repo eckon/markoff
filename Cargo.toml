@@ -8,6 +8,7 @@ repository = "https://github.com/eckon/markoff"
 
 [dependencies]
 color-eyre = "0.6.5"
+croner = { version = "4.0.1", default-features = false, features = ["jiff"] }
 deunicode = "1.6.2"
 jiff = "0.2.38"
 notify = "8.2.0"

@@ -6,11 +6,11 @@ markoff is a Rust TUI for todos stored as markdown files. This file is the sourc
 
 - Data stays plain markdown, readable and editable without the tool. No database, no hidden metadata.
 - The user picks the root directory, markoff adds no folder of its own. A task is a `.md` file, a section is a directory in the root. Files directly in the root are ignored, every task lives in a section. One level only, hidden files are ignored.
-- Order lives in `.order` in the root, not in the filenames: renumbering prefixes renamed every file below a change, which cluttered git. The disk decides what exists, the file only orders it: unlisted files go to the end, stale names are dropped.
+- Order lives in `.markoff` in the root, not in the filenames: renumbering prefixes renamed every file below a change, which cluttered git. The disk decides what exists, the file only orders it: unlisted files go to the end, stale names are dropped. It also keeps when a repeating task was last done, on the task's line, so checking one off never touches the task file and stays out of git with `.markoff`.
 - The `# Heading` is the task's title, the filename follows it.
-- Normalize (slug, cleaned `.order`) runs at startup and before every write action, never on watcher reloads: renaming a file another editor has open breaks that editor's next save.
+- Normalize (slug, cleaned `.markoff`) runs at startup and before every write action, never on watcher reloads: renaming a file another editor has open breaks that editor's next save.
 - Done tasks go to `.archive/YYYY-MM-DD.md` in the root under their section heading. The header counts today's, so archiving is visible. The archive is a page of its own next to the todo list (`[` / `]`, the help stays an overlay): a heatmap back to the first day, cells growing with age so years fit, and the done tasks of the cell under its cursor. It answers "what did I do lately", searching stays with the editor. Read-only, not even `$EDITOR`. Each page keeps its state and has its own keys and help, keys of the other page do nothing.
-- The daily checklist is an add-on in its own modules (`daily.rs`, `app/daily.rs`, `ui/daily.rs`), only when the root has a `daily.md`. Its keys work like on tasks, except `X`: done for today, the task stays. A key without a meaning there says so in the status line. Kept apart until recurring tasks get a real design.
+- A task repeats with a rule as inline code at the end of its heading, ``# Water plants `* * mon` ``: the day fields of cron (day of month, month, day of week, both day fields have to match), read by croner. Nothing repeats more often than daily. `X` on it keeps the date in `.markoff` instead of archiving, the task hides until a day of the rule comes, a missed day stays due. `.` shows hidden tasks, like hidden files. Hidden tasks are not open, the filter and `list` skip them.
 - Writing text happens in `$EDITOR`, the TUI only has quick actions. Keys are vim-like. Uppercase is a variant of its lowercase key, stronger or turned around (`O` / `o`, `H` / `h`), so the keys stay easy to guess.
 - Every action is one undo step, undo puts the cursor back where it was.
 
@@ -45,7 +45,7 @@ For TUI changes also run the real app in tmux against a scratch root dir (or a c
 ## Code
 
 - The archive page lives in `app/archive.rs` and `ui/archive/`. It shares the cursor moves (`cursor.rs`) and the list renderer (`ui/rows.rs`) with the todo list, so both lists behave alike.
-- Pure logic (`edit.rs`, `archive.rs`, `cursor.rs`, `history.rs`, `name.rs`, `order.rs`) never touches the disk. All writes go through ops in `op.rs`, each with an exact inverse for undo.
+- Pure logic (`edit.rs`, `archive.rs`, `cursor.rs`, `history.rs`, `name.rs`, `state.rs`) never touches the disk. All writes go through ops in `op.rs`, each with an exact inverse for undo.
 - The disk is the source of truth: after a change, reload instead of patching state.
 - `App::update(Action)` never touches the terminal, so it is testable.
 - All keys live in `BINDINGS` (`keymap.rs`), the help overlay reads the same table. Update the README key table with it.
