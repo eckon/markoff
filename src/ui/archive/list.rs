@@ -45,19 +45,17 @@ fn render_rows(
     let sections = app.archive_sections();
     // No cursor while the heatmap has the keys, its blue cell says what the list shows.
     let cursor = (app.archive.focus == Focus::List).then_some(app.archive.cursor);
-    // Keys count the sections shown, the colors stay those of the todo list.
-    let mut keys = 0..;
     let items: Vec<rows::Row> = (rows.iter().enumerate())
         .map(|(i, &row)| {
-            let (ArchiveRow::Section(s) | ArchiveRow::Task(s, ..)) = row;
+            // The colors stay those of the todo list, the keys count the sections shown.
+            let (ArchiveRow::Section(s, _) | ArchiveRow::Task(s, ..)) = row;
             let color = section_color(s);
             let kind = match row {
-                ArchiveRow::Section(s) => {
+                ArchiveRow::Section(s, key) => {
                     let count = rows
                         .iter()
                         .filter(|row| matches!(row, ArchiveRow::Task(task_s, ..) if *task_s == s))
                         .count();
-                    let key = keys.next().unwrap_or_default();
                     let rule = rows::section_rule(
                         key,
                         color,

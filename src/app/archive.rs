@@ -36,8 +36,9 @@ pub enum Focus {
 /// One line in the list of done tasks, grouped like the todo list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArchiveRow {
-    /// Index into [`App::archive_sections`], for its color. Its key counts the sections shown.
-    Section(usize),
+    /// Index into [`App::archive_sections`], for its color, and its key: the position among the
+    /// sections shown.
+    Section(usize, usize),
     /// The section, the day and the task's index in [`App::done`] on that day.
     Task(usize, Date, usize),
 }
@@ -77,13 +78,10 @@ impl App {
             // Like in the todo list, `h` / `l` do nothing. A section key from the heatmap goes
             // to the list, like `Tab` and the jump in one.
             (_, Focus::List) | (Action::JumpSection(_), Focus::Heatmap) => {
-                let mut keys = 0..;
                 let lines: Vec<cursor::Line> = (self.archive_rows(self.archive.columns))
                     .into_iter()
                     .map(|row| match row {
-                        ArchiveRow::Section(_) => {
-                            cursor::Line::Header(keys.next().unwrap_or_default())
-                        }
+                        ArchiveRow::Section(_, key) => cursor::Line::Header(key),
                         ArchiveRow::Task(..) => cursor::Line::Item,
                     })
                     .collect();
@@ -168,6 +166,7 @@ impl App {
             .rev()
             .collect();
         let mut rows = Vec::new();
+        let mut key = 0;
         for (s, name) in self.archive_sections().iter().enumerate() {
             let tasks: Vec<ArchiveRow> = days
                 .iter()
@@ -179,8 +178,9 @@ impl App {
                 })
                 .collect();
             if !tasks.is_empty() {
-                rows.push(ArchiveRow::Section(s));
+                rows.push(ArchiveRow::Section(s, key));
                 rows.extend(tasks);
+                key += 1;
             }
         }
         rows
@@ -282,7 +282,7 @@ mod tests {
         app.update(Action::NextPage);
         // Without tasks `home` is not in the list, the keys count the sections shown.
         let rows = app.archive_rows(app.archive.columns);
-        assert_eq!(rows[2], ArchiveRow::Section(2));
+        assert_eq!(rows[2], ArchiveRow::Section(2, 1));
 
         // A key without a section shown does nothing, the heatmap keeps the keys.
         app.update(Action::JumpSection(2));
