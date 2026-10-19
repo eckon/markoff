@@ -48,6 +48,7 @@ For TUI changes also run the real app in tmux against a scratch root dir (or a c
 - Pure logic (`edit.rs`, `archive.rs`, `cursor.rs`, `history.rs`, `name.rs`, `state.rs`) never touches the disk. All writes go through ops in `op.rs`, each with an exact inverse for undo.
 - The disk is the source of truth: after a change, reload instead of patching state.
 - `App::update(Action)` never touches the terminal, so it is testable.
+- The date comes from `App.today`, read from the clock only in the main loop (and once for a CLI command), so a frame sees one day and tests can set it. Never call `Zoned::now()` elsewhere.
 - All keys live in `BINDINGS` (`keymap.rs`), the help overlay reads the same table. Update the README key table with it.
 - Errors go to the status line, they never end the app.
 - Colors: only the 16 terminal colors, so the look follows the terminal theme.

@@ -36,7 +36,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
     let columns = heatmap::columns(width);
     let lines = match app.days.is_empty() {
         true => vec![Line::from("nothing archived yet".dim())],
-        false => heatmap::lines(&app.days, width, app.archive_day(), heatmap_keys),
+        false => heatmap::lines(&app.days, app.today, width, app.archive_day(), heatmap_keys),
     };
     let height = (lines.len() as u16).min(area.height);
     let heatmap_area = Rect { height, ..area };
@@ -54,8 +54,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
     let (offset, preview) = list::render(app, frame, list_area, columns);
 
     // The cursor's `[` in the first column has no gap before it, it goes into the padding.
-    let today = jiff::Zoned::now().date();
-    let cells = history::columns(&app.days, today, columns);
+    let cells = history::columns(&app.days, app.today, columns);
     if heatmap_keys
         && !app.days.is_empty()
         && let Some((0, row)) = history::find(&cells, app.archive_day())

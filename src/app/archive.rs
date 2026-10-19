@@ -47,7 +47,7 @@ impl App {
     /// The selected day, see [`ArchivePage::day`]. Before the page was opened the last day with
     /// tasks done, so a Monday shows Friday. Today if nothing is done yet.
     pub fn archive_day(&self) -> Date {
-        let today = jiff::Zoned::now().date();
+        let today = self.today;
         self.archive.day.unwrap_or_else(|| {
             // An archive file can be empty, that is no day with tasks done.
             let last = self.days.range(..=today).rfind(|(_, done)| **done > 0);
@@ -105,9 +105,15 @@ impl App {
             (Action::SkipDown, _) => ((0, 1), true),
             _ => return true,
         };
-        let today = jiff::Zoned::now().date();
-        let columns = history::columns(&self.days, today, self.archive.columns);
-        let day = history::step(&columns, &self.days, self.archive_day(), by, skip, today);
+        let columns = history::columns(&self.days, self.today, self.archive.columns);
+        let day = history::step(
+            &columns,
+            &self.days,
+            self.archive_day(),
+            by,
+            skip,
+            self.today,
+        );
         if Some(day) != self.archive.day {
             self.select_day(day);
         }
@@ -147,8 +153,7 @@ impl App {
 
     /// The first day of the selected cell and its days, in a heatmap of `columns` columns.
     pub fn archive_cell(&self, columns: usize) -> (Date, i64) {
-        let today = jiff::Zoned::now().date();
-        let columns = history::columns(&self.days, today, columns);
+        let columns = history::columns(&self.days, self.today, columns);
         let day = self.archive_day();
         match history::find(&columns, day) {
             Some((column, row)) => columns[column].cell(row),
@@ -228,12 +233,11 @@ mod tests {
 
     #[test]
     fn heatmap_moves_by_cell_and_skips_empty_ones() {
-        let today = jiff::Zoned::now().date();
-        // A Wednesday three weeks back, so up and down stay in its column on any weekday. A
-        // short history, every cell is a day.
-        let monday = today - i64::from(today.weekday().to_monday_zero_offset()).days();
-        let day = monday - 19.days();
+        // A Wednesday three weeks back, so up and down stay in its column. A short history,
+        // every cell is a day.
+        let day = jiff::civil::date(2026, 9, 30);
         let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        app.today = jiff::civil::date(2026, 10, 21);
         app.done = [day - 28.days(), day, day + 2.days(), day + 14.days()]
             .map(|day| (day, vec![done("work")]))
             .into();
@@ -265,9 +269,9 @@ mod tests {
         press(Action::SkipLeft, day - 28.days());
         // The first column is the edge, after today there is nothing.
         press(Action::Left, day - 28.days());
-        app.archive.day = Some(today);
+        app.archive.day = Some(app.today);
         app.update(Action::Down);
-        assert_eq!(app.archive_day(), today);
+        assert_eq!(app.archive_day(), app.today);
     }
 
     #[test]

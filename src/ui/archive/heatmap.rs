@@ -34,11 +34,11 @@ fn steps() -> [Span<'static>; 4] {
 /// it is between brackets.
 pub fn lines(
     days: &history::Days,
+    today: Date,
     width: usize,
     selected: Date,
     cursor: bool,
 ) -> Vec<Line<'static>> {
-    let today = jiff::Zoned::now().date();
     let columns = history::columns(days, today, columns(width));
     let selected = history::find(&columns, selected);
     let bracketed = selected.filter(|_| cursor);

@@ -6,6 +6,7 @@
 use std::path::Path;
 
 use color_eyre::{Result, eyre::bail};
+use jiff::civil::Date;
 
 use crate::{
     config::usage_error,
@@ -46,7 +47,7 @@ impl Command {
 /// Runs `command` on the sections in `root` and returns what to print.
 pub fn run(command: Command, root: &Path) -> Result<String> {
     match command {
-        Command::List => Ok(list(&load::load(root)?.0)),
+        Command::List => Ok(list(&load::load(root)?.0, jiff::Zoned::now().date())),
         Command::Add { section, title } => add(root, &section, &title),
     }
 }
@@ -54,8 +55,7 @@ pub fn run(command: Command, root: &Path) -> Result<String> {
 /// Sections as `## name` with their task titles as list items, in the order of the TUI.
 /// Like the TUI without `.`, repeating tasks only while they are due. Read-only, so no
 /// normalize: that would rename files behind an editor.
-pub fn list(sections: &[Section]) -> String {
-    let today = crate::app::today();
+pub fn list(sections: &[Section], today: Date) -> String {
     sections
         .iter()
         .map(|section| {
@@ -160,7 +160,7 @@ mod tests {
             run(Command::List, dir.path()).unwrap(),
             "## work\n- Fix the bug\n- call bob\n\n## home\n"
         );
-        assert_eq!(list(&[]), "");
+        assert_eq!(list(&[], jiff::Zoned::now().date()), "");
 
         // Repeating tasks only while due, like the TUI.
         let root = dir.path();

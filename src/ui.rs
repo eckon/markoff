@@ -14,7 +14,7 @@ mod help;
 mod rows;
 
 use crate::{
-    app::{self, App, Page, Row, Status, archive::ArchiveRow},
+    app::{App, Page, Row, Status, archive::ArchiveRow},
     filter,
     keymap::{Action, BINDINGS, FILTER_INPUT_HINTS},
 };
@@ -53,11 +53,10 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
         Page::Todo => {
             // The tasks in all sections and those archived today, so done tasks don't just
             // vanish.
-            let today = jiff::Zoned::now().strftime("%a %d %b").to_string();
+            let today = app.today.strftime("%a %d %b").to_string();
             // Hidden tasks are not open, even while `.` shows them.
-            let date = app::today();
             let open = (app.sections.iter().flat_map(|section| &section.tasks))
-                .filter(|task| task.due(date))
+                .filter(|task| task.due(app.today))
                 .count();
             let mut count = vec![format!("{open} open · ").dim()];
             count.extend(done_count(app.done_today()));
@@ -312,7 +311,7 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                     // Listed for a match in the body only: weaker, `…` hints at the preview.
                     let body_only = !filter::matches(&title, &app.filter);
                     // Shown by `.` only: weaker too, it is not due.
-                    if body_only || !task.due(app::today()) {
+                    if body_only || !task.due(app.today) {
                         style = style.dim();
                     }
                     let mut spans = highlight(&title, &app.filter, style);

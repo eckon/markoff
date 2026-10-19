@@ -41,7 +41,7 @@ fn render_rows(
     rows: &[ArchiveRow],
     width: usize,
 ) -> usize {
-    let today = jiff::Zoned::now().date();
+    let today = app.today;
     let sections = app.archive_sections();
     // No cursor while the heatmap has the keys, its blue cell says what the list shows.
     let cursor = (app.archive.focus == Focus::List).then_some(app.archive.cursor);

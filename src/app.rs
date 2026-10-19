@@ -11,6 +11,7 @@ use color_eyre::{
     Result,
     eyre::{WrapErr, eyre},
 };
+use jiff::civil::Date;
 use ratatui::{
     DefaultTerminal,
     crossterm::event::{self, Event, KeyCode, KeyEventKind},
@@ -102,6 +103,9 @@ pub struct App {
     pub hide_preview: bool,
     /// `.` shows the tasks that are not due, see [`Task::due`].
     pub show_hidden: bool,
+    /// The local date, read from the clock once per loop so a frame never mixes two days, and
+    /// tests can set it.
+    pub today: Date,
     pub page: Page,
     pub archive: ArchivePage,
     editor_request: Option<EditorRequest>,
@@ -138,6 +142,7 @@ impl App {
             show_help: false,
             hide_preview: false,
             show_hidden: false,
+            today: jiff::Zoned::now().date(),
             page: Page::Todo,
             archive: ArchivePage::default(),
             editor_request: None,
@@ -167,6 +172,12 @@ impl App {
         let mut dirty = true;
 
         while self.running {
+            // At midnight the header, the due tasks and the archive's today move on.
+            let today = jiff::Zoned::now().date();
+            if today != self.today {
+                self.today = today;
+                dirty = true;
+            }
             if dirty {
                 let mut drawn = None;
                 terminal.draw(|frame| drawn = Some(ui::render(&self, frame)))?;
@@ -424,7 +435,7 @@ impl App {
             Some(Row::Task(s, t)) => (s, t),
             _ => return Ok(()),
         };
-        let date = today();
+        let date = self.today;
         if self.sections[s].tasks[t].repeat.is_some() {
             let ops = edit::repeat_done(&self.sections, s, t, date, &self.state_file);
             if self.apply(ops)? {
@@ -503,7 +514,7 @@ impl App {
     /// `.`: says what changed, the list alone does not show it when nothing is hidden.
     fn toggle_hidden(&mut self) {
         self.show_hidden = !self.show_hidden;
-        let date = today();
+        let date = self.today;
         let hidden = (self.sections.iter().flat_map(|section| &section.tasks))
             .filter(|task| !task.due(date))
             .count();
@@ -517,7 +528,7 @@ impl App {
 
     /// Whether `task` is in the list: when it is due, or `.` shows the hidden ones.
     fn shown(&self, task: &Task) -> bool {
-        self.show_hidden || task.due(today())
+        self.show_hidden || task.due(self.today)
     }
 
     /// `D`: deletes the task without archiving. Undo brings it back.
@@ -629,22 +640,13 @@ impl App {
 
     /// Tasks archived today, shown in the header.
     pub fn done_today(&self) -> usize {
-        let today = jiff::Zoned::now().date();
-        self.days.get(&today).copied().unwrap_or(0)
+        self.days.get(&self.today).copied().unwrap_or(0)
     }
 }
 
 /// `p` on either page: a task without a body shows no change, so it is said.
 fn preview_status(hidden: bool) -> Status {
     Status::Info(format!("preview {}", if hidden { "off" } else { "on" }))
-}
-
-/// The local date: the archive's day, and what is due.
-// TODO: read the clock once into an `App.today` that every `now()` uses, so tests can set a
-// fixed date instead of relying on what holds on any day. Open: does it turn over at midnight in
-// the main loop, and do the workflow tests stay on the real clock.
-pub fn today() -> jiff::civil::Date {
-    jiff::Zoned::now().date()
 }
 
 fn renamed_message(count: usize) -> String {
