@@ -105,12 +105,6 @@ Not in this version, the design leaves room for them:
 
 ## Before it is final
 
-- Tests. There are: unit tests for the pure parts (heatmap steps, bodies, relative days, cursor
-  moves via the todo list), the list renderer, the archive preview with its joins, page switching
-  and `p`, which the `filter_and_help` workflow covers on the todo page too. Missing: app tests
-  for the heatmap moves, skipping, focus and section keys, render tests for the cursor brackets
-  and small screens, and the archive part of the workflow scenarios (moving, `Tab`, the list, the
-  preview).
 - This file goes, what is left of it moves to AGENTS.md.
 
 ## After it

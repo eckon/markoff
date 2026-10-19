@@ -195,16 +195,11 @@ mod tests {
     fn first_open_skips_empty_archive_files() {
         let today = jiff::Zoned::now().date();
         let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
-        let done = |title: &str| Done {
-            section: "work".to_string(),
-            title: title.to_string(),
-            body: String::new(),
-        };
         // Far back, where a cell covers several days, the newest file without tasks.
         let day = today - 400.days();
         app.done = [
-            (day - 1.days(), vec![done("Older")]),
-            (day, vec![done("Newest")]),
+            (day - 1.days(), vec![done("work")]),
+            (day, vec![done("work")]),
             (day + 1.days(), Vec::new()),
         ]
         .into();
@@ -217,5 +212,93 @@ mod tests {
         let rows = app.archive_rows(40);
         assert!(app.archive_cell(40).1 > 1);
         assert_eq!(rows[app.archive.cursor], ArchiveRow::Task(0, day, 0));
+    }
+
+    /// A done task in `section`.
+    fn done(section: &str) -> Done {
+        Done {
+            section: section.to_string(),
+            title: String::new(),
+            body: String::new(),
+        }
+    }
+
+    #[test]
+    fn heatmap_moves_by_cell_and_skips_empty_ones() {
+        let today = jiff::Zoned::now().date();
+        // A Wednesday three weeks back, so up and down stay in its column on any weekday. A
+        // short history, every cell is a day.
+        let monday = today - i64::from(today.weekday().to_monday_zero_offset()).days();
+        let day = monday - 19.days();
+        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        app.done = [day - 28.days(), day, day + 2.days(), day + 14.days()]
+            .map(|day| (day, vec![done("work")]))
+            .into();
+        app.days = history::days(&app.done);
+        app.archive.columns = 40;
+        app.update(Action::NextPage);
+        assert_eq!(app.archive_day(), day + 14.days());
+        let mut press = |action, expected: Date| {
+            app.update(action);
+            assert_eq!(app.archive_day(), expected, "{action:?}");
+            // A new cell puts the list on its first task, if it has one.
+            assert_eq!(
+                app.archive.cursor,
+                usize::from(app.days.contains_key(&expected))
+            );
+        };
+
+        // A week to the side, a day up and down, empty cells too.
+        press(Action::Left, day + 7.days());
+        press(Action::Left, day);
+        press(Action::Down, day + 1.days());
+        press(Action::Up, day);
+        // Skipping goes on to the next cell with tasks done that way, stays if there is none.
+        press(Action::SkipDown, day + 2.days());
+        press(Action::SkipUp, day);
+        press(Action::SkipRight, day + 14.days());
+        press(Action::SkipRight, day + 14.days());
+        press(Action::SkipLeft, day);
+        press(Action::SkipLeft, day - 28.days());
+        // The first column is the edge, after today there is nothing.
+        press(Action::Left, day - 28.days());
+        app.archive.day = Some(today);
+        app.update(Action::Down);
+        assert_eq!(app.archive_day(), today);
+    }
+
+    #[test]
+    fn list_takes_the_keys_with_tab_or_a_section_key() {
+        let today = jiff::Zoned::now().date();
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("work", &[]), ("home", &[]), ("misc", &[])]),
+        );
+        app.done = [(today, vec![done("work"), done("misc"), done("misc")])].into();
+        app.days = history::days(&app.done);
+        app.update(Action::NextPage);
+        // Without tasks `home` is not in the list, the keys count the sections shown.
+        let rows = app.archive_rows(app.archive.columns);
+        assert_eq!(rows[2], ArchiveRow::Section(2));
+
+        // A key without a section shown does nothing, the heatmap keeps the keys.
+        app.update(Action::JumpSection(2));
+        assert_eq!((app.archive.focus, app.archive.cursor), (Focus::Heatmap, 1));
+        // `2` goes to `misc`'s first task in the list.
+        app.update(Action::JumpSection(1));
+        assert_eq!((app.archive.focus, app.archive.cursor), (Focus::List, 3));
+        app.update(Action::Down);
+        assert_eq!(app.archive.cursor, 4);
+        // `h` / `l` do nothing in the list, the day stays.
+        app.update(Action::Left);
+        assert_eq!((app.archive_day(), app.archive.cursor), (today, 4));
+
+        // `Tab` gives the keys back and forth, the list cursor stays.
+        app.update(Action::Focus);
+        assert_eq!(app.archive.focus, Focus::Heatmap);
+        app.update(Action::Focus);
+        assert_eq!((app.archive.focus, app.archive.cursor), (Focus::List, 4));
+        app.update(Action::Up);
+        assert_eq!(app.archive.cursor, 3);
     }
 }

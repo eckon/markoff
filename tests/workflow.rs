@@ -428,7 +428,7 @@ fn filter_and_help() {
 fn archive() {
     let today = jiff::Zoned::now().date();
     let earlier = today.saturating_sub(jiff::Span::new().days(10));
-    let archive = format!("# {earlier}\n\n## work\n\n### Old one\n\n### Old two\n");
+    let archive = format!("# {earlier}\n\n## work\n\n### Old one\n\nold notes\n\n### Old two\n");
     let mut app = Markoff::start_with(&[
         ("work/fix-bug.md", "# Fix bug\n"),
         (&format!(".archive/{earlier}.md"), &archive),
@@ -446,6 +446,18 @@ fn archive() {
         "{}",
         app.screen()
     );
+
+    // `Tab` gives the keys to the list, its task shows its body next to it. `p` hides it, so
+    // does `Tab` back to the heatmap.
+    app.press("\tj");
+    app.wait_for("│ old notes");
+    app.press("p");
+    app.wait_for(&"─".repeat(80));
+    assert!(!app.screen().contains("old notes"), "{}", app.screen());
+    app.press("p");
+    app.wait_for("│ old notes");
+    app.press("\t");
+    app.wait_for(&"─".repeat(80));
 
     // Todo keys do nothing on it, `[` goes back to the list.
     app.press("X[");

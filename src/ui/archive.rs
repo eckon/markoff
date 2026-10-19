@@ -237,19 +237,39 @@ mod tests {
     }
 
     #[test]
-    fn narrow_screen_cuts_the_table_off() {
+    fn small_screens_still_show_the_heatmap() {
         let today = jiff::Zoned::now().date();
         let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
         app.days = [(today, 3)].into();
         app.update(Action::NextPage);
-        let mut terminal = Terminal::new(TestBackend::new(30, 30)).unwrap();
-        terminal
-            .draw(|frame| {
-                render(&app, frame);
-            })
-            .unwrap();
-        let screen = format!("{:?}", terminal.backend().buffer());
-        assert!(screen.contains("daily"), "{screen}");
+        for (width, height) in [(30, 30), (80, 12), (80, 6)] {
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| {
+                    render(&app, frame);
+                })
+                .unwrap();
+            let screen = format!("{:?}", terminal.backend().buffer());
+            assert!(screen.contains("daily"), "{screen}");
+        }
+    }
+
+    #[test]
+    fn cursor_in_the_first_column_puts_its_bracket_in_the_padding() {
+        let today = jiff::Zoned::now().date();
+        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        let first = today - 30.days();
+        app.days = [(first, 1)].into();
+        app.update(Action::NextPage);
+        app.archive.day = Some(first);
+
+        let screen = lines_80(&app, 24);
+        let row = 3 + first.weekday().to_monday_zero_offset() as usize;
+        let start: String = screen[row].chars().take(4).collect();
+        assert!(
+            start.starts_with(" [") && start.ends_with(']'),
+            "{screen:#?}"
+        );
     }
 
     #[test]
