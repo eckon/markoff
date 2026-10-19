@@ -295,6 +295,17 @@ impl App {
             self.status = Some(Status::Info("clear the filter first (Esc)".to_string()));
             return Ok(());
         }
+        // The header stands for the checklist file, which is the user's: it stays on top and is
+        // never removed. Said, so the key is not taken for broken.
+        if self.selected() == Some(Row::Daily)
+            && matches!(
+                action,
+                Action::MoveDown | Action::MoveUp | Action::Done | Action::Delete
+            )
+        {
+            self.status = Some(Status::Info("not on the daily header".to_string()));
+            return Ok(());
+        }
         // Writing actions see clean names. Not undo: its inverse fits the files as they are.
         if matches!(
             action,
@@ -469,7 +480,8 @@ impl App {
                 Some(result) => result,
                 None => return Ok(()),
             },
-            Some(Row::Daily | Row::DailyTask(_)) | None => return Ok(()),
+            Some(Row::DailyTask(i)) => return self.move_daily(i, down),
+            Some(Row::Daily) | None => return Ok(()),
         };
         self.apply(ops)?;
         self.select_path(&moved_to);
@@ -499,7 +511,8 @@ impl App {
         let (s, t) = match self.selected() {
             Some(Row::Task(s, t)) => (s, t),
             Some(Row::Section(s)) => return self.delete_section(s),
-            Some(Row::Daily | Row::DailyTask(_)) | None => return Ok(()),
+            Some(Row::DailyTask(i)) => return self.delete_daily(i),
+            Some(Row::Daily) | None => return Ok(()),
         };
         // Cursor stays on the same row, which is now the next task (like vim).
         let ops = edit::delete(&self.sections, s, t, &self.order_file);

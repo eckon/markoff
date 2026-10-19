@@ -9,7 +9,7 @@ use ratatui::DefaultTerminal;
 
 use super::{App, Row, Status};
 use crate::{
-    edit, editor,
+    daily, edit, editor,
     task::{HEADING, split_heading},
 };
 
@@ -25,6 +25,8 @@ pub(super) enum EditorRequest {
     CreateSection(usize),
     /// `<CR>` on a section header: rename section `section`.
     RenameSection(usize),
+    /// `o` / `O` on the daily checklist: write a new daily task, inserted at `index`.
+    CreateDaily(usize),
 }
 
 impl App {
@@ -53,6 +55,11 @@ impl App {
                 editor::rename(terminal, &self.root, &draft)
                     .and_then(|content| self.after_rename_section(section, &content))
             }
+            EditorRequest::CreateDaily(index) => {
+                let draft = format!("{HEADING}\n");
+                editor::create(terminal, &self.root, &draft)
+                    .and_then(|content| self.after_create_daily(index, &content))
+            }
         }
     }
 
@@ -64,22 +71,28 @@ impl App {
                 self.editor_request = Some(EditorRequest::Open(path));
             }
             Some(Row::Section(s)) => self.editor_request = Some(EditorRequest::RenameSection(s)),
-            // `daily.md` is edited by hand.
-            Some(Row::Daily | Row::DailyTask(_)) | None => {}
+            // One file for all daily tasks.
+            Some(Row::Daily | Row::DailyTask(_)) => {
+                let path = self.root.join(daily::FILE);
+                self.editor_request = Some(EditorRequest::Open(path));
+            }
+            None => {}
         }
     }
 
     /// `o` / `O`: a new task next to the cursor's task. From a header both put it first in the
-    /// section, so an empty section can get its first task.
+    /// section, so an empty section can get its first task. The same in the daily checklist.
     pub(super) fn new_task(&mut self, below: bool) {
-        let target = match self.selected() {
-            Some(Row::Task(section, task)) => Some((section, task + usize::from(below))),
-            Some(Row::Section(section)) => Some((section, 0)),
-            _ => None,
+        self.editor_request = match self.selected() {
+            Some(Row::Task(section, task)) => Some(EditorRequest::Create {
+                section,
+                index: task + usize::from(below),
+            }),
+            Some(Row::Section(section)) => Some(EditorRequest::Create { section, index: 0 }),
+            Some(Row::DailyTask(i)) => Some(EditorRequest::CreateDaily(i + usize::from(below))),
+            Some(Row::Daily) => Some(EditorRequest::CreateDaily(0)),
+            None => None,
         };
-        if let Some((section, index)) = target {
-            self.editor_request = Some(EditorRequest::Create { section, index });
-        }
     }
 
     /// `N`: a new section after the cursor's section. On top from the daily checklist, or if

@@ -11,13 +11,14 @@ use ratatui::{
 use super::{LINE_COLOR, rule, section_color};
 use crate::{
     app::Page,
-    keymap::{BINDINGS, Binding},
+    keymap::{Action, BINDINGS, Binding},
 };
 
 /// A panel on the right listing the [`BINDINGS`] of `page`, so it always matches the real keys.
 /// Groups as rules like the sections in the list, dots lead from the keys to what they do. The
-/// rest is dimmed behind it, the status line stays as it is.
-pub fn render(frame: &mut Frame, page: Page) {
+/// rest is dimmed behind it, the status line stays as it is. With a daily checklist, `X` also
+/// says what it does there, the only key that works differently on it.
+pub fn render(frame: &mut Frame, page: Page, daily: bool) {
     let bindings: Vec<&Binding> = BINDINGS
         .iter()
         .filter(|binding| binding.pages.contains(&page))
@@ -41,7 +42,14 @@ pub fn render(frame: &mut Frame, page: Page) {
             }
             let dots = "·".repeat(label_width + 2 - label(binding).chars().count());
             line.push(format!(" {dots} ").fg(LINE_COLOR));
-            line.push(binding.help.into());
+            let done = binding
+                .keys
+                .iter()
+                .any(|(_, action)| *action == Action::Done);
+            line.push(match daily && done {
+                true => "done (archive, daily: for today)".into(),
+                false => binding.help.into(),
+            });
             Line::from(line)
         })
         .collect();
@@ -116,6 +124,7 @@ mod tests {
             "j / k ···· down / up",
             "o / O ···· new task below / above",
             "D ········ delete",
+            "X ········ done (archive)",
             "q / C-c ·· quit",
             "── other ──",
         ] {
@@ -135,5 +144,15 @@ mod tests {
         // The list behind the panel is dimmed, the status line is not.
         assert!(modifier("home", 0).contains(Modifier::DIM));
         assert_eq!(modifier("? toggle help", 0), Modifier::BOLD);
+
+        // Only with a daily checklist, `X` says what it does there.
+        let mut daily = App::new(PathBuf::new(), sections(&[("home", &[])]));
+        daily.daily = Some(Vec::new());
+        daily.update(Action::Help);
+        terminal.draw(|frame| _ = render(&daily, frame)).unwrap();
+        let daily_screen: String = (terminal.backend().buffer().content().iter())
+            .map(|c| c.symbol())
+            .collect();
+        assert!(daily_screen.contains("X ········ done (archive, daily: for today)"));
     }
 }

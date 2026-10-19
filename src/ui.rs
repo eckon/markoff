@@ -82,7 +82,7 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
         }
     }
     if app.show_help {
-        help::render(frame, app.page);
+        help::render(frame, app.page, app.daily.is_some());
     }
     drawn
 }

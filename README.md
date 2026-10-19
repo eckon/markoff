@@ -149,7 +149,7 @@ A checklist that starts fresh every day, shown above the sections when the root 
 https://intranet/menu
 ```
 
-Each `##` heading is a task. `X` marks it done for today by adding the `[done <date>]` marker, nothing is archived.
+Each `##` heading is a task. The keys work like on the sections: `J` / `K` move a task within the checklist, `o` / `O` add one, `D` deletes it, `<CR>` opens `daily.md`. Only `X` differs: it marks the task done for today by adding the `[done <date>]` marker, nothing is archived.
 
 ## Development
 
