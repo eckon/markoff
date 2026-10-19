@@ -74,18 +74,6 @@ the archive by text is not the goal, the editor does that.
   the list with its preview (`list_with_preview` in `ui.rs`). Rows are built per page, writing
   actions and what the cursor follows (file path or position) stay per page.
 
-## Open points
-
-1. **Header length.** The page keys made the header longer, at 80 columns the todo preview's
-   divider no longer joins it (`┬`), the date is in the way.
-2. **Uppercase keys.** AGENTS.md says destructive keys are uppercase. On the read-only archive
-   page `H` / `J` / `K` / `L` are not destructive, and `J` / `K` mean something else than on the
-   todo page (move a task). Fine for a read-only page, but the rule in AGENTS.md should say so
-   when this file goes.
-3. **Body parsing.** A `# ` heading in a task body becomes `### ` in the archive, so it shows up
-   as a task of its own and cuts the body there. It counted as a task before too. Fixing it means
-   changing how tasks are archived.
-
 ## Later
 
 Not in this version, the design leaves room for them:
