@@ -14,7 +14,7 @@ mod help;
 mod rows;
 
 use crate::{
-    app::{App, Page, Row, Status, archive::ArchiveRow},
+    app::{self, App, Page, Row, Status, archive::ArchiveRow},
     filter,
     keymap::{Action, BINDINGS, FILTER_INPUT_HINTS},
 };
@@ -55,7 +55,7 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
             // vanish.
             let today = jiff::Zoned::now().strftime("%a %d %b").to_string();
             // Hidden tasks are not open, even while `.` shows them.
-            let date = jiff::Zoned::now().date();
+            let date = app::today();
             let open = (app.sections.iter().flat_map(|section| &section.tasks))
                 .filter(|task| task.due(date))
                 .count();
@@ -284,15 +284,8 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
     let rows = app.rows();
     let items: Vec<rows::Row> = (rows.iter().enumerate())
         .map(|(i, &row)| {
-            let is_cursor = i == app.cursor;
-            let color = match row {
-                Row::Section(s) | Row::Task(s, _) => section_color(s),
-            };
-            let task_style = if is_cursor {
-                Style::new().fg(color)
-            } else {
-                Style::new()
-            };
+            let (Row::Section(s) | Row::Task(s, _)) = row;
+            let color = section_color(s);
             let kind = match row {
                 Row::Section(s) => {
                     // Only the shown tasks, so with a filter it says how many match.
@@ -312,11 +305,14 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                 Row::Task(s, t) => {
                     let task = &app.sections[s].tasks[t];
                     let title = task.title();
-                    let mut style = task_style;
+                    let mut style = match i == app.cursor {
+                        true => Style::new().fg(color),
+                        false => Style::new(),
+                    };
                     // Listed for a match in the body only: weaker, `…` hints at the preview.
                     let body_only = !filter::matches(&title, &app.filter);
                     // Shown by `.` only: weaker too, it is not due.
-                    if body_only || !task.due(jiff::Zoned::now().date()) {
+                    if body_only || !task.due(app::today()) {
                         style = style.dim();
                     }
                     let mut spans = highlight(&title, &app.filter, style);

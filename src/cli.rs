@@ -55,7 +55,7 @@ pub fn run(command: Command, root: &Path) -> Result<String> {
 /// Like the TUI without `.`, repeating tasks only while they are due. Read-only, so no
 /// normalize: that would rename files behind an editor.
 pub fn list(sections: &[Section]) -> String {
-    let today = jiff::Zoned::now().date();
+    let today = crate::app::today();
     sections
         .iter()
         .map(|section| {

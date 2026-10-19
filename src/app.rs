@@ -424,15 +424,15 @@ impl App {
             Some(Row::Task(s, t)) => (s, t),
             _ => return Ok(()),
         };
+        let date = today();
         if self.sections[s].tasks[t].repeat.is_some() {
-            let date = jiff::Zoned::now().date();
             let ops = edit::repeat_done(&self.sections, s, t, date, &self.state_file);
             if self.apply(ops)? {
                 self.status = Some(Status::Info("done until next time (u to undo)".to_string()));
             }
             return Ok(());
         }
-        let date = today();
+        let date = date.to_string();
         let archive_dir = self.root.join(crate::archive::DIR);
         let archive_path = archive_dir.join(&date).with_extension(task::EXTENSION);
         // Not an op: an empty `.archive/` left behind by undo does no harm.
@@ -503,9 +503,9 @@ impl App {
     /// `.`: says what changed, the list alone does not show it when nothing is hidden.
     fn toggle_hidden(&mut self) {
         self.show_hidden = !self.show_hidden;
-        let today = jiff::Zoned::now().date();
+        let date = today();
         let hidden = (self.sections.iter().flat_map(|section| &section.tasks))
-            .filter(|task| !task.due(today))
+            .filter(|task| !task.due(date))
             .count();
         let message = match (hidden, self.show_hidden) {
             (0, _) => "no hidden tasks".to_string(),
@@ -517,7 +517,7 @@ impl App {
 
     /// Whether `task` is in the list: when it is due, or `.` shows the hidden ones.
     fn shown(&self, task: &Task) -> bool {
-        self.show_hidden || task.due(jiff::Zoned::now().date())
+        self.show_hidden || task.due(today())
     }
 
     /// `D`: deletes the task without archiving. Undo brings it back.
@@ -639,12 +639,12 @@ fn preview_status(hidden: bool) -> Status {
     Status::Info(format!("preview {}", if hidden { "off" } else { "on" }))
 }
 
-/// `YYYY-MM-DD`, for the archive file.
+/// The local date: the archive's day, and what is due.
 // TODO: read the clock once into an `App.today` that every `now()` uses, so tests can set a
 // fixed date instead of relying on what holds on any day. Open: does it turn over at midnight in
 // the main loop, and do the workflow tests stay on the real clock.
-pub fn today() -> String {
-    jiff::Zoned::now().date().to_string()
+pub fn today() -> jiff::civil::Date {
+    jiff::Zoned::now().date()
 }
 
 fn renamed_message(count: usize) -> String {
@@ -1112,7 +1112,7 @@ pub mod tests {
     }
 
     #[test]
-    fn startup_cleans_the_order_file() {
+    fn startup_cleans_the_state_file() {
         let (dir, _) = app_with_files(&["work/a.md", "work/b.md", "home/", "x/"]);
         fs::write(
             dir.path().join(state::FILE),

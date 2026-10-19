@@ -71,14 +71,12 @@ impl App {
     /// `o` / `O`: a new task next to the cursor's task. From a header both put it first in the
     /// section, so an empty section can get its first task.
     pub(super) fn new_task(&mut self, below: bool) {
-        self.editor_request = match self.selected() {
-            Some(Row::Task(section, task)) => Some(EditorRequest::Create {
-                section,
-                index: task + usize::from(below),
-            }),
-            Some(Row::Section(section)) => Some(EditorRequest::Create { section, index: 0 }),
-            None => None,
+        let (section, index) = match self.selected() {
+            Some(Row::Task(section, task)) => (section, task + usize::from(below)),
+            Some(Row::Section(section)) => (section, 0),
+            None => return,
         };
+        self.editor_request = Some(EditorRequest::Create { section, index });
     }
 
     /// `N`: a new section after the cursor's section. On top if there are no rows at all, so the

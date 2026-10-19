@@ -4,7 +4,7 @@ markoff is a Rust TUI for todos stored as markdown files. This file is the sourc
 
 ## Design
 
-- Data stays plain markdown, readable and editable without the tool. No database, no hidden metadata.
+- Data stays plain markdown, readable and editable without the tool. No database, no hidden metadata in the tasks: markoff's own state is plain text in `.markoff`.
 - The user picks the root directory, markoff adds no folder of its own. A task is a `.md` file, a section is a directory in the root. Files directly in the root are ignored, every task lives in a section. One level only, hidden files are ignored.
 - Order lives in `.markoff` in the root, not in the filenames: renumbering prefixes renamed every file below a change, which cluttered git. The disk decides what exists, the file only orders it: unlisted files go to the end, stale names are dropped. It also keeps when a repeating task was last done, on the task's line, so checking one off never touches the task file and stays out of git with `.markoff`.
 - The `# Heading` is the task's title, the filename follows it.

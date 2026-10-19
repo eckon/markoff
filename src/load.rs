@@ -205,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn sections_and_tasks_in_order_file_order() {
+    fn sections_and_tasks_in_state_file_order() {
         let dir = fixture(&[
             (
                 ".markoff",
@@ -244,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn without_order_file_by_name() {
+    fn without_state_file_by_name() {
         // Old numbered names keep their order this way until they are renamed.
         let dir = fixture(&[("work/02-b.md", ""), ("work/01-a.md", ""), ("01-home/", "")]);
         let (sections, _) = load(dir.path()).unwrap();

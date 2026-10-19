@@ -47,16 +47,12 @@ impl Item {
     /// Names are slugs without spaces, so a date after the last space can only be the date.
     /// Anything else is all name and matches no file.
     fn parse(line: &str) -> Self {
-        let date = line.rsplit_once(' ');
-        match date.and_then(|(name, date)| Some((name, date.parse().ok()?))) {
-            Some((name, done)) => Self {
-                name: name.trim_end().to_string(),
-                done: Some(done),
-            },
-            None => Self {
-                name: line.to_string(),
-                done: None,
-            },
+        let dated = (line.rsplit_once(' '))
+            .and_then(|(name, date)| Some((name.trim_end(), date.parse().ok()?)));
+        let (name, done) = dated.map_or((line, None), |(name, date)| (name, Some(date)));
+        Self {
+            name: name.to_string(),
+            done,
         }
     }
 }
