@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0](https://github.com/eckon/markoff/compare/v0.3.0...v0.4.0) - 2026-10-20
+
+### Added
+
+- *(tui)* add archive view
+- *(tui)* align footer with header
+- define toml standards and move dir to general section
+- align daily workflow with general todo workflow
+- implement generic repeating tasks
+- add current selection color
+- use tab to switch tab and cr/esc to go into archive details
+- make repeating tasks visually different
+- keep preview and wrap all lines at all time
+- align daily hint with date hint of archive
+- add dots to make additional data more visible
+
+### Fixed
+
+- hardcode daily file
+- align daily header
+- ignore empty operations
+- use key color for all key hints
+- use bold white for key hints
+- remove c-u c-d duplicates
+- keep cursor in selection after deletion/archiving
+
 ## [0.3.0](https://github.com/eckon/markoff/compare/v0.2.0...v0.3.0) - 2026-10-18
 
 ### Added
