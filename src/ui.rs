@@ -89,15 +89,15 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
     drawn
 }
 
-/// The list, and the preview of a task with a body next to it. Returns the list's offset and
-/// the column of the preview's divider.
+/// The list, and the preview of the task at the cursor next to it unless `p` hid it. Returns
+/// the list's offset and the column of the preview's divider.
 fn render_todo(app: &App, frame: &mut Frame, main_area: Rect) -> (usize, Option<u16>) {
-    // The preview only shows up for a task with a body and unless `p` hid it, otherwise the list
-    // takes all the width.
     let body = match app.selected() {
         _ if app.hide_preview => None,
         Some(Row::Task(s, t)) => Some(app.sections[s].tasks[t].body.as_str()),
-        _ => None,
+        Some(Row::Section(_)) => Some(""),
+        // Nothing to preview without rows, the note about it gets the width.
+        None => None,
     };
     let (offset, preview) =
         list_with_preview(frame, main_area, body, &app.filter, |frame, area, width| {
@@ -106,10 +106,10 @@ fn render_todo(app: &App, frame: &mut Frame, main_area: Rect) -> (usize, Option<
     (offset, preview.map(|preview| preview.x))
 }
 
-/// A list in `area` drawn by `list`, and next to it the preview of `body` if it has text, with
-/// the matches of `filter`. Without one the list takes all the width, but its rules keep the
-/// split width, so they don't jump while moving between tasks with and without a body. Returns
-/// the list's offset and where the preview went.
+/// A list in `area` drawn by `list`, and next to it the preview of `body` with the matches of
+/// `filter`, also when it is empty: the list keeps its width while moving, so wrapped titles
+/// stay put. Without a preview (`None`) the list takes all the width, its rules keep the split
+/// width. Returns the list's offset and where the preview went.
 fn list_with_preview(
     frame: &mut Frame,
     area: Rect,
@@ -121,11 +121,11 @@ fn list_with_preview(
         Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).areas(area);
     let rule_width = rows::block().inner(list_area).width as usize;
     match body {
-        Some(body) if !body.trim().is_empty() => {
+        Some(body) => {
             render_preview(frame, preview_area, body, filter);
             (list(frame, list_area, rule_width), Some(preview_area))
         }
-        _ => (list(frame, area, rule_width), None),
+        None => (list(frame, area, rule_width), None),
     }
 }
 
@@ -383,10 +383,13 @@ fn rule(
     spans
 }
 
-/// Task body as raw text, read only, with the matches of `filter`. No title, the cursor row in
-/// the list shows it in full. The todo list and the archive page.
+/// Task body as raw text, read only, with the matches of `filter`. No title, the list shows it
+/// in full. The todo list and the archive page.
 fn render_preview(frame: &mut Frame, area: Rect, body: &str, filter: &str) {
-    let text = body_text(body, filter);
+    let text = match body.trim().is_empty() {
+        true => Text::from("no notes".dim()),
+        false => body_text(body, filter),
+    };
 
     // No box, a divider on the left.
     let divider = Block::new()
@@ -481,9 +484,10 @@ mod tests {
     }
 
     #[test]
-    fn long_titles_cut_and_wrap_at_the_cursor() {
+    fn long_titles_wrap_with_and_without_the_cursor() {
         let long = "Write the long report about every open question";
         let mut app = App::new(PathBuf::new(), sections(&[("home", &[long, long])]));
+        app.hide_preview = true;
 
         app.update(Action::Down);
         let lines = draw(&mut app);
@@ -495,8 +499,9 @@ mod tests {
         assert_eq!(lines[4].trim_end(), " ▌     question");
         assert_eq!(
             lines[5].trim_end(),
-            "     • Write the long report about every open q…"
+            "     • Write the long report about every open"
         );
+        assert_eq!(lines[6].trim_end(), "       question");
     }
 
     #[test]
@@ -561,8 +566,13 @@ mod tests {
         assert_eq!(column(&lines[7], '│'), Some(divider), "{lines:#?}");
         assert_eq!(column(&lines[8], '┴'), Some(divider), "{lines:#?}");
 
-        // Without a preview the header and the rule are plain lines.
+        // On a task without a body the preview stays, the list keeps its width.
         app.update(Action::Down);
+        let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
+        assert_eq!(column(&lines[2], '│'), Some(divider), "{lines:#?}");
+
+        // Without a preview the header and the rule are plain lines.
+        app.update(Action::Preview);
         let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
         assert!(!lines[0].contains('┬'), "{lines:#?}");
         assert_eq!(lines[1].trim(), "");
@@ -638,6 +648,7 @@ mod tests {
             sections(&[("home", &["Fix typo"]), ("work", &["Review", "Deploy"])]),
         );
         app.days = [(jiff::Zoned::now().date(), 2)].into();
+        app.hide_preview = true;
         // Wider than the others, the pages take room.
         let mut terminal = Terminal::new(TestBackend::new(60, 9)).unwrap();
         terminal
@@ -673,6 +684,7 @@ mod tests {
             sections(&[("home", &["Water `* * mon-fri`", "Dust `* * *`", "Fix typo"])]),
         );
         app.sections[0].tasks[1].done = Some(jiff::Zoned::now().date());
+        app.hide_preview = true;
         let mut terminal = Terminal::new(TestBackend::new(60, 9)).unwrap();
         terminal.draw(|frame| _ = render(&app, frame)).unwrap();
         let lines: Vec<String> = (terminal.backend().buffer().content())
@@ -739,6 +751,7 @@ mod tests {
             sections(&[("home", &["Fix typo", "Buy milk"]), ("work", &["Review"])]),
         );
         app.sections[1].tasks[0].body = "fix it".to_string();
+        app.hide_preview = true;
         app.update(Action::Filter);
         for c in "fix".chars() {
             app.update(Action::FilterType(c));
@@ -781,15 +794,19 @@ mod tests {
     }
 
     #[test]
-    fn preview_hidden_for_empty_task_and_section() {
+    fn preview_without_a_body_says_so() {
         let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
         app.sections[0].tasks[0].body = "\n  \n".to_string();
 
         // On the section header, then on the task with a blank body.
         for _ in 0..2 {
             let screen = screen(&app);
-            assert!(!screen.contains('│'), "preview shown in\n{screen}");
+            assert!(screen.contains("│ no notes"), "{screen}");
             app.update(Action::Down);
         }
+
+        // Without rows the note gets all the width.
+        let app = App::new(PathBuf::new(), sections(&[]));
+        assert!(!screen(&app).contains('│'));
     }
 }

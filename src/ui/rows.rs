@@ -24,7 +24,7 @@ pub enum Kind {
     /// All of the line after the gutter: a section rule. A blank line goes
     /// before it, except at the top.
     Header(Vec<Span<'static>>),
-    /// A task's title, cut to one line, wrapped at the cursor. What goes on the right edge of
+    /// A task's title, wrapped to as many lines as it needs. What goes on the right edge of
     /// its first line, like the day a task was done. Whether it repeats, its bullet is `⟳` then.
     Task(Vec<Span<'static>>, Option<Span<'static>>, bool),
 }
@@ -89,12 +89,8 @@ pub fn render(
         };
         let right_width = right.as_ref().map_or(0, |right| right.width() + 1);
         let title_width = width.saturating_sub(Line::from(prefix(true)).width() + right_width);
-        let title_lines = if is_cursor {
-            wrap(title, title_width)
-        } else {
-            vec![truncate(title, title_width)]
-        };
-        let lines: Vec<Line> = title_lines
+        // Every title wrapped, not only the cursor's, so moving never shifts the rows below.
+        let lines: Vec<Line> = wrap(title, title_width)
             .into_iter()
             .enumerate()
             .map(|(n, title)| {
@@ -173,17 +169,6 @@ fn chars(spans: Vec<Span<'static>>) -> Vec<(char, Style)> {
         .iter()
         .flat_map(|span| span.content.chars().map(|c| (c, span.style)))
         .collect()
-}
-
-/// One line of `width`, ending in `…` when cut, so a long title doesn't just stop.
-fn truncate(text: Vec<Span<'static>>, width: usize) -> Vec<Span<'static>> {
-    let chars = chars(text);
-    if chars.len() <= width {
-        return spans(&chars);
-    }
-    let mut line = spans(&chars[..width.saturating_sub(1)]);
-    line.push("…".dim());
-    line
 }
 
 /// Lines of at most `width`, broken at spaces, words longer than a line are split.
@@ -266,11 +251,12 @@ mod tests {
         let long = "a title that is far too long for one line";
         let rows = vec![task(long, Some("today")), task(long, Some("today"))];
         let lines = draw(rows, 1, &[]);
-        // 40 wide, the padding leaves 37: the title is cut a space before `today`.
-        assert_eq!(lines[0], "     • a title that is far too … today  ");
-        // At the cursor the title wraps, `today` stays on its first line.
-        assert_eq!(lines[1], " ▌   • a title that is far too   today  ");
-        assert_eq!(lines[2].trim_end(), " ▌     long for one line");
+        // 40 wide, the padding leaves 37: the title wraps a space before `today`, which stays on
+        // its first line. With the cursor or without.
+        assert_eq!(lines[0], "     • a title that is far too   today  ");
+        assert_eq!(lines[1].trim_end(), "       long for one line");
+        assert_eq!(lines[2], " ▌   • a title that is far too   today  ");
+        assert_eq!(lines[3].trim_end(), " ▌     long for one line");
     }
 
     #[test]

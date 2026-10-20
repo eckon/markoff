@@ -297,6 +297,7 @@ mod tests {
         };
         // Today the busiest, older days so it is not in the first column.
         app.days = [(today, 3), (today - 10.days(), 1), (today - 20.days(), 2)].into();
+        app.hide_preview = true;
 
         // On the todo page: the list, the status line as a rule, today's done in the header.
         let screen = lines(&draw(&app));

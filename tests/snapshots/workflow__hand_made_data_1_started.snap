@@ -2,25 +2,25 @@
 source: tests/workflow.rs
 expression: app.state()
 ---
-── todo  archive ── [date] ─ 3 open · ✓ 0 done
-
- ▌──[1]─ home ────────────── 1
-     • Water plants
-
-  ──[2]─ work ────────────── 2
-     • Review PR
-     • Fix login bug
-
-
-
-
-
-
-
-
-
-
-
+── todo  archive ── [date] ─┬───────────────────────────── 3 open · ✓ 0 done
+                                │
+ ▌──[1]─ home ────────────── 1  │ no notes
+     • Water plants             │
+                                │
+  ──[2]─ work ────────────── 2  │
+     • Review PR                │
+     • Fix login bug            │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
 ── 1 file renamed to match its title ───────────────────────────── ? toggle help
 
 --- .markoff

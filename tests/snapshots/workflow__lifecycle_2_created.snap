@@ -2,26 +2,26 @@
 source: tests/workflow.rs
 expression: app.state()
 ---
-── todo  archive ── [date] ─ 3 open · ✓ 0 done
-
-  ──[1]─ home ────────────── 3
-     • Buy milk
- ▌   • Pay rent
-     • Call mom
-
-
-
-
-
-
-
-
-
-
-
-
-
-────────────────────────────────────────────────────────────────── ? toggle help
+── todo  archive ── [date] ─┬───────────────────────────── 3 open · ✓ 0 done
+                                │
+  ──[1]─ home ────────────── 3  │ no notes
+     • Buy milk                 │
+ ▌   • Pay rent                 │
+     • Call mom                 │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+────────────────────────────────┴───────────────────────────────── ? toggle help
 
 --- .markoff
 # home

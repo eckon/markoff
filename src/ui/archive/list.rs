@@ -27,7 +27,8 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> (usiz
     let body = match rows.get(app.archive.cursor) {
         _ if hidden => None,
         Some(&ArchiveRow::Task(_, day, index)) => Some(app.done[&day][index].body.as_str()),
-        _ => None,
+        Some(_) => Some(""),
+        None => None,
     };
     let list = |frame: &mut Frame, area, width| render_rows(app, frame, area, &rows, width);
     list_with_preview(frame, area, body, "", list)

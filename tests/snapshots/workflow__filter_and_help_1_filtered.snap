@@ -2,25 +2,25 @@
 source: tests/workflow.rs
 expression: app.state()
 ---
-── todo  archive ── [date] ─ 3 open · ✓ 0 done
-
- ▌──[1]─ home ────────────── 2
-     • Buy milk
-     • Call mom …
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+── todo  archive ── [date] ─┬───────────────────────────── 3 open · ✓ 0 done
+                                │
+ ▌──[1]─ home ────────────── 2  │ no notes
+     • Buy milk                 │
+     • Call mom …               │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
+                                │
 ── clear the filter first (/ Esc) ──────────── / Esc clear filter  ? toggle help
 
 --- .markoff
