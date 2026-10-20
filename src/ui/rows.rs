@@ -10,7 +10,7 @@ use ratatui::{
     widgets::{Block, List, ListItem, ListState, Padding},
 };
 
-use super::{LINE_COLOR, rule, spans};
+use super::{KEY_COLOR, LINE_COLOR, rule, spans};
 use crate::keymap;
 
 /// One row of the list, the cursor moves over these.
@@ -144,12 +144,11 @@ pub fn section_rule(
     width: usize,
 ) -> Vec<Span<'static>> {
     // The key that jumps here replaces the leading `── ` of the rule, the key right above the
-    // bullets. Dim like the count, so the name stays what stands out. Without a key the rule is
-    // as long, the names align.
+    // bullets. Without a key the rule is as long, the names align.
     let keyed = |key: char| {
         vec![
             KEY_OPEN.fg(LINE_COLOR),
-            key.to_string().dim(),
+            key.to_string().bold().fg(KEY_COLOR),
             "]─ ".fg(LINE_COLOR),
         ]
     };

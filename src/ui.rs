@@ -264,7 +264,8 @@ fn status_text(app: &App) -> Vec<Span<'_>> {
 /// colors, so they follow the terminal theme.
 const SECTION_COLORS: [Color; 4] = [Color::Blue, Color::Magenta, Color::Green, Color::Yellow];
 
-/// Keys: the hints, the page brackets in the header and the heatmap's cursor.
+/// Keys: the hints, the help, the section jump keys, the page brackets in the header and the
+/// heatmap's cursor.
 const KEY_COLOR: Color = Color::Blue;
 
 /// The check for tasks done today.

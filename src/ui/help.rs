@@ -8,7 +8,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph},
 };
 
-use super::{LINE_COLOR, rule, section_color};
+use super::{KEY_COLOR, LINE_COLOR, rule, section_color};
 use crate::{
     app::Page,
     keymap::{BINDINGS, Binding},
@@ -37,7 +37,7 @@ pub fn render(frame: &mut Frame, page: Page) {
                 if !line.is_empty() {
                     line.push(" / ".dim());
                 }
-                line.push(key.bold());
+                line.push(key.bold().fg(KEY_COLOR));
             }
             let dots = "·".repeat(label_width + 2 - label(binding).chars().count());
             line.push(format!(" {dots} ").fg(LINE_COLOR));
