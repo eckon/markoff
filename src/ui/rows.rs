@@ -99,8 +99,13 @@ pub fn render(
                 if n == 0
                     && let Some(right) = right.clone()
                 {
+                    // Dots lead to it, it is far from the title on a wide screen.
                     let used = Line::from(spans.clone()).width() + right.width();
-                    spans.push(" ".repeat(width.saturating_sub(used)).into());
+                    let fill = width.saturating_sub(used);
+                    spans.push(match fill {
+                        0..3 => " ".repeat(fill).into(),
+                        _ => format!(" {} ", "·".repeat(fill - 2)).fg(LINE_COLOR),
+                    });
                     spans.push(right);
                 }
                 Line::from(spans)
@@ -249,14 +254,20 @@ mod tests {
     #[test]
     fn right_text_on_the_edge_of_the_first_line() {
         let long = "a title that is far too long for one line";
-        let rows = vec![task(long, Some("today")), task(long, Some("today"))];
+        let rows = vec![
+            task(long, Some("today")),
+            task(long, Some("today")),
+            task("short", Some("today")),
+        ];
         let lines = draw(rows, 1, &[]);
         // 40 wide, the padding leaves 37: the title wraps a space before `today`, which stays on
         // its first line. With the cursor or without.
-        assert_eq!(lines[0], "     • a title that is far too   today  ");
+        assert_eq!(lines[0], "     • a title that is far too · today  ");
         assert_eq!(lines[1].trim_end(), "       long for one line");
-        assert_eq!(lines[2], " ▌   • a title that is far too   today  ");
+        assert_eq!(lines[2], " ▌   • a title that is far too · today  ");
         assert_eq!(lines[3].trim_end(), " ▌     long for one line");
+        // Dots lead from a short title to it.
+        assert_eq!(lines[4], "     • short ··················· today  ");
     }
 
     #[test]
