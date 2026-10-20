@@ -92,7 +92,7 @@ The rule is the day part of cron: day of month, month, day of week. Both day fie
 | ----------- | ------------------------------------------- |
 | `j` / `k`   | Down / up, also `↓` / `↑`                   |
 | `gg` / `G`  | Top / bottom, also `Home` / `End`           |
-| `{` / `}`   | Previous / next section, also `C-u` / `C-d` |
+| `{` / `}`   | Previous / next section                     |
 | `1`-`9`     | Jump to section, the number in `[1]`        |
 
 ### Change

@@ -108,7 +108,7 @@ use Trigger::{Ctrl, Key, Seq, Shift};
 pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "move", pages: TODO },
     Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "move", pages: TODO },
-    Binding { keys: &[(&[Key(Char('{')), Ctrl('u')], A::PrevSection), (&[Key(Char('}')), Ctrl('d')], A::NextSection)], help: "previous / next section", group: "move", pages: TODO },
+    Binding { keys: &[(&[Key(Char('{'))], A::PrevSection), (&[Key(Char('}'))], A::NextSection)], help: "previous / next section", group: "move", pages: TODO },
     Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section", group: "move", pages: TODO },
     Binding { keys: &[(&[Key(Char('J')), Shift(Down)], A::MoveDown), (&[Key(Char('K')), Shift(Up)], A::MoveUp)], help: "move down / up", group: "change", pages: TODO },
     Binding { keys: &[(&[Key(Enter)], A::Open)], help: "open in $EDITOR", group: "change", pages: TODO },
@@ -124,7 +124,7 @@ pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section in the list", group: "heatmap", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "list", pages: ARCHIVE },
     Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "list", pages: ARCHIVE },
-    Binding { keys: &[(&[Key(Char('{')), Ctrl('u')], A::PrevSection), (&[Key(Char('}')), Ctrl('d')], A::NextSection)], help: "previous / next section", group: "list", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Char('{'))], A::PrevSection), (&[Key(Char('}'))], A::NextSection)], help: "previous / next section", group: "list", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section", group: "list", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('p'))], A::Preview)], help: "toggle preview", group: "list", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('p'))], A::Preview)], help: "toggle preview", group: "other", pages: TODO },
@@ -137,9 +137,9 @@ pub const BINDINGS: &[Binding] = &[
 ];
 
 impl Binding {
-    /// Display form of the triggers: `j` and `k`, `gg`, `q` and `C-c`. Arrows, `Home` / `End`,
-    /// shifted arrows and `C-u` / `C-d` only clutter the help, the README lists them. The
-    /// section digits are one `1-9`, nine labels would not fit.
+    /// Display form of the triggers: `j` and `k`, `gg`, `q` and `C-c`. Arrows, `Home` / `End`
+    /// and shifted arrows only clutter the help, the README lists them. The section digits are
+    /// one `1-9`, nine labels would not fit.
     pub fn labels(&self) -> Vec<String> {
         self.triggers()
             .filter_map(|(trigger, action)| match (trigger, action) {
@@ -148,9 +148,7 @@ impl Binding {
                     Some(format!("{}-{last}", jump_key(0)?))
                 }
                 (_, Action::JumpSection(_))
-                | (Key(Up | Down | Left | Right | Home | End) | Shift(_) | Ctrl('u' | 'd'), _) => {
-                    None
-                }
+                | (Key(Up | Down | Left | Right | Home | End) | Shift(_), _) => None,
                 (Key(Char(c)), _) => Some(c.to_string()),
                 (Key(Enter), _) => Some("<CR>".to_string()),
                 (Key(BackTab), _) => Some("S-Tab".to_string()),
