@@ -62,9 +62,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
         // Below the row of labels.
         let y = inner.y + 1 + row as u16;
         if y < heatmap_area.bottom() {
-            frame.buffer_mut()[(inner.x - 1, y)]
-                .set_symbol("[")
-                .set_style(Modifier::BOLD);
+            frame.buffer_mut()[(inner.x - 1, y)].set_symbol("[");
         }
     }
 
@@ -102,11 +100,7 @@ mod tests {
     use ratatui::{Terminal, backend::TestBackend};
 
     use super::*;
-    use crate::{
-        app::tests::sections,
-        keymap::Action,
-        ui::{KEY_COLOR, render},
-    };
+    use crate::{app::tests::sections, keymap::Action, ui::render};
 
     /// Renders the app 80 wide and returns the screen as lines.
     fn lines_80(app: &App, height: u16) -> Vec<String> {
@@ -125,7 +119,7 @@ mod tests {
     }
 
     #[test]
-    fn one_cursor_and_the_selection_in_blue() {
+    fn one_cursor() {
         let today = jiff::Zoned::now().date();
         let yesterday = today - 1.days();
         let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
@@ -152,25 +146,19 @@ mod tests {
         // The heatmap's rows below its labels, the list's from the line below the separator.
         let heatmap = 3..10;
         let list = 13..22;
-        let blue = |buffer: &ratatui::buffer::Buffer| -> Vec<(u16, u16)> {
-            let cells = heatmap.clone().flat_map(|y| (0..80).map(move |x| (x, y)));
-            cells.filter(|&at| buffer[at].fg == KEY_COLOR).collect()
-        };
 
-        // The heatmap has the keys: the selected day blue between brackets, today not blue. The
-        // list has no cursor.
+        // The heatmap has the keys: the selected day between brackets. The list has no cursor.
         let buffer = draw(&app);
-        let selected = blue(&buffer);
-        assert_eq!(selected.len(), 1, "only the selection is blue");
-        let (x, y) = selected[0];
-        assert_eq!(buffer[(x - 1, y)].symbol(), "[");
-        assert_eq!(buffer[(x + 1, y)].symbol(), "]");
+        let cells = heatmap.clone().flat_map(|y| (0..80).map(move |x| (x, y)));
+        let opens: Vec<(u16, u16)> = cells.filter(|&at| buffer[at].symbol() == "[").collect();
+        assert_eq!(opens.len(), 1, "one cursor");
+        let (x, y) = opens[0];
+        assert_eq!(buffer[(x + 2, y)].symbol(), "]");
         assert!(list.clone().all(|y| !text(&buffer, y).contains('▌')));
 
-        // The list has the keys: its cursor shows, the brackets go, the selection stays blue.
+        // The list has the keys: its cursor shows, the brackets go.
         app.update(Action::Focus);
         let buffer = draw(&app);
-        assert_eq!(blue(&buffer), selected);
         assert!(heatmap.clone().all(|y| !text(&buffer, y).contains('[')));
         assert!(
             list.clone()
@@ -318,15 +306,11 @@ mod tests {
         // The weekday label at the row's end, on a Monday right after the cursor's `]`.
         assert!(screen[3].trim_end().ends_with("Mon"), "{screen:#?}");
         assert_eq!(screen[10].trim(), "", "{screen:#?}");
-        // Nothing done yet: the selection is today, the one blue cell, between brackets.
+        // Nothing done yet: the selection is today between brackets, the cell as it is.
         let row = 3 + today.weekday().to_monday_zero_offset() as u16;
-        let blue: Vec<u16> = (0..80)
-            .filter(|&x| buffer[(x, row)].fg == KEY_COLOR)
-            .collect();
-        assert_eq!(blue.len(), 1, "{screen:#?}");
-        assert_eq!(buffer[(blue[0], row)].symbol(), "█");
         assert!(screen[row as usize].contains("[█]"), "{screen:#?}");
-        assert!(!buffer[(blue[0], row)].modifier.contains(Modifier::REVERSED));
+        let x = screen[row as usize].chars().position(|c| c == '█').unwrap() as u16;
+        assert!(buffer[(x, row)].modifier.is_empty());
 
         // Between heatmap and list a double line, the list without the keys is dimmed.
         assert_eq!(screen[11].trim(), "═".repeat(76), "{screen:#?}");

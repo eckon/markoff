@@ -8,7 +8,7 @@ use ratatui::{
 
 use crate::{
     history,
-    ui::{DONE_COLOR, KEY_COLOR, LINE_COLOR, spans},
+    ui::{DONE_COLOR, LINE_COLOR, spans},
 };
 
 /// Room for the weekdays on the right, next to the day cells they belong to.
@@ -29,9 +29,9 @@ fn steps() -> [Span<'static>; 4] {
 }
 
 /// The tasks done over time, back to the first archived day, see [`history::columns`]: labels,
-/// 7 rows of cells with the `selected` one in blue and the weekdays on the right where cells are
-/// days, and a divider through the gap where the cell size changes. With the `cursor` there too,
-/// it is between brackets.
+/// 7 rows of cells and the weekdays on the right where cells are days, and a divider through the
+/// gap where the cell size changes. With the `cursor` there, the `selected` cell is between
+/// brackets.
 pub fn lines(
     days: &history::Days,
     today: Date,
@@ -40,8 +40,7 @@ pub fn lines(
     cursor: bool,
 ) -> Vec<Line<'static>> {
     let columns = history::columns(days, today, columns(width));
-    let selected = history::find(&columns, selected);
-    let bracketed = selected.filter(|_| cursor);
+    let bracketed = history::find(&columns, selected).filter(|_| cursor);
     let steps = steps();
     let bounds = history::bounds(
         columns.iter().flat_map(|column| {
@@ -60,8 +59,8 @@ pub fn lines(
             let cell = column.cell(row);
             // The cursor between brackets in the gaps around it, over a divider too.
             let gap: Span = match zone_starts.get(i + 1) {
-                _ if bracketed == Some((i, row)) => "]".bold(),
-                _ if bracketed == Some((i + 1, row)) => "[".bold(),
+                _ if bracketed == Some((i, row)) => "]".into(),
+                _ if bracketed == Some((i + 1, row)) => "[".into(),
                 Some(true) => "│".fg(LINE_COLOR),
                 _ => " ".into(),
             };
@@ -72,12 +71,6 @@ pub fn lines(
             let shade = match history::level(history::rate(days, cell), &bounds) {
                 0 => "·".fg(LINE_COLOR),
                 level => steps[level - 1].clone(),
-            };
-            // The selection in the header's blue, only the color changes.
-            let shade = if selected == Some((i, row)) {
-                shade.fg(KEY_COLOR)
-            } else {
-                shade
             };
             spans.extend([shade, gap]);
         }

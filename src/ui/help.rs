@@ -8,7 +8,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph},
 };
 
-use super::{KEY_COLOR, LINE_COLOR, rule, section_color};
+use super::{LINE_COLOR, rule, section_color};
 use crate::{
     app::Page,
     keymap::{BINDINGS, Binding},
@@ -37,7 +37,7 @@ pub fn render(frame: &mut Frame, page: Page) {
                 if !line.is_empty() {
                     line.push(" / ".dim());
                 }
-                line.push(key.bold().fg(KEY_COLOR));
+                line.push(key.bold());
             }
             let dots = "·".repeat(label_width + 2 - label(binding).chars().count());
             line.push(format!(" {dots} ").fg(LINE_COLOR));
@@ -48,16 +48,15 @@ pub fn render(frame: &mut Frame, page: Page) {
     // Rules as wide as the widest line.
     let rule_width = key_lines.iter().map(Line::width).max().unwrap_or(0);
 
-    let mut lines = vec![Line::from("help".bold())];
+    let mut lines = vec![Line::from("help")];
     let mut groups = 0;
     for (i, (binding, line)) in bindings.iter().zip(key_lines).enumerate() {
         if i == 0 || bindings[i - 1].group != binding.group {
             lines.push(Line::default());
             lines.push(Line::from(rule(
                 None,
-                binding.group,
+                binding.group.fg(section_color(groups)).bold(),
                 Vec::new(),
-                section_color(groups),
                 rule_width,
             )));
             groups += 1;

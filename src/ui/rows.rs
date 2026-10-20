@@ -10,7 +10,7 @@ use ratatui::{
     widgets::{Block, List, ListItem, ListState, Padding},
 };
 
-use super::{KEY_COLOR, LINE_COLOR, rule, spans};
+use super::{LINE_COLOR, rule, spans};
 use crate::keymap;
 
 /// One row of the list, the cursor moves over these.
@@ -148,7 +148,7 @@ pub fn section_rule(
     let keyed = |key: char| {
         vec![
             KEY_OPEN.fg(LINE_COLOR),
-            key.to_string().bold().fg(KEY_COLOR),
+            key.to_string().bold(),
             "]─ ".fg(LINE_COLOR),
         ]
     };
@@ -161,9 +161,8 @@ pub fn section_rule(
     };
     rule(
         Some(lead),
-        name,
+        name.to_string().fg(color).bold(),
         vec![count.to_string().dim()],
-        color,
         width,
     )
 }

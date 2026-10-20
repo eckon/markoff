@@ -146,23 +146,28 @@ fn join_divider(frame: &mut Frame, x: u16, gap_y: u16, rule_y: u16, joint: &str)
 }
 
 /// `── [ todo  archive ] ── Sat 17 Oct ──── 4 open · ✓ 2 done` over the whole width: the pages
-/// with the current one bold, between the keys that switch them, then the page's `date` and
+/// with the current one in plain text, between the keys that switch them, then the page's `date` and
 /// `count`.
 fn render_header(app: &App, frame: &mut Frame, area: Rect, date: &str, count: Vec<Span<'static>>) {
     // The keys in the style of the hints in the status line.
-    let mut pages = vec!["── ".fg(LINE_COLOR), "[ ".bold().fg(KEY_COLOR)];
+    let mut pages = vec!["── ".fg(LINE_COLOR), "[ ".bold()];
     for (i, page) in Page::ALL.into_iter().enumerate() {
         if i > 0 {
             pages.push("  ".into());
         }
         pages.push(match page == app.page {
-            true => page.name().bold(),
+            true => page.name().into(),
             false => page.name().dim(),
         });
     }
-    pages.extend([" ]".bold().fg(KEY_COLOR), " ── ".fg(LINE_COLOR)]);
-    // Only bold, blue is for keys.
-    let spans = rule(Some(pages), date, count, Color::Reset, area.width as usize);
+    pages.extend([" ]".bold(), " ── ".fg(LINE_COLOR)]);
+    // Plain, bold is for keys.
+    let spans = rule(
+        Some(pages),
+        date.to_string().into(),
+        count,
+        area.width as usize,
+    );
     frame.render_widget(Line::from(spans), area);
 }
 
@@ -192,7 +197,7 @@ fn render_status(app: &App, frame: &mut Frame, area: Rect) {
         let mut spans: Vec<Span> = Vec::new();
         for (i, (key, text)) in hints.iter().enumerate() {
             spans.push(if i == 0 { " " } else { "  " }.into());
-            spans.push(key.clone().bold().fg(KEY_COLOR));
+            spans.push(key.clone().bold());
             spans.push(format!(" {text}").dim());
         }
         spans
@@ -252,7 +257,7 @@ fn status_text(app: &App) -> Vec<Span<'_>> {
             let tasks = if count == 1 { "task" } else { "tasks" };
             vec![
                 "filter: ".dim(),
-                app.filter.as_str().bold(),
+                app.filter.as_str().into(),
                 format!(" · {count} {tasks}").dim(),
             ]
         }
@@ -263,10 +268,6 @@ fn status_text(app: &App) -> Vec<Span<'_>> {
 /// Colors of the sections in list order, repeating. Only the 16 terminal
 /// colors, so they follow the terminal theme.
 const SECTION_COLORS: [Color; 4] = [Color::Blue, Color::Magenta, Color::Green, Color::Yellow];
-
-/// Keys: the hints, the help, the section jump keys, the page brackets in the header and the
-/// heatmap's cursor.
-const KEY_COLOR: Color = Color::Blue;
 
 /// The check for tasks done today.
 const DONE_COLOR: Color = Color::Green;
@@ -357,13 +358,12 @@ fn spans(chars: &[(char, Style)]) -> Vec<Span<'static>> {
 /// `lead` replaces the `── ` before the title, `count` goes after the fill as styled.
 fn rule(
     lead: Option<Vec<Span<'static>>>,
-    title: &str,
+    title: Span<'static>,
     mut count: Vec<Span<'static>>,
-    color: Color,
     width: usize,
 ) -> Vec<Span<'static>> {
     let mut spans = lead.unwrap_or_else(|| vec!["── ".fg(LINE_COLOR)]);
-    spans.push(title.to_string().fg(color).bold());
+    spans.push(title);
     spans.push(" ".into());
     if !count.is_empty() {
         count.insert(0, " ".into());
