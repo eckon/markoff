@@ -219,10 +219,33 @@ impl App {
     }
 
     /// Reloads but keeps the cursor on the same task or section, even if rows above it
-    /// appeared or disappeared.
+    /// appeared or disappeared. A task that is gone leaves it in its section, see
+    /// [`Self::neighbor_in_section`].
     fn reload_keep_selection(&mut self) -> Result<()> {
         let selected = self.selected().map(|row| self.row_path(row));
-        self.reload(selected.as_deref())
+        let neighbor = self.neighbor_in_section();
+        self.reload(None)?;
+        for path in [selected, neighbor].iter().flatten() {
+            if self.select_path(path) {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// Where the cursor goes when its task goes away, so it never ends up in another section
+    /// by itself: the next task, else the row before, a task or the header. `None` on a
+    /// section, its row number stays.
+    fn neighbor_in_section(&self) -> Option<PathBuf> {
+        let rows = self.rows();
+        let Some(&Row::Task(s, _)) = rows.get(self.cursor) else {
+            return None;
+        };
+        let neighbor = match rows.get(self.cursor + 1) {
+            Some(&Row::Task(next, t)) if next == s => Row::Task(next, t),
+            _ => rows[self.cursor - 1],
+        };
+        Some(self.row_path(neighbor))
     }
 
     /// Path behind a row: the task file or the section directory. Never touches the disk,
@@ -539,7 +562,7 @@ impl App {
             Some(Row::Section(s)) => return self.delete_section(s),
             None => return Ok(()),
         };
-        // Cursor stays on the same row, which is now the next task (like vim).
+        // The cursor goes to the next task (like vim), see [`Self::apply`].
         let ops = edit::delete(&self.sections, s, t, &self.state_file);
         self.apply(ops)?;
         self.status = Some(Status::Info("task deleted (u to undo)".to_string()));
@@ -571,7 +594,9 @@ impl App {
         self.reload(cursor.as_deref())
     }
 
-    /// Applies ops, records them for undo together with the cursor position, and reloads.
+    /// Applies ops, records them for undo together with the cursor position, and reloads. The
+    /// cursor stays on its task, or in its section when the task is gone, see
+    /// [`Self::neighbor_in_section`].
     /// Without ops nothing changed, so there is no undo step either. Returns whether anything
     /// changed, so the caller only reports what really happened.
     fn apply(&mut self, ops: Vec<Op>) -> Result<bool> {
@@ -579,9 +604,18 @@ impl App {
             return Ok(false);
         }
         let cursor = self.selected().map(|row| self.row_path(row));
+        let neighbor = self.neighbor_in_section();
         op::apply_all(&ops)?;
-        self.undo.push(UndoEntry { ops, cursor });
+        self.undo.push(UndoEntry {
+            ops,
+            cursor: cursor.clone(),
+        });
         self.reload(None)?;
+        for path in [cursor, neighbor].iter().flatten() {
+            if self.select_path(path) {
+                break;
+            }
+        }
         Ok(true)
     }
 
@@ -601,7 +635,8 @@ impl App {
     }
 
     /// Moves the cursor to the task file or section directory at `path`, if it exists.
-    fn select_path(&mut self, path: &Path) {
+    /// Returns whether it did.
+    fn select_path(&mut self, path: &Path) -> bool {
         let found = self
             .rows()
             .into_iter()
@@ -609,6 +644,7 @@ impl App {
         if let Some(index) = found {
             self.cursor = index;
         }
+        found.is_some()
     }
 
     /// All rows in display order: each section header with its tasks. A filter keeps matching
@@ -903,6 +939,23 @@ pub mod tests {
         fs::remove_file(dir.path().join("work/a.md")).unwrap();
         app.reload_keep_selection().unwrap();
         assert_eq!(app.cursor, 0);
+    }
+
+    #[test]
+    fn cursor_stays_in_its_section_when_its_task_goes() {
+        let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md", "home/c.md"]);
+        // The last task of `work`: the one before, not `home`.
+        app.cursor = 2;
+        app.update(Action::Delete);
+        assert_eq!(app.selected(), Some(Row::Task(0, 0)), "{:?}", listing(&app));
+        // Its only task: the header.
+        app.update(Action::Done);
+        assert_eq!(app.selected(), Some(Row::Section(0)), "{:?}", listing(&app));
+        // Gone from outside too.
+        app.cursor = 2;
+        fs::remove_file(dir.path().join("home/c.md")).unwrap();
+        app.reload_keep_selection().unwrap();
+        assert_eq!(app.selected(), Some(Row::Section(1)));
     }
 
     #[test]
