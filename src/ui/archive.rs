@@ -100,7 +100,11 @@ mod tests {
     use ratatui::{Terminal, backend::TestBackend};
 
     use super::*;
-    use crate::{app::tests::sections, keymap::Action, ui::render};
+    use crate::{
+        app::tests::sections,
+        keymap::Action,
+        ui::{CURRENT_COLOR, render},
+    };
 
     /// Renders the app 80 wide and returns the screen as lines.
     fn lines_80(app: &App, height: u16) -> Vec<String> {
@@ -119,7 +123,7 @@ mod tests {
     }
 
     #[test]
-    fn one_cursor() {
+    fn one_cursor_and_the_selection_in_the_current_color() {
         let today = jiff::Zoned::now().date();
         let yesterday = today - 1.days();
         let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
@@ -147,18 +151,29 @@ mod tests {
         let heatmap = 3..10;
         let list = 13..22;
 
-        // The heatmap has the keys: the selected day between brackets. The list has no cursor.
+        let current = |buffer: &ratatui::buffer::Buffer| -> Vec<(u16, u16)> {
+            let cells = heatmap.clone().flat_map(|y| (0..80).map(move |x| (x, y)));
+            cells.filter(|&at| buffer[at].fg == CURRENT_COLOR).collect()
+        };
+
+        // The heatmap has the keys: the selected day in the current color between brackets. The
+        // list has no cursor.
         let buffer = draw(&app);
-        let cells = heatmap.clone().flat_map(|y| (0..80).map(move |x| (x, y)));
-        let opens: Vec<(u16, u16)> = cells.filter(|&at| buffer[at].symbol() == "[").collect();
-        assert_eq!(opens.len(), 1, "one cursor");
-        let (x, y) = opens[0];
-        assert_eq!(buffer[(x + 2, y)].symbol(), "]");
+        let selected = current(&buffer);
+        assert_eq!(
+            selected.len(),
+            1,
+            "only the selection is in the current color"
+        );
+        let (x, y) = selected[0];
+        assert_eq!(buffer[(x - 1, y)].symbol(), "[");
+        assert_eq!(buffer[(x + 1, y)].symbol(), "]");
         assert!(list.clone().all(|y| !text(&buffer, y).contains('▌')));
 
-        // The list has the keys: its cursor shows, the brackets go.
+        // The list has the keys: its cursor shows, the brackets go, the selection keeps its color.
         app.update(Action::Focus);
         let buffer = draw(&app);
+        assert_eq!(current(&buffer), selected);
         assert!(heatmap.clone().all(|y| !text(&buffer, y).contains('[')));
         assert!(
             list.clone()
@@ -306,11 +321,15 @@ mod tests {
         // The weekday label at the row's end, on a Monday right after the cursor's `]`.
         assert!(screen[3].trim_end().ends_with("Mon"), "{screen:#?}");
         assert_eq!(screen[10].trim(), "", "{screen:#?}");
-        // Nothing done yet: the selection is today between brackets, the cell as it is.
+        // Nothing done yet: the selection is today, the one cell in the current color, between
+        // brackets.
         let row = 3 + today.weekday().to_monday_zero_offset() as u16;
+        let current: Vec<u16> = (0..80)
+            .filter(|&x| buffer[(x, row)].fg == CURRENT_COLOR)
+            .collect();
+        assert_eq!(current.len(), 1, "{screen:#?}");
+        assert_eq!(buffer[(current[0], row)].symbol(), "█");
         assert!(screen[row as usize].contains("[█]"), "{screen:#?}");
-        let x = screen[row as usize].chars().position(|c| c == '█').unwrap() as u16;
-        assert!(buffer[(x, row)].modifier.is_empty());
 
         // Between heatmap and list a double line, the list without the keys is dimmed.
         assert_eq!(screen[11].trim(), "═".repeat(76), "{screen:#?}");

@@ -146,8 +146,8 @@ fn join_divider(frame: &mut Frame, x: u16, gap_y: u16, rule_y: u16, joint: &str)
 }
 
 /// `── [ todo  archive ] ── Sat 17 Oct ──── 4 open · ✓ 2 done` over the whole width: the pages
-/// with the current one in plain text, between the keys that switch them, then the page's `date` and
-/// `count`.
+/// with the current one in [`CURRENT_COLOR`], between the keys that switch them, then the page's
+/// `date` and `count`.
 fn render_header(app: &App, frame: &mut Frame, area: Rect, date: &str, count: Vec<Span<'static>>) {
     // The keys in the style of the hints in the status line.
     let mut pages = vec!["── ".fg(LINE_COLOR), "[ ".bold()];
@@ -156,12 +156,12 @@ fn render_header(app: &App, frame: &mut Frame, area: Rect, date: &str, count: Ve
             pages.push("  ".into());
         }
         pages.push(match page == app.page {
-            true => page.name().into(),
+            true => page.name().fg(CURRENT_COLOR).bold(),
             false => page.name().dim(),
         });
     }
     pages.extend([" ]".bold(), " ── ".fg(LINE_COLOR)]);
-    // Plain, bold is for keys.
+    // Not bold, that is for keys.
     let spans = rule(
         Some(pages),
         date.to_string().into(),
@@ -268,6 +268,9 @@ fn status_text(app: &App) -> Vec<Span<'_>> {
 /// Colors of the sections in list order, repeating. Only the 16 terminal
 /// colors, so they follow the terminal theme.
 const SECTION_COLORS: [Color; 4] = [Color::Blue, Color::Magenta, Color::Green, Color::Yellow];
+
+/// Where you are: the current page and the heatmap's selected cell.
+const CURRENT_COLOR: Color = Color::Blue;
 
 /// The check for tasks done today.
 const DONE_COLOR: Color = Color::Green;

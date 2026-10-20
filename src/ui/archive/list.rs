@@ -43,7 +43,7 @@ fn render_rows(
 ) -> usize {
     let today = app.today;
     let sections = app.archive_sections();
-    // No cursor while the heatmap has the keys, its brackets say what the list shows.
+    // No cursor while the heatmap has the keys, its selected cell says what the list shows.
     let cursor = (app.archive.focus == Focus::List).then_some(app.archive.cursor);
     let items: Vec<rows::Row> = (rows.iter().enumerate())
         .map(|(i, &row)| {

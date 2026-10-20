@@ -51,7 +51,7 @@ For TUI changes also run the real app in tmux against a scratch root dir (or a c
 - The date comes from `App.today`, read from the clock only in the main loop (and once for a CLI command), so a frame sees one day and tests can set it. Never call `Zoned::now()` elsewhere.
 - All keys live in `BINDINGS` (`keymap.rs`), the help overlay reads the same table. Update the README key table with it.
 - Errors go to the status line, they never end the app.
-- Colors: only the 16 terminal colors, so the look follows the terminal theme. Colors carry meaning (sections, done, matches, errors), keys have none.
+- Colors: only the 16 terminal colors, so the look follows the terminal theme. Colors carry meaning (sections, where you are, done, matches, errors), keys have none.
 - Keys are bold in the default color, so they show without adding a color. Nothing else in the default color is bold.
 - Comments say why, not what. Match the density and style of the surrounding code.
 - No helper function for a single use or a plain call chain, inline it unless it has a reason of its own.

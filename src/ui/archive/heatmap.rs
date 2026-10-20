@@ -8,7 +8,7 @@ use ratatui::{
 
 use crate::{
     history,
-    ui::{DONE_COLOR, LINE_COLOR, spans},
+    ui::{CURRENT_COLOR, DONE_COLOR, LINE_COLOR, spans},
 };
 
 /// Room for the weekdays on the right, next to the day cells they belong to.
@@ -29,9 +29,9 @@ fn steps() -> [Span<'static>; 4] {
 }
 
 /// The tasks done over time, back to the first archived day, see [`history::columns`]: labels,
-/// 7 rows of cells and the weekdays on the right where cells are days, and a divider through the
-/// gap where the cell size changes. With the `cursor` there, the `selected` cell is between
-/// brackets.
+/// 7 rows of cells with the `selected` one in [`CURRENT_COLOR`] and the weekdays on the right where
+/// cells are days, and a divider through the gap where the cell size changes. With the `cursor`
+/// there too, it is between brackets.
 pub fn lines(
     days: &history::Days,
     today: Date,
@@ -40,7 +40,8 @@ pub fn lines(
     cursor: bool,
 ) -> Vec<Line<'static>> {
     let columns = history::columns(days, today, columns(width));
-    let bracketed = history::find(&columns, selected).filter(|_| cursor);
+    let selected = history::find(&columns, selected);
+    let bracketed = selected.filter(|_| cursor);
     let steps = steps();
     let bounds = history::bounds(
         columns.iter().flat_map(|column| {
@@ -71,6 +72,11 @@ pub fn lines(
             let shade = match history::level(history::rate(days, cell), &bounds) {
                 0 => "·".fg(LINE_COLOR),
                 level => steps[level - 1].clone(),
+            };
+            // The selection in the current page's color, it shows without the brackets too.
+            let shade = match selected == Some((i, row)) {
+                true => shade.fg(CURRENT_COLOR),
+                false => shade,
             };
             spans.extend([shade, gap]);
         }
