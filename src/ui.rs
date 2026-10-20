@@ -311,17 +311,27 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                     };
                     // Listed for a match in the body only: weaker, `…` hints at the preview.
                     let body_only = !filter::matches(&title, &app.filter);
-                    // Shown by `.` only: weaker too, it is not due.
-                    if body_only || !task.due(app.today) {
+                    if body_only {
                         style = style.dim();
                     }
+                    // Shown by `.` only: weaker and struck through, it is not due.
+                    let due = task.due(app.today);
+                    if !due {
+                        style = style.dim().crossed_out();
+                    }
                     let mut spans = highlight(&title, &app.filter, style);
+                    // Why it is there, right after the title, the edge is far away on wide
+                    // screens. In the color of its `⟳`, they read as one. Like the title while
+                    // it is not due.
+                    if let Some(repeat) = &task.repeat {
+                        let rule = Style::new().fg(color).italic();
+                        let rule = if due { rule } else { rule.dim().crossed_out() };
+                        spans.push(Span::styled(format!("  {}", repeat.describe()), rule));
+                    }
                     if body_only {
                         spans.push(" …".dim());
                     }
-                    // Why it is there, where the archive puts the day.
-                    let rule = task.repeat.as_ref().map(|repeat| repeat.rule.clone().dim());
-                    rows::Kind::Task(spans, rule)
+                    rows::Kind::Task(spans, None, task.repeat.is_some())
                 }
             };
             rows::Row { color, kind }
@@ -670,9 +680,13 @@ mod tests {
             .map(|row| row.iter().map(|cell| cell.symbol()).collect())
             .collect();
 
-        // Never done, so due: the rule on the right. Done today: hidden, also from the counts.
-        assert!(lines[3].contains("• Water"), "{lines:#?}");
-        assert!(lines[3].trim_end().ends_with("* * mon-fri"), "{lines:#?}");
+        // Never done, so due: `⟳` and the rule after the title. Done today: hidden, also from
+        // the counts.
+        assert_eq!(lines[3].trim_end(), "     ⟳ Water  weekdays", "{lines:#?}");
+        // The rule in the section's color, italic.
+        let rule = terminal.backend().buffer()[(14, 3)].style();
+        assert_eq!(rule.fg, Some(section_color(0)));
+        assert!(rule.add_modifier.contains(Modifier::ITALIC));
         assert!(lines[4].contains("• Fix typo"), "{lines:#?}");
         assert!(lines[2].trim_end().ends_with(" 2"), "{lines:#?}");
         assert!(lines[0].contains(" 2 open "), "{lines:#?}");
@@ -684,8 +698,14 @@ mod tests {
         let lines: Vec<String> = (buffer.content().chunks(60))
             .map(|row| row.iter().map(|cell| cell.symbol()).collect())
             .collect();
-        assert!(lines[4].contains("• Dust"), "{lines:#?}");
-        assert!(lines[4].trim_end().ends_with("* * *"), "{lines:#?}");
+        assert_eq!(lines[4].trim_end(), "     ⟳ Dust  daily", "{lines:#?}");
+        assert!(
+            buffer[(13, 4)].modifier.contains(Modifier::DIM),
+            "rule dimmed too"
+        );
+        // Both struck through.
+        assert!(buffer[(7, 4)].modifier.contains(Modifier::CROSSED_OUT));
+        assert!(buffer[(13, 4)].modifier.contains(Modifier::CROSSED_OUT));
         assert!(buffer[(7, 4)].modifier.contains(Modifier::DIM));
         assert!(!buffer[(7, 3)].modifier.contains(Modifier::DIM), "due");
         assert!(lines[2].trim_end().ends_with(" 3"), "{lines:#?}");

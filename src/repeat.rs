@@ -45,6 +45,32 @@ impl Repeat {
         })
     }
 
+    /// Short words for the common rules, next to the title: `daily`, `weekdays`, `mon, thu`,
+    /// `1st`, `1 jan`. Anything else as written, croner's descriptions are sentences.
+    pub fn describe(&self) -> String {
+        let rule = self.rule.to_lowercase();
+        let fields: Vec<&str> = rule.split_whitespace().collect();
+        let day: Option<u8> = fields[0].parse().ok();
+        let month = match fields[1].parse::<usize>() {
+            Ok(n) => MONTHS.get(n.wrapping_sub(1)).copied(),
+            Err(_) => MONTHS.contains(&fields[1]).then_some(fields[1]),
+        };
+        let names = |field: &str| {
+            field
+                .chars()
+                .all(|c| c.is_ascii_alphabetic() || ",-".contains(c))
+        };
+        match (fields[0], fields[1], fields[2]) {
+            ("*", "*", "*") => "daily".to_string(),
+            ("*", "*", "mon-fri") => "weekdays".to_string(),
+            ("*", "*", "sat,sun" | "sun,sat" | "sat-sun") => "weekends".to_string(),
+            ("*", "*", dow) if names(dow) => dow.replace(',', ", "),
+            (_, "*", "*") if let Some(day) = day => ordinal(day),
+            (_, _, "*") if let (Some(day), Some(month)) = (day, month) => format!("{day} {month}"),
+            _ => self.rule.clone(),
+        }
+    }
+
     /// Due when a day of the rule came after `done`, up to `today`. A missed day stays due
     /// until it is done. Never done is due.
     pub fn due(&self, done: Option<Date>, today: Date) -> bool {
@@ -55,6 +81,22 @@ impl Repeat {
             .find_next_occurrence(&done.to_datetime(Time::midnight()), false)
             .is_ok_and(|next| next.date() <= today)
     }
+}
+
+const MONTHS: [&str; 12] = [
+    "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+];
+
+/// `1st`, `2nd`, `3rd`, `11th`, `22nd`.
+fn ordinal(n: u8) -> String {
+    let suffix = match (n % 10, n % 100) {
+        (_, 11..=13) => "th",
+        (1, _) => "st",
+        (2, _) => "nd",
+        (3, _) => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix}")
 }
 
 #[cfg(test)]
@@ -85,6 +127,28 @@ mod tests {
             "`* * *`",
         ] {
             assert_eq!(split(heading), (heading, None), "{heading}");
+        }
+    }
+
+    #[test]
+    fn describe_in_short_words() {
+        for (heading, words) in [
+            ("x `* * *`", "daily"),
+            ("x `* * mon-fri`", "weekdays"),
+            ("x `* * sat,sun`", "weekends"),
+            ("x `* * thu`", "thu"),
+            ("x `* * MON,thu`", "mon, thu"),
+            ("x `1 * *`", "1st"),
+            ("x `22 * *`", "22nd"),
+            ("x `11 * *`", "11th"),
+            ("x `1 1 *`", "1 jan"),
+            ("x `24 dec *`", "24 dec"),
+            // As written: numbers for days of the week, steps, both day fields.
+            ("x `* * 1`", "* * 1"),
+            ("x `*/2 * *`", "*/2 * *"),
+            ("x `1 * mon`", "1 * mon"),
+        ] {
+            assert_eq!(rule(heading).describe(), words, "{heading}");
         }
     }
 

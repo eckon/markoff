@@ -7,7 +7,7 @@ expression: app.state()
   ──[1]─ house ───────────── 3
      • Call mom
  ▌   • Write report
-     • Water plants                                                      * * *
+     ⟳ Water plants  daily
 
 
 

@@ -332,7 +332,7 @@ fn lifecycle() {
     app.press("X");
     app.wait_for("done until next time");
     app.press(".");
-    app.wait_for("• Water plants");
+    app.wait_for("⟳ Water plants");
     snapshot!("lifecycle_4_done_and_deleted", app.state());
 
     // Undo all five, newest first.

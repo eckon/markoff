@@ -25,8 +25,8 @@ pub enum Kind {
     /// before it, except at the top.
     Header(Vec<Span<'static>>),
     /// A task's title, cut to one line, wrapped at the cursor. What goes on the right edge of
-    /// its first line, like the day a task was done.
-    Task(Vec<Span<'static>>, Option<Span<'static>>),
+    /// its first line, like the day a task was done. Whether it repeats, its bullet is `⟳` then.
+    Task(Vec<Span<'static>>, Option<Span<'static>>, bool),
 }
 
 /// Space on the right so rules stop before the preview divider.
@@ -65,21 +65,21 @@ pub fn render(
                 " ".into()
             }
         };
-        let (title, right) = match row.kind {
+        let (title, right, repeats) = match row.kind {
             Kind::Header(spans) => {
                 let mut line = vec![gutter()];
                 line.extend(spans);
                 items.push(ListItem::new(Line::from(line)));
                 continue;
             }
-            Kind::Task(title, right) => (title, right),
+            Kind::Task(title, right, repeats) => (title, right, repeats),
         };
         // Gutter and indent before the title, the bullet below the key of the section.
         let prefix = |first: bool| -> Vec<Span<'static>> {
-            let bullet = if first {
-                "• ".fg(row.color)
-            } else {
-                "  ".into()
+            let bullet = match (first, repeats) {
+                (true, true) => "⟳ ".fg(row.color),
+                (true, false) => "• ".fg(row.color),
+                (false, _) => "  ".into(),
             };
             vec![
                 gutter(),
@@ -239,6 +239,7 @@ mod tests {
             kind: Kind::Task(
                 vec![title.to_string().into()],
                 right.map(|r| r.to_string().into()),
+                false,
             ),
         }
     }

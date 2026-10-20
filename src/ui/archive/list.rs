@@ -72,7 +72,7 @@ fn render_rows(
                         Style::new()
                     };
                     let title = Span::styled(app.done[&day][index].title.clone(), style);
-                    rows::Kind::Task(vec![title], Some(when(day, today).dim()))
+                    rows::Kind::Task(vec![title], Some(when(day, today).dim()), false)
                 }
             };
             rows::Row { color, kind }
