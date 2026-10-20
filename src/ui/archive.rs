@@ -171,7 +171,7 @@ mod tests {
         assert!(list.clone().all(|y| !text(&buffer, y).contains('▌')));
 
         // The list has the keys: its cursor shows, the brackets go, the selection keeps its color.
-        app.update(Action::Focus);
+        app.update(Action::FocusList);
         let buffer = draw(&app);
         assert_eq!(current(&buffer), selected);
         assert!(heatmap.clone().all(|y| !text(&buffer, y).contains('[')));
@@ -194,7 +194,7 @@ mod tests {
         app.done = [(today, vec![done(long, "## Notes\nline"), done("Plain", "")])].into();
         app.days = history::days(&app.done);
         app.update(Action::NextPage);
-        app.update(Action::Focus);
+        app.update(Action::FocusList);
         // Newest first: `Plain`, then the one with a body.
         app.update(Action::Down);
 
@@ -231,10 +231,10 @@ mod tests {
             assert!(row.trim_end().ends_with("today"), "{screen:#?}");
         };
         // Not while the heatmap has the keys.
-        app.update(Action::Focus);
+        app.update(Action::FocusHeatmap);
         full_width(&app);
         // Nor in the list after `p`.
-        app.update(Action::Focus);
+        app.update(Action::FocusList);
         app.update(Action::Preview);
         full_width(&app);
     }
@@ -311,7 +311,7 @@ mod tests {
         let screen = lines(&buffer);
         let date = today.strftime("%a %d %b %Y");
         assert!(
-            screen[0].starts_with(&format!("── [ todo  archive ] ── {date} ─")),
+            screen[0].starts_with(&format!("── todo  archive ── {date} ─")),
             "{screen:#?}"
         );
         // Done in the selection, the test has no titles.

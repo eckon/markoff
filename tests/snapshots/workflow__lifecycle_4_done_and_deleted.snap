@@ -2,7 +2,7 @@
 source: tests/workflow.rs
 expression: app.state()
 ---
-── [ todo  archive ] ── [date] ─ 2 open · ✓ 1 done
+── todo  archive ── [date] ─ 2 open · ✓ 1 done
 
   ──[1]─ house ───────────── 3
      • Call mom

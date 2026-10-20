@@ -112,11 +112,11 @@ mod tests {
             .collect();
         for text in [
             "── move ──",
-            "j / k ···· down / up",
-            "o / O ···· new task below / above",
-            "D ········ delete",
-            "X ········ done (archive)",
-            "q / C-c ·· quit",
+            "j / k ········ down / up",
+            "o / O ········ new task below / above",
+            "D ············ delete",
+            "X ············ done (archive)",
+            "q / C-c ······ quit",
             "── other ──",
         ] {
             assert!(screen.contains(text), "missing {text:?}");

@@ -62,11 +62,11 @@ impl App {
             (Action::Help | Action::PrevPage | Action::NextPage | Action::Quit, _) => {
                 return false;
             }
-            (Action::Focus, Focus::Heatmap) => {
+            (Action::FocusList, _) => {
                 self.archive.focus = Focus::List;
                 return true;
             }
-            (Action::Focus, Focus::List) => {
+            (Action::FocusHeatmap, _) => {
                 self.archive.focus = Focus::Heatmap;
                 return true;
             }
@@ -76,7 +76,7 @@ impl App {
                 return true;
             }
             // Like in the todo list, `h` / `l` do nothing. A section key from the heatmap goes
-            // to the list, like `Tab` and the jump in one.
+            // to the list, like `<CR>` and the jump in one.
             (_, Focus::List) | (Action::JumpSection(_), Focus::Heatmap) => {
                 let lines: Vec<cursor::Line> = (self.archive_rows(self.archive.columns))
                     .into_iter()
@@ -300,10 +300,13 @@ mod tests {
         app.update(Action::Left);
         assert_eq!((app.archive_day(), app.archive.cursor), (today, 4));
 
-        // `Tab` gives the keys back and forth, the list cursor stays.
-        app.update(Action::Focus);
+        // `Esc` gives the keys back to the heatmap, `<CR>` to the list, the list cursor stays.
+        // Twice changes nothing.
+        app.update(Action::FocusHeatmap);
+        app.update(Action::FocusHeatmap);
         assert_eq!(app.archive.focus, Focus::Heatmap);
-        app.update(Action::Focus);
+        app.update(Action::FocusList);
+        app.update(Action::FocusList);
         assert_eq!((app.archive.focus, app.archive.cursor), (Focus::List, 4));
         app.update(Action::Up);
         assert_eq!(app.archive.cursor, 3);

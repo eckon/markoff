@@ -21,8 +21,10 @@ pub enum Action {
     SkipDown,
     SkipUp,
     SkipRight,
-    /// `Tab` on the archive page: the heatmap or the list takes the move keys.
-    Focus,
+    /// `<CR>` on the archive page: the list takes the move keys, it shows the selected day.
+    FocusList,
+    /// `Esc` on the archive page: the heatmap takes the move keys back.
+    FocusHeatmap,
     /// `p`: shows or hides the preview of the task at the cursor, on each page of its own.
     Preview,
     /// `.`: shows or hides the repeating tasks that are not due, like hidden files.
@@ -43,7 +45,7 @@ pub enum Action {
     Delete,
     Undo,
     Help,
-    /// `[` / `]`: the page before or after the current one, see [`Page`].
+    /// `S-Tab` / `Tab`: the page before or after the current one, see [`Page`].
     PrevPage,
     NextPage,
     Quit,
@@ -56,7 +58,7 @@ pub enum Action {
     FilterDeleteWord,
     /// `<CR>` in the filter input: closes it, the filter stays.
     FilterAccept,
-    /// `Esc`: closes the filter input and clears the filter.
+    /// `Esc` in the filter input: closes it and clears the filter.
     FilterClear,
 }
 
@@ -95,7 +97,7 @@ const ARCHIVE: &[Page] = &[Page::Archive];
 const ALL: &[Page] = &[Page::Todo, Page::Archive];
 
 use Action as A;
-use KeyCode::{Backspace, Char, Down, End, Enter, Esc, Home, Left, Right, Tab, Up};
+use KeyCode::{BackTab, Backspace, Char, Down, End, Enter, Esc, Home, Left, Right, Tab, Up};
 use Trigger::{Ctrl, Key, Seq, Shift};
 
 /// The single source of truth for keys: [`Keymap::handle`] reads it and so does the help
@@ -128,10 +130,9 @@ pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('p'))], A::Preview)], help: "toggle preview", group: "other", pages: TODO },
     Binding { keys: &[(&[Key(Char('.'))], A::ShowHidden)], help: "toggle hidden tasks", group: "other", pages: TODO },
     Binding { keys: &[(&[Key(Char('/'))], A::Filter)], help: "filter", group: "other", pages: TODO },
-    Binding { keys: &[(&[Key(Esc)], A::FilterClear)], help: "clear filter", group: "other", pages: TODO },
-    Binding { keys: &[(&[Key(Tab)], A::Focus)], help: "keys to heatmap / list", group: "other", pages: ARCHIVE },
+    Binding { keys: &[(&[Key(Enter)], A::FocusList), (&[Key(Esc)], A::FocusHeatmap)], help: "keys to list / heatmap", group: "other", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('?'))], A::Help)], help: "toggle help", group: "other", pages: ALL },
-    Binding { keys: &[(&[Key(Char('['))], A::PrevPage), (&[Key(Char(']'))], A::NextPage)], help: "previous / next page", group: "other", pages: ALL },
+    Binding { keys: &[(&[Key(Tab)], A::NextPage), (&[Key(BackTab)], A::PrevPage)], help: "next / previous page", group: "other", pages: ALL },
     Binding { keys: &[(&[Key(Char('q')), Ctrl('c')], A::Quit)], help: "quit", group: "other", pages: ALL },
 ];
 
@@ -152,6 +153,7 @@ impl Binding {
                 }
                 (Key(Char(c)), _) => Some(c.to_string()),
                 (Key(Enter), _) => Some("<CR>".to_string()),
+                (Key(BackTab), _) => Some("S-Tab".to_string()),
                 (Key(other), _) => Some(format!("{other:?}")),
                 (Ctrl(c), _) => Some(format!("C-{c}")),
                 (Seq(a, b), _) => Some(format!("{a}{b}")),
@@ -215,8 +217,10 @@ impl Keymap {
                 .find_map(|(t, action)| (t == Seq(first, second)).then_some(action));
         }
 
-        // Shift only counts for non-letters: a shifted letter already arrives as `J`.
-        let shift = key.modifiers.contains(KeyModifiers::SHIFT) && !matches!(key.code, Char(_));
+        // Shift only counts for non-letters: a shifted letter already arrives as `J`, a shifted
+        // `Tab` as `BackTab`.
+        let shift =
+            key.modifiers.contains(KeyModifiers::SHIFT) && !matches!(key.code, Char(_) | BackTab);
         for (trigger, action) in triggers {
             match trigger {
                 Key(code) if code == key.code && !shift => return Some(action),
@@ -334,6 +338,7 @@ mod tests {
         assert_eq!(labels("move down / up"), ["J", "K"]);
         assert_eq!(labels("quit"), ["q", "C-c"]);
         assert_eq!(labels("jump to section"), ["1-9"]);
+        assert_eq!(labels("next / previous page"), ["Tab", "S-Tab"]);
     }
 
     #[test]
@@ -395,9 +400,25 @@ mod tests {
     }
 
     #[test]
-    fn esc_clears_filter_and_never_quits() {
+    fn esc_only_backs_out() {
         let mut keymap = Keymap::default();
-        assert_eq!(press(&mut keymap, KeyCode::Esc), Some(Action::FilterClear));
+        // The filter is cleared from its input, `Esc` on the todo list does nothing.
+        assert_eq!(press(&mut keymap, KeyCode::Esc), None);
+        let esc = KeyEvent::from(KeyCode::Esc);
+        assert_eq!(
+            keymap.handle(esc, Page::Archive),
+            Some(Action::FocusHeatmap)
+        );
+    }
+
+    #[test]
+    fn shift_tab_is_the_previous_page() {
+        let mut keymap = Keymap::default();
+        // Terminals send `BackTab`, some with the shift modifier set.
+        let back_tab = KeyEvent::new(BackTab, KeyModifiers::SHIFT);
+        assert_eq!(keymap.handle(back_tab, Page::Todo), Some(Action::PrevPage));
+        assert_eq!(press(&mut keymap, BackTab), Some(Action::PrevPage));
+        assert_eq!(press(&mut keymap, Tab), Some(Action::NextPage));
     }
 
     #[test]

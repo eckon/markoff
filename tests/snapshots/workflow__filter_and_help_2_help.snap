@@ -2,25 +2,25 @@
 source: tests/workflow.rs
 expression: app.state()
 ---
-── [ todo  archive ] ── [date] ─║
-                                          ║  help
- ▌──[1]─ home ────────────── 2            ║
-     • Buy milk                           ║  ── move ──────────────────────────
-     • Call mom                           ║  j / k ···· down / up
-                                          ║  gg / G ··· top / bottom
-  ──[2]─ work ────────────── 1            ║  { / } ···· previous / next section
-     • Review PR                          ║  1-9 ······ jump to section
-                                          ║
-                                          ║  ── change ────────────────────────
-                                          ║  J / K ···· move down / up
-                                          ║  <CR> ····· open in $EDITOR
-                                          ║  o / O ···· new task below / above
-                                          ║  N ········ new section
-                                          ║  X ········ done (archive)
-                                          ║  D ········ delete
-                                          ║  u ········ undo
-                                          ║
-                                          ║  ── other ─────────────────────────
+── todo  archive ── [date] ─║
+                                      ║  help
+ ▌──[1]─ home ────────────── 2        ║
+     • Buy milk                       ║  ── move ──────────────────────────────
+     • Call mom                       ║  j / k ········ down / up
+                                      ║  gg / G ······· top / bottom
+  ──[2]─ work ────────────── 1        ║  { / } ········ previous / next section
+     • Review PR                      ║  1-9 ·········· jump to section
+                                      ║
+                                      ║  ── change ────────────────────────────
+                                      ║  J / K ········ move down / up
+                                      ║  <CR> ········· open in $EDITOR
+                                      ║  o / O ········ new task below / above
+                                      ║  N ············ new section
+                                      ║  X ············ done (archive)
+                                      ║  D ············ delete
+                                      ║  u ············ undo
+                                      ║
+                                      ║  ── other ─────────────────────────────
 ────────────────────────────────────────────────────────────────── ? toggle help
 
 --- .markoff

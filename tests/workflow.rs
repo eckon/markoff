@@ -124,6 +124,8 @@ impl Markoff {
                     "S-Down" => "\x1b[1;2B",
                     "Home" => "\x1b[H",
                     "End" => "\x1b[F",
+                    "Tab" => "\t",
+                    "S-Tab" => "\x1b[Z",
                     "C-c" => "\x03",
                     _ => panic!("unknown key <{name}>"),
                 };
@@ -411,7 +413,8 @@ fn filter_and_help() {
     app.wait_for("clear the filter first");
     snapshot!("filter_and_help_1_filtered", app.state());
 
-    app.press("<Esc>");
+    // `Esc` clears it from the filter input.
+    app.press("/<Esc>");
     app.wait_for("• Review PR");
 
     // Other keys do nothing while the help is open, it closes with ? or <Esc>.
@@ -434,7 +437,7 @@ fn filter_and_help() {
     app.quit();
 }
 
-/// The archive: a page of its own with a heatmap of done tasks, `[` / `]` switch to it. It moves
+/// The archive: a page of its own with a heatmap of done tasks, `<Tab>` / `<S-Tab>` switch to it. It moves
 /// with the date (today's row, the month names), so this one checks what holds on any day
 /// instead of snapshots.
 #[test]
@@ -450,7 +453,7 @@ fn archive() {
 
     // Recent days one cell each, the cursor on the last day with tasks done and its tasks below,
     // newest first.
-    app.press("]");
+    app.press("<Tab>");
     app.wait_for("daily");
     app.wait_for("• Old two");
     app.wait_for("• Old one");
@@ -460,29 +463,29 @@ fn archive() {
         app.screen()
     );
 
-    // `Tab` gives the keys to the list, its task shows its body next to it. `p` hides it, so
-    // does `Tab` back to the heatmap.
-    app.press("\tj");
+    // `<CR>` gives the keys to the list, its task shows its body next to it. `p` hides it, so
+    // does `<Esc>` back to the heatmap.
+    app.press("<CR>j");
     app.wait_for("│ old notes");
     app.press("p");
     app.wait_for("preview off");
     assert!(!app.screen().contains("old notes"), "{}", app.screen());
     app.press("p");
     app.wait_for("│ old notes");
-    app.press("\t");
+    app.press("<Esc>");
     app.wait_for(&format!("{} ? toggle help", "─".repeat(66)));
 
-    // Todo keys do nothing on it, `[` goes back to the list.
-    app.press("X[");
+    // Todo keys do nothing on it, `<S-Tab>` goes back to the list.
+    app.press("X<S-Tab>");
     app.wait_for("• Fix bug");
     app.wait_for("✓ 0 done");
 
     // The page stays where it was, the pages wrap around.
     app.press("jX");
     app.wait_for("✓ 1 done");
-    app.press("]");
+    app.press("<Tab>");
     app.wait_for("• Old two");
-    app.press("]");
+    app.press("<Tab>");
     app.wait_for("──[1]─ work");
 
     app.quit();

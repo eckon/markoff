@@ -251,8 +251,8 @@ impl App {
                 return;
             }
             // Only `?` and `Esc` close the help, other keys do nothing, so a stray key cannot
-            // change tasks that are dimmed behind it. `Esc` by its code, on the archive page it
-            // has no binding.
+            // change tasks that are dimmed behind it. `Esc` by its code, on the todo list it has
+            // no binding.
             if self.show_help {
                 if action == Some(Action::Help) || key.code == KeyCode::Esc {
                     self.show_help = false;
@@ -293,7 +293,7 @@ impl App {
                     | Action::NewSection
             )
         {
-            self.status = Some(Status::Info("clear the filter first (Esc)".to_string()));
+            self.status = Some(Status::Info("clear the filter first (/ Esc)".to_string()));
             return Ok(());
         }
         // Writing actions see clean names. Not undo: its inverse fits the files as they are.
@@ -311,7 +311,8 @@ impl App {
             | Action::SkipDown
             | Action::SkipUp
             | Action::SkipRight
-            | Action::Focus => {}
+            | Action::FocusList
+            | Action::FocusHeatmap => {}
             // A section hidden by the filter has no header to jump to.
             Action::Up
             | Action::Down
@@ -791,15 +792,15 @@ pub mod tests {
     fn pages_wrap_around_and_keep_todo_keys_to_the_list() {
         let (_dir, mut app) = app_with_files(&["work/a.md"]);
         app.cursor = 1;
-        app.handle_event(Event::Key(KeyCode::Char(']').into()));
+        app.handle_event(Event::Key(KeyCode::Tab.into()));
         assert_eq!(app.page, Page::Archive);
 
         app.handle_event(Event::Key(KeyCode::Char('X').into()));
         assert_eq!(listing(&app), ["[work]", "a.md"], "X did not archive");
 
-        app.handle_event(Event::Key(KeyCode::Char(']').into()));
+        app.handle_event(Event::Key(KeyCode::Tab.into()));
         assert_eq!(app.page, Page::Todo, "wraps around");
-        app.handle_event(Event::Key(KeyCode::Char('[').into()));
+        app.handle_event(Event::Key(KeyCode::BackTab.into()));
         assert_eq!(app.page, Page::Archive);
     }
 
@@ -818,7 +819,7 @@ pub mod tests {
         app.update(Action::NextPage);
         app.update(Action::Preview);
         assert!(!app.archive.hide_preview, "not in the heatmap");
-        app.update(Action::Focus);
+        app.update(Action::FocusList);
         app.update(Action::Preview);
         assert!(app.archive.hide_preview);
         assert_eq!(app.status, info("preview off"));
@@ -1055,9 +1056,11 @@ pub mod tests {
         assert!(!app.filter_input);
         assert_eq!(app.filter, "b", "accepting keeps the filter");
 
-        // Back to normal keys, `Esc` clears.
+        // Back to normal keys, `Esc` does nothing, `/` and `Esc` clear.
         app.handle_event(key(KeyCode::Char('j')));
+        app.handle_event(key(KeyCode::Esc));
         assert_eq!(app.filter, "b");
+        app.handle_event(key(KeyCode::Char('/')));
         app.handle_event(key(KeyCode::Esc));
         assert_eq!(app.filter, "");
     }
@@ -1079,7 +1082,7 @@ pub mod tests {
             app.update(action);
             assert_eq!(
                 app.status,
-                Some(Status::Info("clear the filter first (Esc)".to_string())),
+                Some(Status::Info("clear the filter first (/ Esc)".to_string())),
                 "{action:?}"
             );
         }

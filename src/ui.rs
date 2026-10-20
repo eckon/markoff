@@ -145,12 +145,10 @@ fn join_divider(frame: &mut Frame, x: u16, gap_y: u16, rule_y: u16, joint: &str)
     }
 }
 
-/// `── [ todo  archive ] ── Sat 17 Oct ──── 4 open · ✓ 2 done` over the whole width: the pages
-/// with the current one in [`CURRENT_COLOR`], between the keys that switch them, then the page's
-/// `date` and `count`.
+/// `── todo  archive ── Sat 17 Oct ──── 4 open · ✓ 2 done` over the whole width: the pages with
+/// the current one in [`CURRENT_COLOR`], then the page's `date` and `count`.
 fn render_header(app: &App, frame: &mut Frame, area: Rect, date: &str, count: Vec<Span<'static>>) {
-    // The keys in the style of the hints in the status line.
-    let mut pages = vec!["── ".fg(LINE_COLOR), "[ ".bold()];
+    let mut pages = vec!["── ".fg(LINE_COLOR)];
     for (i, page) in Page::ALL.into_iter().enumerate() {
         if i > 0 {
             pages.push("  ".into());
@@ -160,7 +158,7 @@ fn render_header(app: &App, frame: &mut Frame, area: Rect, date: &str, count: Ve
             false => page.name().dim(),
         });
     }
-    pages.extend([" ]".bold(), " ── ".fg(LINE_COLOR)]);
+    pages.push(" ── ".fg(LINE_COLOR));
     // Not bold, that is for keys.
     let spans = rule(
         Some(pages),
@@ -225,21 +223,19 @@ fn hints(app: &App) -> Vec<(String, &'static str)> {
             .map(|(key, text)| (key.to_string(), *text))
             .collect();
     }
-    let help = (Action::Help, "toggle help");
-    let hints = if app.filter.is_empty() || app.show_help || app.page == Page::Archive {
-        vec![help]
-    } else {
-        vec![(Action::FilterClear, "clear filter"), help]
+    let key = |action| {
+        BINDINGS
+            .iter()
+            .find(|b| b.keys.iter().any(|(_, a)| *a == action))
+            .map(|b| b.labels().join(" / "))
     };
+    let mut hints = Vec::new();
+    // The filter is cleared from its input: its key, then `Esc`.
+    if !app.filter.is_empty() && !app.show_help && app.page == Page::Todo {
+        hints.extend(key(Action::Filter).map(|key| (format!("{key} Esc"), "clear filter")));
+    }
+    hints.extend(key(Action::Help).map(|key| (key, "toggle help")));
     hints
-        .into_iter()
-        .filter_map(|(action, text)| {
-            BINDINGS
-                .iter()
-                .find(|b| b.keys.iter().any(|(_, a)| *a == action))
-                .map(|b| (b.labels().join(" / "), text))
-        })
-        .collect()
 }
 
 /// The left side of the status line when the filter input is closed, empty for nothing.
@@ -648,7 +644,7 @@ mod tests {
 
         let date = jiff::Zoned::now().strftime("%a %d %b").to_string();
         assert!(
-            lines[0].starts_with(&format!("── [ todo  archive ] ── {date} ─")),
+            lines[0].starts_with(&format!("── todo  archive ── {date} ─")),
             "{lines:#?}"
         );
         assert!(lines[0].ends_with("─ 3 open · ✓ 2 done"), "{lines:#?}");
