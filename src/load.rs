@@ -68,14 +68,14 @@ pub fn read_if_exists(path: &Path) -> Result<Option<String>> {
 /// name is no date are skipped. No `.archive/` yet means nothing was done.
 pub fn archive(root: &Path) -> Result<history::Archive> {
     let dir = root.join(archive::DIR);
-    if !dir.is_dir() {
-        return Ok(history::Archive::new());
-    }
     let mut days = history::Archive::new();
+    if !dir.is_dir() {
+        return Ok(days);
+    }
     for path in visible_entries(&dir)? {
         let Some(date) = Some(&path)
             .filter(|path| is_markdown(path))
-            .and_then(|path| path.file_stem()?.to_str())
+            .and_then(|path| task::stem(path))
             .and_then(|stem| stem.parse::<Date>().ok())
         else {
             continue;
@@ -89,11 +89,7 @@ pub fn archive(root: &Path) -> Result<history::Archive> {
 
 fn load_tasks(mut paths: Vec<PathBuf>, state: &State, section: &str) -> Result<Vec<Task>> {
     sort_by_order(&mut paths, |path| {
-        let stem = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or_default();
-        state.task_position(section, stem)
+        state.task_position(section, task::stem(path).unwrap_or_default())
     });
     paths
         .into_iter()

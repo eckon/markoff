@@ -188,7 +188,7 @@ impl Keymap {
     /// Returns `None` while a sequence is incomplete and for keys not mapped on `page`. `Esc`
     /// during a sequence only cancels it.
     pub fn handle(&mut self, key: KeyEvent, page: Page) -> Option<Action> {
-        let triggers = BINDINGS
+        let mut triggers = BINDINGS
             .iter()
             .filter(|binding| binding.pages.contains(&page))
             .flat_map(Binding::triggers);
@@ -200,9 +200,7 @@ impl Keymap {
             let KeyCode::Char(c) = key.code else {
                 return None;
             };
-            return triggers
-                .into_iter()
-                .find_map(|(t, action)| (t == Ctrl(c)).then_some(action));
+            return triggers.find_map(|(t, action)| (t == Ctrl(c)).then_some(action));
         }
 
         // Any key ends a pending sequence, whether it completes it or not (like vim).
@@ -210,9 +208,7 @@ impl Keymap {
             let KeyCode::Char(second) = key.code else {
                 return None;
             };
-            return triggers
-                .into_iter()
-                .find_map(|(t, action)| (t == Seq(first, second)).then_some(action));
+            return triggers.find_map(|(t, action)| (t == Seq(first, second)).then_some(action));
         }
 
         // Shift only counts for non-letters: a shifted letter already arrives as `J`, a shifted

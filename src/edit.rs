@@ -129,7 +129,6 @@ pub fn archive(
 }
 
 /// A task file, as far as its name is concerned.
-#[derive(Debug, Clone)]
 struct Entry {
     path: PathBuf,
     /// The name it has now. `None` if it comes from another section and has to make room for
@@ -146,7 +145,11 @@ impl Entry {
         Self {
             path: task.path.clone(),
             current: Some(task.stem().to_string()),
-            slug: wanted_slug(task),
+            // Without heading the name stays (`My Notes.md`).
+            slug: match &task.heading {
+                Some(heading) => slugify(heading),
+                None => task.stem().to_string(),
+            },
             done: task.done,
         }
     }
@@ -155,14 +158,6 @@ impl Entry {
 /// The tasks of a section as [`Entry`]s, in display order.
 fn task_entries(section: &Section) -> Vec<Entry> {
     section.tasks.iter().map(Entry::task).collect()
-}
-
-/// Slug from the heading. Without heading the name stays (`My Notes.md`).
-fn wanted_slug(task: &Task) -> String {
-    match &task.heading {
-        Some(heading) => slugify(heading),
-        None => task.stem().to_string(),
-    }
 }
 
 /// Renames tasks whose filename does not match their heading, and writes the state file so

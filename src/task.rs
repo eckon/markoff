@@ -77,7 +77,8 @@ pub struct Section {
     pub tasks: Vec<Task>,
 }
 
-fn stem(path: &Path) -> Option<&str> {
+/// The filename without `.md`, `None` if it is no valid UTF-8.
+pub fn stem(path: &Path) -> Option<&str> {
     path.file_stem()?.to_str()
 }
 
