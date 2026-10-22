@@ -89,7 +89,7 @@ pub fn render(
         };
         let right_width = right.as_ref().map_or(0, |right| right.width() + 1);
         let title_width = width.saturating_sub(Line::from(prefix(true)).width() + right_width);
-        // Every title wrapped, not only the cursor's, so moving never shifts the rows below.
+        // Every title wraps, so moving the cursor never shifts the rows below.
         let lines: Vec<Line> = wrap(title, title_width)
             .into_iter()
             .enumerate()
@@ -168,7 +168,7 @@ pub fn section_rule(
     )
 }
 
-/// Spans split into single styled chars, so they can be cut anywhere.
+/// Spans split into single styled chars, so a line can break anywhere.
 fn chars(spans: Vec<Span<'static>>) -> Vec<(char, Style)> {
     spans
         .iter()

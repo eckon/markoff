@@ -147,7 +147,7 @@ pub struct StateFile {
 }
 
 impl StateFile {
-    /// The op that writes `order`, `None` if the file already says that. No file is created
+    /// The op that writes `state`, `None` if the file already says that. No file is created
     /// for an empty order.
     pub fn write(&self, state: &State) -> Option<Op> {
         let after = state.format();

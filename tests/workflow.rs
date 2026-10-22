@@ -437,9 +437,9 @@ fn filter_and_help() {
     app.quit();
 }
 
-/// The archive: a page of its own with a heatmap of done tasks, `<Tab>` / `<S-Tab>` switch to it. It moves
-/// with the date (today's row, the month names), so this one checks what holds on any day
-/// instead of snapshots.
+/// The archive: a page of its own with a heatmap of done tasks, `<Tab>` / `<S-Tab>` switch to
+/// it. It moves with the date (today's row, the month names), so this one checks what holds on
+/// any day instead of snapshots.
 #[test]
 fn archive() {
     let today = jiff::Zoned::now().date();

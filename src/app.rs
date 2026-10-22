@@ -39,7 +39,8 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// One line in the list. The cursor moves over these.
 ///
-/// Section headers are rows too, so the cursor can land on an empty section (to add a task or move a section).
+/// Section headers are rows too, so the cursor can land on an empty section (to add a task or
+/// move a section).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Row {
     Section(usize),
@@ -47,7 +48,7 @@ pub enum Row {
     Task(usize, usize),
 }
 
-/// A screen of its own, switched with `[` / `]` in this order. The help is an overlay on top.
+/// A screen of its own, switched with `Tab` / `S-Tab` in this order. The help is an overlay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
     Todo,

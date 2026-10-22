@@ -72,9 +72,9 @@ pub fn usage_error(message: &str) -> Report {
 /// Resolves the root directory, the one with the sections, and the command if one is given.
 ///
 /// Options may stand anywhere, everything else is left to [`Command::parse`], so commands never
-/// see options. Root order: `--dir <path>` / `--dir=<path>`, then [`DIR_ENV`], then `general.dir` of the
-/// config file.
-/// Args, env and config are parameters so this can be tested without the real process.
+/// see options. Root order: `--dir <path>` / `--dir=<path>`, then [`DIR_ENV`], then
+/// `general.dir` of the config file. Args, env and config are parameters so this can be tested
+/// without the real process.
 pub fn parse_args(
     mut args: impl Iterator<Item = String>,
     env: Option<String>,

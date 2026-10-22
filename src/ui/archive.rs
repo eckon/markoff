@@ -212,7 +212,7 @@ mod tests {
         assert_eq!(screen[double + 1].chars().nth(divider), Some('│'));
         assert_eq!(screen[22].chars().nth(divider), Some('│'), "{screen:#?}");
         assert_eq!(screen[23].chars().nth(divider), Some('┴'), "{screen:#?}");
-        // The list is cut at the split, the date at its end.
+        // The list wraps at the split, the date stays at its end.
         let row = at("a done task").unwrap();
         assert!(screen[row][..screen[row].find('│').unwrap()].contains("today"));
 

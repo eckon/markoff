@@ -36,8 +36,8 @@ pub fn open(terminal: &mut DefaultTerminal, path: &Path, args: &[&str]) -> Resul
     Ok(())
 }
 
-/// Opens the editor on a new, empty draft in `dir` with `content` and returns what was
-/// saved. Starts in insert mode, there is nothing to change yet.
+/// Opens the editor on a new draft in `dir`, prefilled with `content` to fill in, and returns
+/// what was saved. Starts in insert mode, there is nothing to change yet.
 ///
 /// For a task `dir` is the section it will end up in, so relative and wiki links already
 /// resolve while writing and stay valid when the task is created next to the draft.

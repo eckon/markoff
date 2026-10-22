@@ -25,7 +25,7 @@ pub struct ArchivePage {
     pub hide_preview: bool,
 }
 
-/// What takes the move keys on the archive page, switched with `Tab`.
+/// What takes the move keys on the archive page, switched with `<CR>` / `Esc`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     #[default]

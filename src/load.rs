@@ -1,4 +1,5 @@
-//! Reads the root directory into [`Section`]s, in the order of [`state::FILE`].
+//! Reads the root directory into [`Section`]s, in the order of [`state::FILE`], and the archive
+//! into the done tasks per day.
 
 use std::{
     fs, io,

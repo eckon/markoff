@@ -13,7 +13,7 @@ pub struct Repeat {
     cron: Cron,
 }
 
-/// Splits the rule off the end of `heading`: `Water plants `* * mon`` -> `("Water plants",
+/// Splits the rule off the end of `heading`: ``Water plants `* * mon` `` -> `("Water plants",
 /// Some(..))`. Code that is no rule stays part of the title, so a typo shows in the list. So
 /// does a heading that is only a rule, it would leave no title.
 pub fn split(heading: &str) -> (&str, Option<Repeat>) {
