@@ -12,6 +12,7 @@ use crate::{
     archive,
     name::slugify,
     op::Op,
+    repeat,
     state::{Group, Item, State, StateFile},
     task::{EXTENSION, HEADING, Section, Task, split_heading},
 };
@@ -195,7 +196,7 @@ pub fn insert(
         .iter()
         .map(|task| task.stem().to_string())
         .collect();
-    let name = unique_slug(&taken, slugify(title));
+    let name = unique_slug(&taken, slugify(repeat::split(title).0));
     let path = section.dir.join(&name).with_extension(EXTENSION);
     let mut state = State::of(sections);
     state.sections[s]
@@ -605,6 +606,14 @@ mod tests {
         };
         assert_eq!(content, "# Fix bug\n\nbody");
         assert_eq!(path, Path::new("root/work/fix-bug.md"));
+    }
+
+    #[test]
+    fn insert_names_a_repeating_task_without_its_rule() {
+        let s = tree(&[("work", &[])]);
+        let title = "Water plants `* * mon`";
+        let (_, path) = insert(&s, 0, 0, title, &format!("# {title}"), &file_for(&s));
+        assert_eq!(path, Path::new("root/work/water-plants.md"));
     }
 
     #[test]
