@@ -7,10 +7,10 @@ use jiff::{ToSpan, civil::Date};
 
 use crate::archive::Done;
 
-/// The done tasks per day, only days with an archive file, see [`crate::load::archive`].
+/// The done tasks per day, only days with an archive directory, see [`crate::load::archive`].
 pub type Archive = BTreeMap<Date, Vec<Done>>;
 
-/// Tasks done per day, only days with an archive file.
+/// Tasks done per day, only days with an archive directory.
 pub type Days = BTreeMap<Date, usize>;
 
 /// Tasks done per day.
@@ -163,7 +163,10 @@ pub fn level(rate: f64, bounds: &[f64]) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
+    use crate::task::Task;
 
     fn date(text: &str) -> Date {
         text.parse().unwrap()
@@ -287,8 +290,7 @@ mod tests {
     fn days_count_the_tasks_of_each_day() {
         let done = || Done {
             section: "work".to_string(),
-            title: String::new(),
-            body: String::new(),
+            task: Task::parse(PathBuf::new(), ""),
         };
         let archive = Archive::from([
             (date("2026-10-12"), vec![done(), done(), done()]),

@@ -51,7 +51,9 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 <root>/
   .markoff             <- order, when repeating tasks were last done
   .archive/
-    2026-10-14.md      <- tasks done that day
+    2026-10-14/        <- tasks done that day, laid out like the root
+      work/
+        old-task.md
   notes.md             <- ignored, files in the root are not tasks
   work/                <- section "work"
     fix-login-bug.md   <- task "# Fix login bug"
@@ -61,8 +63,8 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 - A section is a directory, a task is a `.md` file in it starting with `# Title`.
 - Filenames follow the title. Files added or edited by hand are renamed on start and before the next change.
 - `.markoff` is written by markoff. New files go to the end, deleted ones are dropped. Add it to `.gitignore` to keep order changes and done dates out of git.
-- Done tasks (`X`) are appended to `.archive/YYYY-MM-DD.md` under their section.
-- The archive page (`Tab`) shows a heatmap of the done tasks back to the first archived day: recent days one by one, further back each cell covers more. Brighter means more tasks per day, ranked in quarters of the days with anything done. Dividers in the top row mark where a cell starts to cover more: daily, weekly, monthly, yearly. The cursor in the heatmap picks a cell, the header shows its days and how many tasks were done, the list below them by section, newest first, with the body of the task at the cursor next to it while the list has the keys.
+- Done tasks (`X`) move to `.archive/YYYY-MM-DD/<section>/` as they are. A task done twice a day gets a number: `call-bob-2.md`.
+- The archive page (`Tab`) shows a heatmap of the done tasks back to the first archived day: recent days one by one, further back each cell covers more. Brighter means more tasks per day, ranked in quarters of the days with anything done. Dividers in the top row mark where a cell starts to cover more: daily, weekly, monthly, yearly. The cursor in the heatmap picks a cell, the header shows its days and how many tasks were done, the list below them by section, newest day first, with the body of the task at the cursor next to it while the list has the keys.
 
 ## Repeating tasks
 

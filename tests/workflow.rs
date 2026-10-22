@@ -448,19 +448,25 @@ fn filter_and_help() {
 fn archive() {
     let today = jiff::Zoned::now().date();
     let earlier = today.saturating_sub(jiff::Span::new().days(10));
-    let archive = format!("# {earlier}\n\n## work\n\n### Old one\n\nold notes\n\n### Old two\n");
     let mut app = Markoff::start_with(&[
         ("work/fix-bug.md", "# Fix bug\n"),
-        (&format!(".archive/{earlier}.md"), &archive),
+        (
+            &format!(".archive/{earlier}/work/old-one.md"),
+            "# Old one\n",
+        ),
+        (
+            &format!(".archive/{earlier}/work/old-two.md"),
+            "# Old two\n\nold notes\n",
+        ),
     ]);
     app.wait_for("✓ 0 done");
 
     // Recent days one cell each, the cursor on the last day with tasks done and its tasks below,
-    // newest first.
+    // by name.
     app.press("<Tab>");
     app.wait_for("daily");
-    app.wait_for("• Old two");
     app.wait_for("• Old one");
+    app.wait_for("• Old two");
     assert!(
         app.screen().lines().any(|row| row.ends_with(" Mon")),
         "{}",

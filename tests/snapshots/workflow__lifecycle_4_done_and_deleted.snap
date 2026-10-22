@@ -25,12 +25,12 @@ expression: app.state()
 
 --- .archive/
 
---- .archive/[date].md
-# [date]
+--- .archive/[date]/
 
-## house
+--- .archive/[date]/house/
 
-### Pay rent
+--- .archive/[date]/house/pay-rent.md
+# Pay rent
 
 --- .markoff
 # house

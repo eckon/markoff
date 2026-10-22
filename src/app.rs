@@ -2,15 +2,11 @@
 //! `$EDITOR` is in [`editor`], the archive page in [`archive`].
 
 use std::{
-    fs,
     path::{Path, PathBuf},
     time::Duration,
 };
 
-use color_eyre::{
-    Result,
-    eyre::{WrapErr, eyre},
-};
+use color_eyre::{Result, eyre::eyre};
 use jiff::civil::Date;
 use ratatui::{
     DefaultTerminal,
@@ -29,7 +25,7 @@ use crate::{
     load,
     op::{self, Op},
     state::{self, StateFile},
-    task::{self, Section, Task},
+    task::{Section, Task},
     ui,
     watch::TodoWatcher,
 };
@@ -465,21 +461,27 @@ impl App {
             }
             return Ok(());
         }
-        let date = date.to_string();
-        let archive_dir = self.root.join(crate::archive::DIR);
-        let archive_path = archive_dir.join(&date).with_extension(task::EXTENSION);
-        // Not an op: an empty `.archive/` left behind by undo does no harm.
-        fs::create_dir_all(&archive_dir)
-            .wrap_err_with(|| format!("failed to create {}", archive_dir.display()))?;
-        let existing = load::read_if_exists(&archive_path)?;
+        let section = &self.sections[s].name;
+        let dir = (self.root.join(crate::archive::DIR))
+            .join(date.to_string())
+            .join(section);
+        let mut missing: Vec<PathBuf> = (dir.ancestors())
+            .take_while(|dir| !dir.exists())
+            .map(Path::to_path_buf)
+            .collect();
+        missing.reverse();
+        let taken: Vec<String> = (self.done.get(&date).into_iter().flatten())
+            .filter(|done| &done.section == section)
+            .map(|done| done.task.stem().to_string())
+            .collect();
 
         let ops = edit::archive(
             &self.sections,
             s,
             t,
-            &archive_path,
-            existing.as_deref(),
-            &date,
+            &dir,
+            &missing,
+            &taken,
             &self.state_file,
         );
         self.apply(ops)?;
@@ -1299,7 +1301,9 @@ pub mod tests {
     #[test]
     fn done_archives_and_undo_restores() {
         let (dir, mut app) = app_with_files(&["work/a.md", "home/b.md"]);
-        let archive_path = dir.path().join(".archive").join(format!("{TODAY}.md"));
+        fs::write(dir.path().join("work/a.md"), "# a\n\nnotes\n").unwrap();
+        let archive = dir.path().join(".archive");
+        let day = archive.join(TODAY.to_string());
 
         app.cursor = 1;
         app.update(Action::Done);
@@ -1313,21 +1317,40 @@ pub mod tests {
         assert_eq!(listing(&app), ["[work]", "[home]"]);
         assert_eq!(state_file(&dir), "# work\n\n# home\n");
         assert_eq!(
-            fs::read_to_string(&archive_path).unwrap(),
-            format!("# {TODAY}\n\n## work\n\n### a\n\n## home\n\n### b\n")
+            fs::read_to_string(day.join("work/a.md")).unwrap(),
+            "# a\n\nnotes\n",
+            "moved as it was"
         );
+        assert!(day.join("home/b.md").exists());
 
         app.update(Action::Undo);
         assert_eq!(listing(&app), ["[work]", "[home]", "b.md"]);
         assert_eq!(app.done_today(), 1);
-        assert_eq!(
-            fs::read_to_string(&archive_path).unwrap(),
-            format!("# {TODAY}\n\n## work\n\n### a\n")
+        assert!(
+            !day.join("home").exists(),
+            "the directory it needed is gone"
         );
 
         app.update(Action::Undo);
         assert_eq!(listing(&app), ["[work]", "a.md", "[home]", "b.md"]);
-        assert!(!archive_path.exists());
+        assert!(!archive.exists());
+    }
+
+    #[test]
+    fn done_twice_a_day_gets_a_number() {
+        let (dir, mut app) = app_with_files(&["work/a.md"]);
+        let day = dir.path().join(".archive").join(TODAY.to_string());
+        app.cursor = 1;
+        app.update(Action::Done);
+        // The same task again, written outside markoff.
+        fs::write(dir.path().join("work/a.md"), "").unwrap();
+        app.reload(None).unwrap();
+
+        app.cursor = 1;
+        app.update(Action::Done);
+        assert!(day.join("work/a.md").exists());
+        assert!(day.join("work/a-2.md").exists());
+        assert_eq!(app.done_today(), 2);
     }
 
     #[test]

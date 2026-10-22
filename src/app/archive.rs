@@ -49,7 +49,7 @@ impl App {
     pub fn archive_day(&self) -> Date {
         let today = self.today;
         self.archive.day.unwrap_or_else(|| {
-            // An archive file can be empty, that is no day with tasks done.
+            // A day directory can be empty, that is no day with tasks done.
             let last = self.days.range(..=today).rfind(|(_, done)| **done > 0);
             last.map_or(today, |(&day, _)| day)
         })
@@ -160,8 +160,8 @@ impl App {
         }
     }
 
-    /// The done tasks of the selected cell under their sections, newest first. Sections without
-    /// any are left out.
+    /// The done tasks of the selected cell under their sections, newest day first, by name within
+    /// a day. Sections without any are left out.
     pub fn archive_rows(&self, columns: usize) -> Vec<ArchiveRow> {
         let (start, length) = self.archive_cell(columns);
         let days: Vec<_> = self
@@ -176,7 +176,6 @@ impl App {
                 .iter()
                 .flat_map(|&(&day, done)| {
                     (0..done.len())
-                        .rev()
                         .filter(|&i| &done[i].section == name)
                         .map(move |i| ArchiveRow::Task(s, day, i))
                 })
@@ -199,13 +198,14 @@ mod tests {
     use crate::{
         app::tests::{TODAY, sections},
         archive::Done,
+        task::Task,
     };
 
     #[test]
-    fn first_open_skips_empty_archive_files() {
+    fn first_open_skips_empty_days() {
         let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
         app.today = TODAY;
-        // Far back, where a cell covers several days, the newest file without tasks.
+        // Far back, where a cell covers several days, the newest day without tasks.
         let day = TODAY - 400.days();
         app.done = [
             (day - 1.days(), vec![done("work")]),
@@ -228,8 +228,7 @@ mod tests {
     fn done(section: &str) -> Done {
         Done {
             section: section.to_string(),
-            title: String::new(),
-            body: String::new(),
+            task: Task::parse(PathBuf::new(), ""),
         }
     }
 

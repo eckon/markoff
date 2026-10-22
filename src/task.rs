@@ -8,7 +8,7 @@ use jiff::civil::Date;
 
 use crate::repeat::{self, Repeat};
 
-/// Extension of task files. Archive files and drafts have it too, for markdown highlighting.
+/// Extension of task files. Drafts have it too, for markdown highlighting.
 pub const EXTENSION: &str = "md";
 
 /// Starts the `# Heading` that is the title, of tasks and of the drafts in the editor.

@@ -30,7 +30,13 @@ pub fn load(root: &Path) -> Result<(Vec<Section>, StateFile)> {
         .map(State::parse)
         .unwrap_or_default();
 
-    let mut section_dirs: Vec<PathBuf> = visible_entries(root)?
+    let sections = sections(root, &state)?;
+    Ok((sections, file))
+}
+
+/// The section directories in `dir` with their tasks, in the order of `state`.
+fn sections(dir: &Path, state: &State) -> Result<Vec<Section>> {
+    let mut section_dirs: Vec<PathBuf> = visible_entries(dir)?
         .into_iter()
         .filter(|path| path.is_dir())
         .collect();
@@ -46,13 +52,12 @@ pub fn load(root: &Path) -> Result<(Vec<Section>, StateFile)> {
             .filter(|path| path.is_file() && is_markdown(path))
             .collect();
         sections.push(Section {
-            tasks: load_tasks(task_paths, &state, &name)?,
+            tasks: load_tasks(task_paths, state, &name)?,
             name,
             dir,
         });
     }
-
-    Ok((sections, file))
+    Ok(sections)
 }
 
 /// File content, `None` if the file does not exist.
@@ -64,8 +69,9 @@ pub fn read_if_exists(path: &Path) -> Result<Option<String>> {
     }
 }
 
-/// The done tasks per day, from the archive files in `root`, see [`archive::tasks`]. Files whose
-/// name is no date are skipped. No `.archive/` yet means nothing was done.
+/// The done tasks per day from the archive in `root`, each day read like the root without a
+/// state file: sections and tasks by name. Entries whose name is no date are skipped. No
+/// `.archive/` yet means nothing was done.
 pub fn archive(root: &Path) -> Result<history::Archive> {
     let dir = root.join(archive::DIR);
     let mut days = history::Archive::new();
@@ -74,15 +80,21 @@ pub fn archive(root: &Path) -> Result<history::Archive> {
     }
     for path in visible_entries(&dir)? {
         let Some(date) = Some(&path)
-            .filter(|path| is_markdown(path))
-            .and_then(|path| task::stem(path))
-            .and_then(|stem| stem.parse::<Date>().ok())
+            .filter(|path| path.is_dir())
+            .and_then(|path| file_name(path).parse::<Date>().ok())
         else {
             continue;
         };
-        if let Some(content) = read_if_exists(&path)? {
-            days.insert(date, archive::tasks(&content));
-        }
+        let done = sections(&path, &State::default())?
+            .into_iter()
+            .flat_map(|section| {
+                section.tasks.into_iter().map(move |task| archive::Done {
+                    section: section.name.clone(),
+                    task,
+                })
+            })
+            .collect();
+        days.insert(date, done);
     }
     Ok(days)
 }
@@ -157,24 +169,26 @@ mod tests {
     }
 
     #[test]
-    fn archive_by_date_skips_other_files() {
+    fn archive_by_date_skips_other_entries() {
         let dir = fixture(&[
             (
-                ".archive/2026-10-14.md",
-                "# 2026-10-14\n\n## work\n\n### Fix bug\n",
+                ".archive/2026-10-14/work/fix-bug.md",
+                "# Fix bug\n\nnotes\n",
             ),
-            (".archive/2026-10-02.md", "# 2026-10-02\n"),
-            (".archive/notes.md", "## work\n\n### Not a day\n"),
+            (".archive/2026-10-14/work/b.md", ""),
+            (".archive/2026-10-14/home/c.md", ""),
+            (".archive/2026-10-02/", ""),
+            (".archive/2026-10-03.md", "# Old format\n"),
+            (".archive/notes/work/a.md", ""),
         ]);
         let days = archive(dir.path()).unwrap();
         let dates: Vec<String> = days.keys().map(Date::to_string).collect();
         assert_eq!(dates, ["2026-10-02", "2026-10-14"]);
-        let fix_bug = archive::Done {
-            section: "work".to_string(),
-            title: "Fix bug".to_string(),
-            body: String::new(),
-        };
-        assert_eq!(days[&"2026-10-14".parse().unwrap()], [fix_bug]);
+        let done: Vec<String> = days[&"2026-10-14".parse().unwrap()]
+            .iter()
+            .map(|done| format!("{}/{}/{}", done.section, done.task.title(), done.task.body))
+            .collect();
+        assert_eq!(done, ["home/c/", "work/b/", "work/Fix bug/notes\n"]);
     }
 
     #[test]
@@ -254,7 +268,7 @@ mod tests {
         let dir = fixture(&[
             ("readme.md", "# Notes"),
             (".git/config", ""),
-            (".archive/2026-10-14.md", ""),
+            (".archive/2026-10-14/work/a.md", ""),
             ("work/.swap.md", ""),
             ("work/readme.txt", ""),
             ("work/nested/deep.md", ""),

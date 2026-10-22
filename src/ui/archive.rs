@@ -103,6 +103,7 @@ mod tests {
     use crate::{
         app::tests::{TODAY, sections},
         keymap::Action,
+        task::Task,
         ui::{CURRENT_COLOR, render},
     };
 
@@ -128,8 +129,7 @@ mod tests {
         app.today = TODAY;
         let done = crate::archive::Done {
             section: "work".to_string(),
-            title: "Fix bug".to_string(),
-            body: String::new(),
+            task: Task::parse(PathBuf::new(), "# Fix bug\n"),
         };
         app.done = [(TODAY - 1.days(), vec![done])].into();
         app.days = history::days(&app.done);
@@ -184,17 +184,23 @@ mod tests {
     fn preview_of_done_task_only_while_the_list_has_the_keys() {
         let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
         app.today = TODAY;
-        let done = |title: &str, body: &str| crate::archive::Done {
+        let done = |content: &str| crate::archive::Done {
             section: "work".to_string(),
-            title: title.to_string(),
-            body: body.to_string(),
+            task: Task::parse(PathBuf::new(), content),
         };
         let long = "a done task with a title long enough to run past the split";
-        app.done = [(TODAY, vec![done(long, "## Notes\nline"), done("Plain", "")])].into();
+        app.done = [(
+            TODAY,
+            vec![
+                done("# Plain\n"),
+                done(&format!("# {long}\n\n## Notes\nline")),
+            ],
+        )]
+        .into();
         app.days = history::days(&app.done);
         app.update(Action::NextPage);
         app.update(Action::FocusList);
-        // Newest first: `Plain`, then the one with a body.
+        // `Plain` first, then the one with a body.
         app.update(Action::Down);
 
         let screen = lines_80(&app, 24);

@@ -26,7 +26,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> (usiz
     let hidden = app.archive.hide_preview || app.archive.focus == Focus::Heatmap;
     let body = match rows.get(app.archive.cursor) {
         _ if hidden => None,
-        Some(&ArchiveRow::Task(_, day, index)) => Some(app.done[&day][index].body.as_str()),
+        Some(&ArchiveRow::Task(_, day, index)) => Some(app.done[&day][index].task.body.as_str()),
         Some(_) => Some(""),
         None => None,
     };
@@ -72,7 +72,7 @@ fn render_rows(
                     } else {
                         Style::new()
                     };
-                    let title = Span::styled(app.done[&day][index].title.clone(), style);
+                    let title = Span::styled(app.done[&day][index].task.title(), style);
                     rows::Kind::Task(vec![title], Some(when(day, today).dim()), false)
                 }
             };

@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 use jiff::civil::Date;
 
 use crate::{
-    archive,
     name::slugify,
     op::Op,
     repeat,
@@ -95,36 +94,33 @@ pub fn repeat_done(
     file.write(&state).into_iter().collect()
 }
 
-/// `X`: adds task `t` of section `s` to today's archive file, then removes it like [`delete`].
+/// `X`: moves task `t` of section `s` as it is into `dir`, its section in today's archive.
 ///
-/// `existing` is the current content of `archive_path`, `None` if the file does not exist.
-/// Archive first: if removing the task fails, the rollback takes the entry out again.
+/// `missing` are the directories up to `dir` that do not exist yet, outermost first: created
+/// as ops, so undo leaves no empty ones behind. `taken` are the names already in `dir`, a task
+/// done twice a day gets a number.
 pub fn archive(
     sections: &[Section],
     s: usize,
     t: usize,
-    archive_path: &Path,
-    existing: Option<&str>,
-    date: &str,
+    dir: &Path,
+    missing: &[PathBuf],
+    taken: &[String],
     file: &StateFile,
 ) -> Vec<Op> {
-    let section = &sections[s];
-    let after = archive::add(existing, date, &section.name, &section.tasks[t]);
-    let path = archive_path.to_path_buf();
-    let write = match existing {
-        Some(before) => Op::Update {
-            path,
-            before: before.to_string(),
-            after,
-        },
-        None => Op::Create {
-            path,
-            content: after,
-        },
-    };
+    let task = &sections[s].tasks[t];
+    let name = unique_slug(taken, task.stem().to_string());
+    let mut state = State::of(sections);
+    state.sections[s].tasks.remove(t);
 
-    let mut ops = vec![write];
-    ops.extend(delete(sections, s, t, file));
+    let mut ops: Vec<Op> = (missing.iter())
+        .map(|path| Op::CreateDir { path: path.clone() })
+        .collect();
+    ops.push(Op::Rename {
+        from: task.path.clone(),
+        to: dir.join(name).with_extension(EXTENSION),
+    });
+    ops.extend(file.write(&state));
     ops
 }
 
@@ -502,23 +498,25 @@ mod tests {
     }
 
     #[test]
-    fn archive_creates_or_updates_then_removes() {
+    fn archive_moves_into_missing_dirs() {
         let s = tree(&[("work", &["fix-bug.md", "b.md"])]);
-        let path = Path::new(".archive/2026-10-14.md");
+        let dir = Path::new(".archive/2026-10-14/work");
         let file = file_for(&s);
 
-        let ops = archive(&s, 0, 0, path, None, "2026-10-14", &file);
+        let missing = [dir.parent().unwrap().to_path_buf(), dir.to_path_buf()];
+        let ops = archive(&s, 0, 0, dir, &missing, &[], &file);
         assert_eq!(
             describe(&ops),
             [
-                "create 2026-10-14.md",
-                "remove fix-bug.md",
+                "mkdir 2026-10-14",
+                "mkdir work",
+                "rename fix-bug.md -> fix-bug.md",
                 "state # work b"
             ]
         );
 
-        let ops = archive(&s, 0, 0, path, Some("# 2026-10-14\n"), "2026-10-14", &file);
-        assert_eq!(describe(&ops)[0], "update 2026-10-14.md");
+        let ops = archive(&s, 0, 0, dir, &[], &["fix-bug".to_string()], &file);
+        assert_eq!(describe(&ops)[0], "rename fix-bug.md -> fix-bug-2.md");
     }
 
     #[test]
