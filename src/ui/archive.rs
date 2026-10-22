@@ -101,7 +101,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        app::tests::sections,
+        app::tests::{TODAY, sections},
         keymap::Action,
         ui::{CURRENT_COLOR, render},
     };
@@ -124,15 +124,14 @@ mod tests {
 
     #[test]
     fn one_cursor_and_the_selection_in_the_current_color() {
-        let today = jiff::Zoned::now().date();
-        let yesterday = today - 1.days();
         let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        app.today = TODAY;
         let done = crate::archive::Done {
             section: "work".to_string(),
             title: "Fix bug".to_string(),
             body: String::new(),
         };
-        app.done = [(yesterday, vec![done])].into();
+        app.done = [(TODAY - 1.days(), vec![done])].into();
         app.days = history::days(&app.done);
         app.update(Action::NextPage);
         let draw = |app: &App| {
@@ -183,15 +182,15 @@ mod tests {
 
     #[test]
     fn preview_of_done_task_only_while_the_list_has_the_keys() {
-        let today = jiff::Zoned::now().date();
         let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        app.today = TODAY;
         let done = |title: &str, body: &str| crate::archive::Done {
             section: "work".to_string(),
             title: title.to_string(),
             body: body.to_string(),
         };
         let long = "a done task with a title long enough to run past the split";
-        app.done = [(today, vec![done(long, "## Notes\nline"), done("Plain", "")])].into();
+        app.done = [(TODAY, vec![done(long, "## Notes\nline"), done("Plain", "")])].into();
         app.days = history::days(&app.done);
         app.update(Action::NextPage);
         app.update(Action::FocusList);
@@ -241,9 +240,9 @@ mod tests {
 
     #[test]
     fn small_screens_still_show_the_heatmap() {
-        let today = jiff::Zoned::now().date();
         let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
-        app.days = [(today, 3)].into();
+        app.today = TODAY;
+        app.days = [(TODAY, 3)].into();
         app.update(Action::NextPage);
         for (width, height) in [(30, 30), (80, 12), (80, 6)] {
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
@@ -259,9 +258,9 @@ mod tests {
 
     #[test]
     fn cursor_in_the_first_column_puts_its_bracket_in_the_padding() {
-        let today = jiff::Zoned::now().date();
         let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
-        let first = today - 30.days();
+        app.today = TODAY;
+        let first = TODAY - 30.days();
         app.days = [(first, 1)].into();
         app.update(Action::NextPage);
         app.archive.day = Some(first);
@@ -277,8 +276,8 @@ mod tests {
 
     #[test]
     fn archive_page() {
-        let today = jiff::Zoned::now().date();
         let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
+        app.today = TODAY;
         let draw = |app: &App| {
             let mut terminal = Terminal::new(TestBackend::new(80, 40)).unwrap();
             terminal
@@ -296,7 +295,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         // Today the busiest, older days so it is not in the first column.
-        app.days = [(today, 3), (today - 10.days(), 1), (today - 20.days(), 2)].into();
+        app.days = [(TODAY, 3), (TODAY - 10.days(), 1), (TODAY - 20.days(), 2)].into();
         app.hide_preview = true;
 
         // On the todo page: the list, the status line as a rule, today's done in the header.
@@ -310,9 +309,11 @@ mod tests {
         app.update(Action::NextPage);
         let buffer = draw(&app);
         let screen = lines(&buffer);
-        let date = today.strftime("%a %d %b %Y");
         assert!(
-            screen[0].starts_with(&format!("── todo  archive ── {date} ─")),
+            screen[0].starts_with(&format!(
+                "── todo  archive ── {} ─",
+                TODAY.strftime("%a %d %b %Y")
+            )),
             "{screen:#?}"
         );
         // Done in the selection, the test has no titles.
@@ -324,7 +325,7 @@ mod tests {
         assert_eq!(screen[10].trim(), "", "{screen:#?}");
         // Nothing done yet: the selection is today, the one cell in the current color, between
         // brackets.
-        let row = 3 + today.weekday().to_monday_zero_offset() as u16;
+        let row = 3 + TODAY.weekday().to_monday_zero_offset() as u16;
         let current: Vec<u16> = (0..80)
             .filter(|&x| buffer[(x, row)].fg == CURRENT_COLOR)
             .collect();

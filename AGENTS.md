@@ -54,7 +54,7 @@ For TUI changes also run the real app in tmux against a scratch root dir (or a c
 - Colors: only the 16 terminal colors, so the look follows the terminal theme. Colors carry meaning (sections, where you are, done, matches, errors), keys have none.
 - Keys are bold in the default color, so they show without adding a color. Nothing else in the default color is bold.
 - Comments say why, not what. Match the density and style of the surrounding code.
-- No helper function for a single use or a plain call chain, inline it unless it has a reason of its own.
+- No helper function for a single use or a plain call chain, inline it unless it has a reason of its own. Same for a variable used once, especially one that only renames a constant.
 - `.github/workflows/release.yml` is generated: change `dist-workspace.toml`, then run `dist generate` (`cargo install cargo-dist --locked`). To update dist, bump `cargo-dist-version` and regenerate.
 
 ## Tests

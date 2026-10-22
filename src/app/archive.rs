@@ -196,14 +196,17 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::{app::tests::sections, archive::Done};
+    use crate::{
+        app::tests::{TODAY, sections},
+        archive::Done,
+    };
 
     #[test]
     fn first_open_skips_empty_archive_files() {
-        let today = jiff::Zoned::now().date();
         let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        app.today = TODAY;
         // Far back, where a cell covers several days, the newest file without tasks.
-        let day = today - 400.days();
+        let day = TODAY - 400.days();
         app.done = [
             (day - 1.days(), vec![done("work")]),
             (day, vec![done("work")]),
@@ -275,12 +278,12 @@ mod tests {
 
     #[test]
     fn list_takes_the_keys_with_cr_or_a_section_key() {
-        let today = jiff::Zoned::now().date();
         let mut app = App::new(
             PathBuf::new(),
             sections(&[("work", &[]), ("home", &[]), ("misc", &[])]),
         );
-        app.done = [(today, vec![done("work"), done("misc"), done("misc")])].into();
+        app.today = TODAY;
+        app.done = [(TODAY, vec![done("work"), done("misc"), done("misc")])].into();
         app.days = history::days(&app.done);
         app.update(Action::NextPage);
         // Without tasks `home` is not in the list, the keys count the sections shown.
@@ -297,7 +300,7 @@ mod tests {
         assert_eq!(app.archive.cursor, 4);
         // `h` / `l` do nothing in the list, the day stays.
         app.update(Action::Left);
-        assert_eq!((app.archive_day(), app.archive.cursor), (today, 4));
+        assert_eq!((app.archive_day(), app.archive.cursor), (TODAY, 4));
 
         // `Esc` gives the keys back to the heatmap, `<CR>` to the list, the list cursor stays.
         // Twice changes nothing.

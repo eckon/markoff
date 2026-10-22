@@ -105,7 +105,7 @@ pub struct App {
     /// `.` shows the tasks that are not due, see [`Task::due`].
     pub show_hidden: bool,
     /// The local date, read from the clock once per loop so a frame never mixes two days, and
-    /// tests can set it.
+    /// tests can set it. A placeholder until the first loop.
     pub today: Date,
     pub page: Page,
     pub archive: ArchivePage,
@@ -143,7 +143,7 @@ impl App {
             show_help: false,
             hide_preview: false,
             show_hidden: false,
-            today: jiff::Zoned::now().date(),
+            today: Date::ZERO,
             page: Page::Todo,
             archive: ArchivePage::default(),
             editor_request: None,
@@ -692,6 +692,9 @@ pub mod tests {
         task::Task,
     };
 
+    /// The date tests run on, so they never depend on the clock.
+    pub const TODAY: Date = jiff::civil::date(2026, 10, 22);
+
     /// Sections with the given names and task titles. Nothing on disk.
     pub fn sections(spec: &[(&str, &[&str])]) -> Vec<Section> {
         spec.iter()
@@ -739,7 +742,8 @@ pub mod tests {
             });
         }
         fs::write(root.join(state::FILE), state.format()).unwrap();
-        let app = App::load(root.to_path_buf()).unwrap();
+        let mut app = App::load(root.to_path_buf()).unwrap();
+        app.today = TODAY;
         (dir, app)
     }
 
@@ -1295,8 +1299,7 @@ pub mod tests {
     #[test]
     fn done_archives_and_undo_restores() {
         let (dir, mut app) = app_with_files(&["work/a.md", "home/b.md"]);
-        let today = jiff::Zoned::now().date().to_string();
-        let archive_path = dir.path().join(".archive").join(format!("{today}.md"));
+        let archive_path = dir.path().join(".archive").join(format!("{TODAY}.md"));
 
         app.cursor = 1;
         app.update(Action::Done);
@@ -1311,7 +1314,7 @@ pub mod tests {
         assert_eq!(state_file(&dir), "# work\n\n# home\n");
         assert_eq!(
             fs::read_to_string(&archive_path).unwrap(),
-            format!("# {today}\n\n## work\n\n### a\n\n## home\n\n### b\n")
+            format!("# {TODAY}\n\n## work\n\n### a\n\n## home\n\n### b\n")
         );
 
         app.update(Action::Undo);
@@ -1319,7 +1322,7 @@ pub mod tests {
         assert_eq!(app.done_today(), 1);
         assert_eq!(
             fs::read_to_string(&archive_path).unwrap(),
-            format!("# {today}\n\n## work\n\n### a\n")
+            format!("# {TODAY}\n\n## work\n\n### a\n")
         );
 
         app.update(Action::Undo);
@@ -1331,8 +1334,7 @@ pub mod tests {
     fn hidden_tasks_only_with_dot() {
         let (dir, mut app) = app_with_files(&["work/a.md", "work/water.md", "work/b.md"]);
         fs::write(dir.path().join("work/water.md"), "# Water `* * *`\n").unwrap();
-        let today = jiff::Zoned::now().date();
-        let state = format!("# work\na\nwater {today}\nb\n");
+        let state = format!("# work\na\nwater {TODAY}\nb\n");
         fs::write(dir.path().join(state::FILE), &state).unwrap();
         app.reload(None).unwrap();
         assert_eq!(listing(&app), ["[work]", "a.md", "b.md"]);
@@ -1350,9 +1352,9 @@ pub mod tests {
         // `J` / `K` step over it, so the task visibly moves.
         app.cursor = 1;
         app.update(Action::MoveDown);
-        assert_eq!(state_file(&dir), format!("# work\nwater {today}\nb\na\n"));
+        assert_eq!(state_file(&dir), format!("# work\nwater {TODAY}\nb\na\n"));
         app.update(Action::MoveUp);
-        assert_eq!(state_file(&dir), format!("# work\nwater {today}\na\nb\n"));
+        assert_eq!(state_file(&dir), format!("# work\nwater {TODAY}\na\nb\n"));
         app.update(Action::Undo);
         app.update(Action::Undo);
 
@@ -1367,7 +1369,7 @@ pub mod tests {
         // While shown, `J` / `K` take it like any task.
         app.cursor = 1;
         app.update(Action::MoveDown);
-        assert_eq!(state_file(&dir), format!("# work\nwater {today}\na\nb\n"));
+        assert_eq!(state_file(&dir), format!("# work\nwater {TODAY}\na\nb\n"));
         app.update(Action::ShowHidden);
         assert_eq!(listing(&app), ["[work]", "a.md", "b.md"]);
     }
@@ -1378,7 +1380,6 @@ pub mod tests {
         let water = "# Water `* * *`\n";
         fs::write(dir.path().join("work/water.md"), water).unwrap();
         app.reload(None).unwrap();
-        let today = jiff::Zoned::now().date();
 
         // Never done: due.
         app.cursor = 2;
@@ -1389,7 +1390,7 @@ pub mod tests {
         );
         // Hidden, the date in the state file, the task and the archive untouched.
         assert_eq!(listing(&app), ["[work]", "a.md"]);
-        assert_eq!(state_file(&dir), format!("# work\na\nwater {today}\n"));
+        assert_eq!(state_file(&dir), format!("# work\na\nwater {TODAY}\n"));
         let content = fs::read_to_string(dir.path().join("work/water.md")).unwrap();
         assert_eq!(content, water);
         assert!(!dir.path().join(".archive").exists());
@@ -1406,7 +1407,7 @@ pub mod tests {
             Some(Status::Info("hidden tasks shown (1)".to_string())),
             "no claim"
         );
-        assert_eq!(state_file(&dir), format!("# work\na\nwater {today}\n"));
+        assert_eq!(state_file(&dir), format!("# work\na\nwater {TODAY}\n"));
         app.update(Action::ShowHidden);
 
         app.update(Action::Undo);
@@ -1415,10 +1416,9 @@ pub mod tests {
         assert_eq!(state_file(&dir), "# work\na\nwater\n");
 
         // Done yesterday: due again today.
-        let yesterday = today.yesterday().unwrap();
         fs::write(
             dir.path().join(state::FILE),
-            format!("# work\na\nwater {yesterday}\n"),
+            format!("# work\na\nwater {}\n", TODAY.yesterday().unwrap()),
         )
         .unwrap();
         app.reload(None).unwrap();

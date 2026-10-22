@@ -98,6 +98,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::app::tests::TODAY;
 
     fn parse(args: &[&str]) -> Result<Option<Command>> {
         Command::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
@@ -160,17 +161,19 @@ mod tests {
             run(Command::List, dir.path()).unwrap(),
             "## work\n- Fix the bug\n- call bob\n\n## home\n"
         );
-        assert_eq!(list(&[], jiff::Zoned::now().date()), "");
+        assert_eq!(list(&[], TODAY), "");
 
         // Repeating tasks only while due, like the TUI.
         let root = dir.path();
         fs::write(root.join("home/water.md"), "# Water `* * *`\n").unwrap();
         fs::write(root.join("home/dust.md"), "# Dust `* * *`\n").unwrap();
-        let today = jiff::Zoned::now().date();
-        let state = format!("# work\nfix-the-bug\ncall-bob\n\n# home\nwater\ndust {today}\n");
-        fs::write(root.join(".markoff"), state).unwrap();
+        fs::write(
+            root.join(".markoff"),
+            format!("# work\nfix-the-bug\ncall-bob\n\n# home\nwater\ndust {TODAY}\n"),
+        )
+        .unwrap();
         assert_eq!(
-            run(Command::List, root).unwrap(),
+            list(&load::load(root).unwrap().0, TODAY),
             "## work\n- Fix the bug\n- call bob\n\n## home\n- Water\n"
         );
     }

@@ -430,7 +430,10 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    use crate::{app::tests::sections, keymap::Action};
+    use crate::{
+        app::tests::{TODAY, sections},
+        keymap::Action,
+    };
     use ratatui::{Terminal, backend::TestBackend, style::Modifier};
 
     /// Renders the app and returns the screen as text, styles (bold, highlight) are ignored.
@@ -645,7 +648,8 @@ mod tests {
             PathBuf::new(),
             sections(&[("home", &["Fix typo"]), ("work", &["Review", "Deploy"])]),
         );
-        app.days = [(jiff::Zoned::now().date(), 2)].into();
+        app.today = TODAY;
+        app.days = [(TODAY, 2)].into();
         app.hide_preview = true;
         // Wider than the others, the pages take room.
         let mut terminal = Terminal::new(TestBackend::new(60, 9)).unwrap();
@@ -661,9 +665,11 @@ mod tests {
             .map(|row| row.iter().map(|cell| cell.symbol()).collect())
             .collect();
 
-        let date = jiff::Zoned::now().strftime("%a %d %b").to_string();
         assert!(
-            lines[0].starts_with(&format!("── todo  archive ── {date} ─")),
+            lines[0].starts_with(&format!(
+                "── todo  archive ── {} ─",
+                TODAY.strftime("%a %d %b")
+            )),
             "{lines:#?}"
         );
         assert!(lines[0].ends_with("─ 3 open · ✓ 2 done"), "{lines:#?}");
@@ -681,7 +687,8 @@ mod tests {
             PathBuf::new(),
             sections(&[("home", &["Water `* * mon-fri`", "Dust `* * *`", "Fix typo"])]),
         );
-        app.sections[0].tasks[1].done = Some(jiff::Zoned::now().date());
+        app.today = TODAY;
+        app.sections[0].tasks[1].done = Some(TODAY);
         app.hide_preview = true;
         let mut terminal = Terminal::new(TestBackend::new(60, 9)).unwrap();
         terminal.draw(|frame| _ = render(&app, frame)).unwrap();
