@@ -361,10 +361,7 @@ impl App {
             Action::Delete => self.delete()?,
             Action::Undo => self.undo()?,
             Action::Help => self.show_help = true,
-            Action::Preview => {
-                self.hide_preview = !self.hide_preview;
-                self.status = Some(preview_status(self.hide_preview));
-            }
+            Action::Preview => self.hide_preview = !self.hide_preview,
             Action::ShowHidden => self.toggle_hidden(),
             Action::PrevPage | Action::NextPage => {
                 let count = Page::ALL.len();
@@ -674,11 +671,6 @@ impl App {
     }
 }
 
-/// `p` on either page: a task without a body shows no change, so it is said.
-fn preview_status(hidden: bool) -> Status {
-    Status::Info(format!("preview {}", if hidden { "off" } else { "on" }))
-}
-
 fn renamed_message(count: usize) -> String {
     if count == 1 {
         "1 file renamed to match its title".to_string()
@@ -836,12 +828,10 @@ pub mod tests {
     #[test]
     fn preview_toggles_on_each_page_of_its_own() {
         let (_dir, mut app) = app_with_files(&["work/a.md"]);
-        let info = |text: &str| Some(Status::Info(text.to_string()));
         app.update(Action::Preview);
         assert!(app.hide_preview);
-        assert_eq!(app.status, info("preview off"), "a.md has no body to hide");
         app.update(Action::Preview);
-        assert_eq!(app.status, info("preview on"));
+        assert!(!app.hide_preview);
         app.update(Action::Preview);
 
         // On the archive page only in the list, and not the todo list's.
@@ -851,7 +841,6 @@ pub mod tests {
         app.update(Action::FocusList);
         app.update(Action::Preview);
         assert!(app.archive.hide_preview);
-        assert_eq!(app.status, info("preview off"));
         assert!(app.hide_preview, "the todo list's stays");
     }
 

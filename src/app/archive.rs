@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use jiff::{ToSpan, civil::Date};
 
-use super::{App, preview_status};
+use super::App;
 use crate::{cursor, history, keymap::Action};
 
 /// Where the archive page is, kept while switching pages.
@@ -72,7 +72,6 @@ impl App {
             }
             (Action::Preview, Focus::List) => {
                 self.archive.hide_preview = !self.archive.hide_preview;
-                self.status = Some(preview_status(self.archive.hide_preview));
                 return true;
             }
             // Like in the todo list, `h` / `l` do nothing. A section key from the heatmap goes
