@@ -73,7 +73,11 @@ impl Markoff {
         command.env("VISUAL", format!("cp {}", next_edit.display()));
         let child = pty.slave.spawn_command(command).unwrap();
 
-        let screen = Arc::new(Mutex::new(vt100::Parser::new(ROWS, COLS, 0)));
+        let screen = Arc::new(Mutex::new(vt100::Parser::new(
+            ROWS.try_into().unwrap(),
+            COLS.try_into().unwrap(),
+            0,
+        )));
         let writer = Arc::new(Mutex::new(pty.master.take_writer().unwrap()));
         let mut reader = pty.master.try_clone_reader().unwrap();
         let (parser, answer) = (Arc::clone(&screen), Arc::clone(&writer));

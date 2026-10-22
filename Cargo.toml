@@ -8,7 +8,7 @@ repository = "https://github.com/eckon/markoff"
 
 [dependencies]
 color-eyre = "0.6.5"
-croner = { version = "4.0.1", default-features = false, features = ["jiff"] }
+croner = { version = "4.0.2", default-features = false, features = ["jiff"] }
 deunicode = "1.6.2"
 jiff = "0.2.38"
 notify = "8.2.0"
@@ -32,4 +32,4 @@ lto = "thin"
 [dev-dependencies]
 insta = { version = "1.49.0", features = ["filters"] }
 portable-pty = "0.9.0"
-vt100 = "0.16.2"
+vt100 = "0.18.1"
