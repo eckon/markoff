@@ -97,13 +97,18 @@ impl Op {
 pub fn apply_all(ops: &[Op]) -> Result<()> {
     for (i, op) in ops.iter().enumerate() {
         if let Err(err) = op.apply() {
+            // Best effort: a failed rollback does not stop the rest from being rolled back.
+            // Report the original error, the first failed rollback is attached to it.
+            let mut rollback_err = None;
             for done in ops[..i].iter().rev() {
-                // Best effort: report the original error, a failed rollback is attached to it.
-                if let Err(rollback_err) = done.inverse().apply() {
-                    return Err(err.wrap_err(eyre!("rollback failed too: {rollback_err}")));
+                if let Err(e) = done.inverse().apply() {
+                    rollback_err.get_or_insert(e);
                 }
             }
-            return Err(err);
+            return Err(match rollback_err {
+                Some(e) => err.wrap_err(eyre!("rollback failed too: {e}")),
+                None => err,
+            });
         }
     }
     Ok(())
