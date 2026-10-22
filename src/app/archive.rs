@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn list_takes_the_keys_with_tab_or_a_section_key() {
+    fn list_takes_the_keys_with_cr_or_a_section_key() {
         let today = jiff::Zoned::now().date();
         let mut app = App::new(
             PathBuf::new(),
