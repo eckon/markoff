@@ -14,7 +14,10 @@ mod help;
 mod rows;
 
 use crate::{
-    app::{App, Page, Row, Status, archive::ArchiveRow},
+    app::{
+        App, Page, Row, Status,
+        archive::{ArchiveRow, Focus},
+    },
     filter,
     keymap::{Action, BINDINGS, FILTER_INPUT_HINTS},
 };
@@ -75,7 +78,7 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
             if let Some(x) = divider {
                 join_divider(frame, x, bottom_gap.y, footer_area.y, "┴");
             }
-            // The tasks done in the selection.
+            // The tasks done on the selected days.
             let range = archive::range(app);
             let done = (app.archive_rows().iter())
                 .filter(|row| matches!(row, ArchiveRow::Task(..)))
@@ -240,6 +243,14 @@ fn hints(app: &App) -> Vec<(String, &'static str)> {
     if !app.page_filter().is_empty() && !app.show_help {
         hints.extend(key(Action::Filter).map(|key| (format!("{key} Esc"), "clear filter")));
     }
+    // A range is ended with the key that started it or `Esc`, in the heatmap.
+    if app.page == Page::Archive
+        && app.archive_page.anchor.is_some()
+        && app.archive_page.focus == Focus::Heatmap
+        && !app.show_help
+    {
+        hints.extend(key(Action::Visual).map(|key| (format!("{key} / Esc"), "end range")));
+    }
     hints.extend(key(Action::Help).map(|key| (key, "toggle help")));
     hints
 }
@@ -251,7 +262,7 @@ fn status_text(app: &App) -> Vec<Span<'_>> {
         (Some(Status::Info(message)), _) => vec![message.as_str().into()],
         (None, Some(key)) => vec![key.to_string().into()],
         (None, None) if !app.page_filter().is_empty() => {
-            // The archive counts its matches over all days, not only the selected one.
+            // The archive counts its matches over all days, not only the selected ones.
             let count = match app.archive_matches() {
                 Some(matches) if app.page == Page::Archive => matches.values().sum(),
                 _ => app

@@ -325,7 +325,8 @@ impl App {
         }
         match action {
             // Only on the archive page, see [`Self::update_archive`].
-            Action::Left
+            Action::Visual
+            | Action::Left
             | Action::Right
             | Action::SkipLeft
             | Action::SkipDown

@@ -477,6 +477,18 @@ fn archive() {
     app.wait_for(" · today ─");
     app.press("gg");
     app.wait_for(" · 10 days ago ─");
+    // `v` selects the days up to where the cursor goes, `v` again only its day.
+    app.press("vG");
+    app.wait_for(&format!(
+        "{} – {} ─",
+        earlier.strftime("%d %b %Y"),
+        today.strftime("%d %b %Y")
+    ));
+    app.wait_for("v / Esc end range");
+    app.press("v");
+    app.wait_for(" · today ─");
+    app.press("gg");
+    app.wait_for(" · 10 days ago ─");
 
     // `<CR>` gives the keys to the list, its task shows its body next to it. `p` hides it, so
     // does `<Esc>` back to the heatmap.

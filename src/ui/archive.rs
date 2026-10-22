@@ -37,7 +37,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
             app.today,
             width,
             app.archive_page.heatmap_offset,
-            app.archive_day(),
+            (app.archive_day(), app.archive_page.anchor),
             heatmap_keys,
         )
     });
@@ -70,12 +70,13 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
     }
     let (offset, preview) = list::render(app, frame, list_area);
 
-    // The cursor's `[` in the first column has no gap before it, it goes into the padding.
-    if let Some(row) = heatmap.as_ref().and_then(|h| h.first_column_cursor) {
+    // The cursor's `[` or the anchor's `(` in the first column has no gap before it, it goes into
+    // the padding.
+    for &(row, mark) in heatmap.iter().flat_map(|h| &h.first_column_marks) {
         // Below the row of labels.
         let y = inner.y + 1 + row as u16;
         if y < heatmap_area.bottom() {
-            frame.buffer_mut()[(inner.x - 1, y)].set_symbol("[");
+            frame.buffer_mut()[(inner.x - 1, y)].set_symbol(mark);
         }
     }
 
@@ -185,7 +186,7 @@ mod tests {
         assert_eq!(buffer[(x - 1, y)].symbol(), "[");
         assert_eq!(buffer[(x + 1, y)].symbol(), "]");
         assert!(list.clone().all(|y| !text(&buffer, y).contains('▌')));
-        // A selection of one day: the day is in the app header, not on the rows.
+        // One selected day: it is in the app header, not on the rows.
         assert!(
             list.clone()
                 .any(|y| text(&buffer, y).trim_end() == "     • Fix bug")
@@ -201,6 +202,44 @@ mod tests {
             list.clone()
                 .any(|y| text(&buffer, y).contains("▌   • Fix bug"))
         );
+    }
+
+    #[test]
+    fn range_in_the_current_color_with_its_anchor_and_a_hint() {
+        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        app.today = TODAY;
+        app.days = [(TODAY - 3.days(), 1), (TODAY, 1)].into();
+        app.update(Action::NextPage);
+        // From today, a Thursday, up to Monday: one column, today the anchor.
+        app.update(Action::Visual);
+        for _ in 0..3 {
+            app.update(Action::Up);
+        }
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal
+            .draw(|frame| {
+                render(&app, frame);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let line = |y: u16| -> String { (0..80).map(|x| buffer[(x, y)].symbol()).collect() };
+
+        // Monday to Thursday in the current color, the cursor on Monday, the anchor on Thursday.
+        let current: Vec<u16> = (3..10)
+            .filter(|&y| (0..80).any(|x| buffer[(x, y)].fg == CURRENT_COLOR))
+            .collect();
+        assert_eq!(current, [3, 4, 5, 6]);
+        assert!(line(3).contains("[░]"), "{}", line(3));
+        assert!(line(6).contains("(░)"), "{}", line(6));
+        assert!(
+            line(23).ends_with("v / Esc end range  ? toggle help"),
+            "{}",
+            line(23)
+        );
+        // Not while the list has the keys, `v` does nothing there.
+        app.update(Action::FocusList);
+        let screen = lines_80(&app, 24);
+        assert!(!screen[23].contains("v / Esc end range"), "{}", screen[23]);
     }
 
     #[test]

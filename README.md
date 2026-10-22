@@ -64,7 +64,7 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 - Filenames follow the title. Files added or edited by hand are renamed on start and before the next change.
 - `.markoff` is written by markoff. New files go to the end, deleted ones are dropped. Add it to `.gitignore` to keep order changes and done dates out of git.
 - Done tasks (`X`) move to `.archive/YYYY-MM-DD/<section>/` as they are. A task done twice a day gets a number: `call-bob-2.md`.
-- The archive page (`Tab`) shows a heatmap of the done tasks back to the first archived day, a week per column. It scrolls sideways: the first column shows its month and year, below the heatmap the tasks done out of view are counted on each side. Brighter means more tasks per day, ranked in quarters of the days with anything done. The cursor in the heatmap picks a day, the app header shows it with how long ago and how many tasks were done, the list below them by section, with the body of the selected task next to it while the list has the keys.
+- The archive page (`Tab`) shows a heatmap of the done tasks back to the first archived day, a week per column. It scrolls sideways: the first column shows its month and year, below the heatmap the tasks done out of view are counted on each side. Brighter means more tasks per day, ranked in quarters of the days with anything done. The cursor in the heatmap picks a day, `v` a range of days like vim's visual mode. The app header shows the day with how long ago or the range, and how many tasks were done, the list below them by section, in a range each with its day, with the body of the selected task next to it while the list has the keys.
 
 ## Repeating tasks
 
@@ -130,8 +130,9 @@ The rule is the day part of cron: day of month, month, day of week. Both day fie
 | `H` / `L`   | Like `h` / `l`, skips empty cells           |
 | `J` / `K`   | Like `j` / `k` in the heatmap, skips empty  |
 | `gg` / `G`  | Heatmap first day done / today              |
-| `<CR>`      | Move keys to the list of the selected day   |
-| `Esc`       | Move keys back to the heatmap               |
+| `v`         | Select a range from here, `v` again ends it |
+| `<CR>`      | Move keys to the list of the selected days  |
+| `Esc`       | Keys back to heatmap, there it ends a range |
 | `p`         | Toggle the preview, in the list             |
 | `/`         | Filter, its own: the list keeps the matches |
 

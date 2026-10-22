@@ -32,7 +32,7 @@ Use these words in code, docs and UI, not their synonyms (in brackets).
 - **task list** / **archive list**: the list on each page. **row**: a task or a section header in it.
 - **app header**: the top line. **section header**: a section's line in a list. Its **key** is the number in `[1]` that jumps to it. **group header**: a group's line in the help overlay. **footer**: the bottom line, the **status** on the left (info, errors, filter input), **hints** on the right. All are drawn as **lines** (rule, status line, message bar).
 - **cursor**: the position in a list or the heatmap and the mark that shows it. **selected**: what is at the cursor, the selected task, day or cell (at the cursor, selection). **focus** in code is "keys" in the UI: which part of the archive page the keys move.
-- **heatmap**: the grid on the archive page, a **column** per week, a **cell** per **day**.
+- **heatmap**: the grid on the archive page, a **column** per week, a **cell** per **day**. A **range** is the days selected with `v`, from its **anchor** to the cursor (visual mode, selection).
 - **divider**: the vertical line next to the preview.
 - **filter**: narrowing the lists by a **query** (search, which is left to the editor).
 - **group**: only the key groups in the help overlay.

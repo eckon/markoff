@@ -31,14 +31,16 @@ pub struct Heatmap {
     pub hints: Line<'static>,
     /// See [`crate::app::archive::ArchivePage::heatmap_offset`].
     pub offset: usize,
-    /// The cursor's row when it is in the first column on screen, its `[` goes before it.
-    pub first_column_cursor: Option<i64>,
+    /// The rows and marks of the cursor and the anchor in the first column on screen, their `[`
+    /// and `(` go before it.
+    pub first_column_marks: Vec<(i64, &'static str)>,
 }
 
 /// The days of [`heatmap::columns`] that fit in `width`, scrolled from `offset` so the
-/// `selected_day` is on screen: labels, 7 rows of cells with the selected one in
-/// [`CURRENT_COLOR`] and the weekdays on the right. With the `cursor` there too, the selected
-/// cell is between brackets. With a filter, the cells without `matches` are gray, the shades
+/// `selected_day` is on screen: labels, 7 rows of cells with the selected days in
+/// [`CURRENT_COLOR`] and the weekdays on the right. Those are the selected day, or the range from
+/// the `anchor` to it. With the `cursor` there too, the selected cell is between brackets, the
+/// anchor between parentheses. With a filter, the cells without `matches` are gray, the shades
 /// stay those of all tasks, and the hints count only matches.
 pub fn lines(
     days: &heatmap::Days,
@@ -46,9 +48,11 @@ pub fn lines(
     today: Date,
     width: usize,
     offset: usize,
-    selected_day: Date,
+    (selected_day, anchor): (Date, Option<Date>),
     cursor: bool,
 ) -> Heatmap {
+    let from = anchor.unwrap_or(selected_day);
+    let selected_days = from.min(selected_day)..=from.max(selected_day);
     let columns = heatmap::columns(days, today);
     let visible = width.saturating_sub(WEEKDAYS) / STEP;
     let selected = heatmap::find(&columns, selected_day);
@@ -56,8 +60,11 @@ pub fn lines(
     let end = (first + visible).min(columns.len());
     let shown = &columns[first..end];
     // Relative to the first column on screen.
-    let selected = selected.map(|(column, row)| (column as i64 - first as i64, row));
-    let bracketed = selected.filter(|_| cursor);
+    let on_screen = |(column, row): (usize, i64)| (column as i64 - first as i64, row);
+    let bracketed = selected.filter(|_| cursor).map(on_screen);
+    let anchor = (anchor.filter(|_| cursor))
+        .and_then(|anchor| heatmap::find(&columns, anchor))
+        .map(on_screen);
 
     // Counted over all days, so the shades stay while scrolling.
     let steps = steps();
@@ -82,10 +89,12 @@ pub fn lines(
         for (i, column) in shown.iter().enumerate() {
             let i = i as i64;
             let day = column.day(row);
-            // The cursor between brackets in the gaps around it.
-            let gap: Span = match bracketed {
-                Some(at) if at == (i, row) => "]".into(),
-                Some(at) if at == (i + 1, row) => "[".into(),
+            // The cursor between brackets in the gaps around it, the anchor between parentheses.
+            let gap: Span = match (bracketed, anchor) {
+                (Some(at), _) if at == (i, row) => "]".into(),
+                (Some(at), _) if at == (i + 1, row) => "[".into(),
+                (_, Some(at)) if at == (i, row) => ")".into(),
+                (_, Some(at)) if at == (i + 1, row) => "(".into(),
                 _ => " ".into(),
             };
             if day > today {
@@ -100,8 +109,8 @@ pub fn lines(
                 }
                 level => steps[level - 1].clone(),
             };
-            // The selected cell in the current page's color, it shows without the brackets too.
-            let shade = match selected == Some((i, row)) {
+            // The selected days in the current page's color, they show without the brackets too.
+            let shade = match selected_days.contains(&day) {
                 true => shade.fg(CURRENT_COLOR),
                 false => shade,
             };
@@ -119,7 +128,10 @@ pub fn lines(
         lines,
         hints,
         offset: columns.len() - end,
-        first_column_cursor: bracketed.filter(|(i, _)| *i == 0).map(|(_, row)| row),
+        first_column_marks: [(bracketed, "["), (anchor, "(")]
+            .into_iter()
+            .filter_map(|(at, mark)| at.filter(|(i, _)| *i == 0).map(|(_, row)| (row, mark)))
+            .collect(),
     }
 }
 

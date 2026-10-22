@@ -1,6 +1,6 @@
-//! The done tasks of the selection, below the heatmap. Laid out like the task list: section
-//! headers with their keys, a bullet per task, its day on the right if the selection has more
-//! than one. The day or the days of the selection are in the app header, see [`range`].
+//! The done tasks of the selected days, below the heatmap. Laid out like the task list: section
+//! headers with their keys, a bullet per task, its day on the right in a range. The selected
+//! day or the range is in the app header, see [`range`].
 
 use jiff::{ToSpan, Unit, civil::Date};
 use ratatui::{
@@ -31,7 +31,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, Option<Rect>)
     };
     // One day is in the app header. More need it on each row: in full where there is room, next to
     // the preview only the short date fits, the app header has the rest.
-    let (_, length) = app.archive_selection();
+    let (_, length) = app.archive_selected();
     let preview = body.is_some();
     let when = |day: Date| match (length, preview) {
         (1, _) => None,
@@ -97,9 +97,9 @@ fn render_rows(
 }
 
 /// The selected day for the app header with how long ago, `Fri 16 Oct 2026 · today`, a
-/// selection of more days as `02 Mar 2026 – 15 Mar 2026`.
+/// range as `02 Mar 2026 – 15 Mar 2026`.
 pub fn range(app: &App) -> String {
-    let (start, length) = app.archive_selection();
+    let (start, length) = app.archive_selected();
     match length {
         1 => {
             let date = start.strftime("%a %d %b %Y").to_string();

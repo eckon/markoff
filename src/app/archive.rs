@@ -13,6 +13,9 @@ use crate::{cursor, heatmap, keymap::Action};
 pub struct ArchivePage {
     /// The selected day in the heatmap. `None` until the page is first opened.
     pub day: Option<Date>,
+    /// Where the range started with `v`, it runs from here to [`Self::day`]. `None` without a
+    /// range.
+    pub anchor: Option<Date>,
     /// Heatmap columns right of the screen in the last frame, `0` shows this week at the right
     /// edge. Counted from the right, so a new week keeps the view on the newest days.
     pub heatmap_offset: usize,
@@ -80,8 +83,23 @@ impl App {
                 self.archive_page.focus = Focus::List;
                 return true;
             }
-            (Action::FocusHeatmap, _) => {
+            // From the list back to the heatmap, in the heatmap it ends the range, like in vim.
+            (Action::FocusHeatmap, Focus::List) => {
                 self.archive_page.focus = Focus::Heatmap;
+                return true;
+            }
+            (Action::FocusHeatmap, Focus::Heatmap) => {
+                if self.archive_page.anchor.take().is_some() {
+                    self.reset_archive_list();
+                }
+                return true;
+            }
+            (Action::Visual, Focus::Heatmap) => {
+                self.archive_page.anchor = match self.archive_page.anchor {
+                    Some(_) => None,
+                    None => Some(self.archive_day()),
+                };
+                self.reset_archive_list();
                 return true;
             }
             // The first day with tasks done, a match with a filter, and today.
@@ -161,7 +179,7 @@ impl App {
         self.reset_archive_list();
     }
 
-    /// The list on its first task, for a new day or filter.
+    /// The list on its first task, for other selected days or a new filter.
     pub(super) fn reset_archive_list(&mut self) {
         let rows = self.archive_rows();
         self.archive_page.cursor = usize::from(!rows.is_empty());
@@ -197,16 +215,19 @@ impl App {
         names
     }
 
-    /// The first day of the selection and its days. Only a day for now, a range of days is to
-    /// come, the list and the app header already show one.
-    pub fn archive_selection(&self) -> (Date, i64) {
-        (self.archive_day(), 1)
+    /// The first selected day and how many: the day at the cursor, or the range from the anchor
+    /// to it, whichever comes first.
+    pub fn archive_selected(&self) -> (Date, i64) {
+        let day = self.archive_day();
+        let anchor = self.archive_page.anchor.unwrap_or(day);
+        let (start, end) = (anchor.min(day), anchor.max(day));
+        (start, i64::from((end - start).get_days()) + 1)
     }
 
-    /// The done tasks of the selection under their sections, newest day first, by name within
+    /// The done tasks of the selected days under their sections, newest day first, by name within
     /// a day. Sections without any are left out.
     pub fn archive_rows(&self) -> Vec<ArchiveRow> {
-        let (start, length) = self.archive_selection();
+        let (start, length) = self.archive_selected();
         let days: Vec<_> = self
             .archive
             .range(start..start + length.days())
@@ -316,6 +337,45 @@ mod tests {
         press(Action::Bottom, today);
         press(Action::Down, today);
         press(Action::Top, day - 28.days());
+    }
+
+    #[test]
+    fn v_selects_a_range_until_v_or_esc() {
+        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        app.today = TODAY;
+        app.archive = (0..3)
+            .map(|back| (TODAY - back.days(), vec![done("work")]))
+            .collect();
+        app.days = heatmap::days(&app.archive);
+        app.update(Action::NextPage);
+
+        // From today two days up, the list has the tasks of all three, newest first.
+        app.update(Action::Visual);
+        app.update(Action::Up);
+        app.update(Action::Up);
+        assert_eq!(app.archive_selected(), (TODAY - 2.days(), 3));
+        let rows = app.archive_rows();
+        let days: Vec<Date> = (rows.iter())
+            .filter_map(|row| match row {
+                ArchiveRow::Task(_, day, _) => Some(*day),
+                ArchiveRow::Section(..) => None,
+            })
+            .collect();
+        assert_eq!(days, [TODAY, TODAY - 1.days(), TODAY - 2.days()]);
+
+        // Into the list and back, the range stays.
+        app.update(Action::FocusList);
+        app.update(Action::FocusHeatmap);
+        assert_eq!(app.archive_selected(), (TODAY - 2.days(), 3));
+        // `v` ends it, only the cursor's day stays selected.
+        app.update(Action::Visual);
+        assert_eq!(app.archive_selected(), (TODAY - 2.days(), 1));
+        // So does `Esc` in the heatmap, a range after the cursor too.
+        app.update(Action::Visual);
+        app.update(Action::Down);
+        assert_eq!(app.archive_selected(), (TODAY - 2.days(), 2));
+        app.update(Action::FocusHeatmap);
+        assert_eq!(app.archive_selected(), (TODAY - 1.days(), 1));
     }
 
     #[test]
