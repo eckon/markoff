@@ -1,4 +1,4 @@
-//! The heatmap: done tasks per cell over time, see [`history::columns`].
+//! The heatmap: done tasks per cell over time, see [`heatmap::columns`].
 
 use jiff::civil::Date;
 use ratatui::{
@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::{
-    history,
+    heatmap,
     ui::{CURRENT_COLOR, DONE_COLOR, LINE_COLOR, spans},
 };
 
@@ -22,30 +22,30 @@ pub fn columns(width: usize) -> usize {
     width.saturating_sub(WEEKDAYS) / STEP
 }
 
-/// The glyph per step from little to a lot, see [`history::bounds`]. Only the shade changes:
+/// The glyph per step from little to a lot, see [`heatmap::bounds`]. Only the shade changes:
 /// fonts draw it brighter in order, while dim, light and bold greens often look the same.
 fn steps() -> [Span<'static>; 4] {
     ["░", "▒", "▓", "█"].map(|shade| shade.fg(DONE_COLOR))
 }
 
-/// The tasks done over time, back to the first archived day, see [`history::columns`]: labels,
-/// 7 rows of cells with the `selected` one in [`CURRENT_COLOR`] and the weekdays on the right where
-/// cells are days, and a divider through the gap where the cell size changes. With the `cursor`
-/// there too, it is between brackets.
+/// The tasks done over time, back to the first archived day, see [`heatmap::columns`]: labels,
+/// 7 rows of cells with the one of `selected_day` in [`CURRENT_COLOR`] and the weekdays on the
+/// right where cells are days, and a divider through the gap where the cell size changes. With
+/// the `cursor` there too, it is between brackets.
 pub fn lines(
-    days: &history::Days,
+    days: &heatmap::Days,
     today: Date,
     width: usize,
-    selected: Date,
+    selected_day: Date,
     cursor: bool,
 ) -> Vec<Line<'static>> {
-    let columns = history::columns(days, today, columns(width));
-    let selected = history::find(&columns, selected);
-    let bracketed = selected.filter(|_| cursor);
+    let columns = heatmap::columns(days, today, columns(width));
+    let selected_cell = heatmap::find(&columns, selected_day);
+    let bracketed = selected_cell.filter(|_| cursor);
     let steps = steps();
-    let bounds = history::bounds(
+    let bounds = heatmap::bounds(
         columns.iter().flat_map(|column| {
-            (0..history::CELLS).map(|row| history::rate(days, column.cell(row)))
+            (0..heatmap::CELLS).map(|row| heatmap::rate(days, column.cell(row)))
         }),
         steps.len(),
     );
@@ -54,7 +54,7 @@ pub fn lines(
 
     let zone_starts = zone_starts(&columns);
     let mut lines = vec![labels(&columns, &zone_starts)];
-    for row in 0..history::CELLS {
+    for row in 0..heatmap::CELLS {
         let mut spans: Vec<Span> = Vec::new();
         for (i, column) in columns.iter().enumerate() {
             let cell = column.cell(row);
@@ -69,12 +69,12 @@ pub fn lines(
                 spans.extend([" ".into(), gap]);
                 continue;
             }
-            let shade = match history::level(history::rate(days, cell), &bounds) {
+            let shade = match heatmap::level(heatmap::rate(days, cell), &bounds) {
                 0 => "·".fg(LINE_COLOR),
                 level => steps[level - 1].clone(),
             };
-            // The selection in the current page's color, it shows without the brackets too.
-            let shade = match selected == Some((i, row)) {
+            // The selected cell in the current page's color, it shows without the brackets too.
+            let shade = match selected_cell == Some((i, row)) {
                 true => shade.fg(CURRENT_COLOR),
                 false => shade,
             };
@@ -104,7 +104,7 @@ fn zone(unit: i64) -> &'static str {
 }
 
 /// Per column whether it starts another zone than the one before, a divider goes before it.
-fn zone_starts(columns: &[history::Column]) -> Vec<bool> {
+fn zone_starts(columns: &[heatmap::Column]) -> Vec<bool> {
     let mut previous = None;
     columns
         .iter()
@@ -118,7 +118,7 @@ fn zone_starts(columns: &[history::Column]) -> Vec<bool> {
 
 /// The row above the cells: the dividers, each zone's name after it, and where there is room
 /// months where cells are days and years elsewhere, at the column they start in.
-fn labels(columns: &[history::Column], zone_starts: &[bool]) -> Line<'static> {
+fn labels(columns: &[heatmap::Column], zone_starts: &[bool]) -> Line<'static> {
     // Dates may run into the weekdays on the right.
     let mut row = vec![(' ', Style::new()); columns.len() * STEP + WEEKDAYS];
     for (i, _) in zone_starts

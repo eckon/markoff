@@ -1,5 +1,5 @@
-//! A list of sections and tasks as the todo list and the archive page show it: no box, sections
-//! as rules, a bullet per task in the section color, the cursor a bar in the gutter. The pages
+//! A list of sections and tasks as the task list and the archive page show it: no box, sections
+//! as headers, a bullet per task in the section color, the cursor a bar in the gutter. The pages
 //! build the [`Row`]s, this lays them out.
 
 use ratatui::{
@@ -11,7 +11,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthChar;
 
-use super::{LINE_COLOR, rule, spans};
+use super::{LINE_COLOR, filled_line, spans};
 use crate::keymap;
 
 /// One row of the list, the cursor moves over these.
@@ -22,15 +22,15 @@ pub struct Row {
 }
 
 pub enum Kind {
-    /// All of the line after the gutter: a section rule. A blank line goes
+    /// All of the line after the gutter: a section header. A blank line goes
     /// before it, except at the top.
-    Header(Vec<Span<'static>>),
+    Section(Vec<Span<'static>>),
     /// A task's title, wrapped to as many lines as it needs. What goes on the right edge of
     /// its first line, like the day a task was done. Whether it repeats, its bullet is `⟳` then.
     Task(Vec<Span<'static>>, Option<Span<'static>>, bool),
 }
 
-/// Space on the right so rules stop before the preview divider.
+/// Space on the right so section headers stop before the preview divider.
 pub fn block<'a>() -> Block<'a> {
     Block::new().padding(Padding::new(1, 2, 0, 0))
 }
@@ -38,7 +38,7 @@ pub fn block<'a>() -> Block<'a> {
 /// The rows with the cursor on row `cursor`, `None` while the list does not have the keys. Then
 /// the `notes` dimmed, a blank line before each unless it is at the top. Starts from `offset`,
 /// returns the new one. What is scrolled out of `area` is counted on the lines around it, see
-/// [`render_hidden`].
+/// [`render_out_of_view`].
 pub fn render(
     frame: &mut Frame,
     area: Rect,
@@ -49,17 +49,17 @@ pub fn render(
     let block = block();
     let width = block.inner(area).width as usize;
     let mut items: Vec<ListItem> = Vec::new();
-    // Which items are tasks, for the counts of the hidden ones.
+    // Which items are tasks, for the counts of those out of view.
     let mut tasks = Vec::new();
-    let mut selected = 0;
+    let mut selected_item = 0;
     for (i, row) in rows.into_iter().enumerate() {
         let is_cursor = cursor == Some(i);
         // Blank line before each section except the first. Not a row, the cursor skips it.
-        if i > 0 && matches!(row.kind, Kind::Header(_)) {
+        if i > 0 && matches!(row.kind, Kind::Section(_)) {
             items.push(ListItem::new(""));
         }
         if is_cursor {
-            selected = items.len();
+            selected_item = items.len();
         }
         // One column gutter for the cursor bar.
         let gutter = || -> Span<'static> {
@@ -70,7 +70,7 @@ pub fn render(
             }
         };
         let (title, right, repeats) = match row.kind {
-            Kind::Header(spans) => {
+            Kind::Section(spans) => {
                 let mut line = vec![gutter()];
                 line.extend(spans);
                 items.push(ListItem::new(Line::from(line)));
@@ -124,7 +124,7 @@ pub fn render(
         if !items.is_empty() {
             items.push(ListItem::new(""));
         }
-        // Gutter column like the rows, so it lines up with the section rules.
+        // Gutter column like the rows, so it lines up with the section headers.
         items.push(ListItem::new(format!(" {note}").dim()));
     }
 
@@ -134,17 +134,23 @@ pub fn render(
     // screen. A fresh offset would pin the cursor to the bottom edge while moving up.
     let mut state = ListState::default()
         .with_offset(offset)
-        .with_selected(Some(selected));
+        .with_selected(Some(selected_item));
     frame.render_stateful_widget(list, area, &mut state);
-    render_hidden(frame, area, &heights, &tasks, state.offset());
+    render_out_of_view(frame, area, &heights, &tasks, state.offset());
     state.offset()
 }
 
 /// `↑ 4 more` on the line above `area` if items from `offset` on do not start at the top, `↓ 12
-/// more` on the line below if they do not all fit: the tasks out of sight, those cut off at the
-/// bottom too. Without a hidden task only `↑ more`. Both lists have a blank line there, between
-/// them and the header or the status line.
-fn render_hidden(frame: &mut Frame, area: Rect, heights: &[usize], tasks: &[usize], offset: usize) {
+/// more` on the line below if they do not all fit: the tasks out of view, those cut off at the
+/// bottom too. Without a task out of view only `↑ more`. Both lists have a blank line there, between
+/// them and the app header or the footer.
+fn render_out_of_view(
+    frame: &mut Frame,
+    area: Rect,
+    heights: &[usize],
+    tasks: &[usize],
+    offset: usize,
+) {
     let mut end = offset;
     let mut used = 0;
     while end < heights.len() && used + heights[end] <= area.height as usize {
@@ -157,12 +163,13 @@ fn render_hidden(frame: &mut Frame, area: Rect, heights: &[usize], tasks: &[usiz
         (area.y.checked_sub(1), "↑", 0..offset),
         (Some(area.bottom()), "↓", end..heights.len()),
     ];
-    for (y, arrow, hidden) in hints {
-        let Some(y) = y.filter(|&y| !hidden.is_empty() && y >= screen.y && y < screen.bottom())
+    for (y, arrow, out_of_view) in hints {
+        let Some(y) =
+            y.filter(|&y| !out_of_view.is_empty() && y >= screen.y && y < screen.bottom())
         else {
             continue;
         };
-        let text = match tasks.iter().filter(|i| hidden.contains(i)).count() {
+        let text = match tasks.iter().filter(|i| out_of_view.contains(i)).count() {
             0 => format!("{arrow} more"),
             count => format!("{arrow} {count} more"),
         };
@@ -172,21 +179,21 @@ fn render_hidden(frame: &mut Frame, area: Rect, heights: &[usize], tasks: &[usiz
     }
 }
 
-/// Opens the section key in a section rule: `──[1]─ work`.
+/// Opens the section key in a section header: `──[1]─ work`.
 const KEY_OPEN: &str = "──[";
 
 /// `──[1]─ work ─────── 2` with the key of the `key`th section, in `color`, filled to `width`.
-/// Every header in a list, so they all align: without a key (sections past nine) the lead is a
-/// plain line as long.
-pub fn section_rule(
+/// Every section header in a list, so they all align: without a key (sections past nine) the lead
+/// is a plain line as long.
+pub fn section_header(
     key: usize,
     color: Color,
     name: &str,
     count: usize,
     width: usize,
 ) -> Vec<Span<'static>> {
-    // The key that jumps here replaces the leading `── ` of the rule, the key right above the
-    // bullets. Without a key the rule is as long, the names align.
+    // The key that jumps here replaces the leading `── ` of the line, the key right above the
+    // bullets. Without a key the line is as long, the names align.
     let keyed = |key: char| {
         vec![
             KEY_OPEN.fg(LINE_COLOR),
@@ -201,7 +208,7 @@ pub fn section_rule(
             vec![format!("{} ", "─".repeat(lead_width - 1)).fg(LINE_COLOR)]
         }
     };
-    rule(
+    filled_line(
         Some(lead),
         name.to_string().fg(color).bold(),
         vec![count.to_string().dim()],
@@ -270,11 +277,11 @@ mod tests {
             .collect()
     }
 
-    fn header(name: &str) -> Row {
-        let rule = section_rule(0, Color::Blue, name, 1, 36);
+    fn section(name: &str) -> Row {
+        let header = section_header(0, Color::Blue, name, 1, 36);
         Row {
             color: Color::Blue,
-            kind: Kind::Header(rule),
+            kind: Kind::Section(header),
         }
     }
 
@@ -292,9 +299,9 @@ mod tests {
     #[test]
     fn sections_with_a_blank_line_between_and_the_cursor_in_the_gutter() {
         let rows = vec![
-            header("work"),
+            section("work"),
             task("a", None),
-            header("home"),
+            section("home"),
             task("b", None),
         ];
         let lines = draw(rows, 3, &[]);
@@ -337,7 +344,7 @@ mod tests {
     #[test]
     fn hidden_tasks_counted_around_the_list() {
         let rows = || {
-            let mut rows = vec![header("work")];
+            let mut rows = vec![section("work")];
             rows.extend((0..6).map(|i| task(&format!("task {i}"), None)));
             rows
         };
@@ -361,12 +368,12 @@ mod tests {
         assert_eq!(lines[0].trim(), "", "{lines:#?}");
         assert_eq!(lines[5].trim(), "↓ 3 more", "{lines:#?}");
 
-        // At the bottom the header and two tasks are above.
+        // At the bottom the section header and two tasks are above.
         let lines = draw(6);
         assert_eq!(lines[0].trim(), "↑ 2 more", "{lines:#?}");
         assert_eq!(lines[5].trim(), "", "{lines:#?}");
 
-        // Only the header above: no task to count.
+        // Only the section header above: no task to count.
         let lines = draw(4);
         assert_eq!(lines[0].trim(), "↑ more", "{lines:#?}");
         assert_eq!(lines[5].trim(), "↓ 2 more", "{lines:#?}");
@@ -374,8 +381,8 @@ mod tests {
 
     #[test]
     fn notes_after_the_rows_dimmed() {
-        let lines = draw(Vec::new(), 0, &["nothing done"]);
-        assert_eq!(lines[0].trim_end(), "  nothing done");
+        let lines = draw(Vec::new(), 0, &["<empty>"]);
+        assert_eq!(lines[0].trim_end(), "  <empty>");
 
         let lines = draw(vec![task("a", None)], 0, &["no sections yet"]);
         assert_eq!(lines[1].trim(), "", "a blank line before a note");

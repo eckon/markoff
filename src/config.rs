@@ -2,7 +2,7 @@
 //!
 //! ```toml
 //! [general]
-//! dir = "~/notes/todo"
+//! dir = "~/notes/tasks"
 //! ```
 //!
 //! [`Config`] mirrors the file. Unknown keys are an error, so a typo or a key in the wrong
@@ -46,7 +46,7 @@ pub struct General {
 pub fn info(mut args: impl Iterator<Item = String>) -> Option<String> {
     args.find_map(|arg| match arg.as_str() {
         "-h" | "--help" => Some(format!(
-            "markoff: a TUI for todos stored as markdown files\n\
+            "markoff: a TUI for tasks stored as markdown files\n\
              \n\
              Usage: markoff [--dir <path>] [<command>]\n\
              \n\

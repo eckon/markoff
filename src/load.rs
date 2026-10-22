@@ -10,7 +10,7 @@ use color_eyre::{Result, eyre::WrapErr};
 use jiff::civil::Date;
 
 use crate::{
-    archive, history,
+    archive,
     state::{self, State, StateFile},
     task::{self, Section, Task},
 };
@@ -72,9 +72,9 @@ pub fn read_if_exists(path: &Path) -> Result<Option<String>> {
 /// The done tasks per day from the archive in `root`, each day read like the root without a
 /// state file: sections and tasks by name. Entries whose name is no date are skipped. No
 /// `.archive/` yet means nothing was done.
-pub fn archive(root: &Path) -> Result<history::Archive> {
+pub fn archive(root: &Path) -> Result<archive::Archive> {
     let dir = root.join(archive::DIR);
-    let mut days = history::Archive::new();
+    let mut days = archive::Archive::new();
     if !dir.is_dir() {
         return Ok(days);
     }
@@ -109,7 +109,7 @@ fn load_tasks(mut paths: Vec<PathBuf>, state: &State, section: &str) -> Result<V
             let content = fs::read_to_string(&path)
                 .wrap_err_with(|| format!("failed to read {}", path.display()))?;
             let mut task = Task::parse(path, &content);
-            task.done = state.done(section, task.stem());
+            task.last_done = state.last_done(section, task.stem());
             Ok(task)
         })
         .collect()
@@ -201,7 +201,7 @@ mod tests {
         section.tasks.iter().map(Task::title).collect()
     }
 
-    fn section_titles(sections: &[Section]) -> Vec<String> {
+    fn section_names(sections: &[Section]) -> Vec<String> {
         sections
             .iter()
             .map(|section| section.name.clone())
@@ -229,7 +229,7 @@ mod tests {
         ]);
         let (sections, _) = load(dir.path()).unwrap();
 
-        assert_eq!(section_titles(&sections), ["work", "private", "home"]);
+        assert_eq!(section_names(&sections), ["work", "private", "home"]);
         assert_eq!(titles(&sections[0]), ["Review PR", "Fix login bug"]);
         assert_eq!(
             titles(&sections[2]),
@@ -250,7 +250,7 @@ mod tests {
         ]);
         let (sections, _) = load(dir.path()).unwrap();
 
-        assert_eq!(section_titles(&sections), ["work", "home", "misc"]);
+        assert_eq!(section_names(&sections), ["work", "home", "misc"]);
         assert_eq!(titles(&sections[0]), ["b", "a", "c"]);
     }
 
@@ -259,7 +259,7 @@ mod tests {
         // Old numbered names keep their order this way until they are renamed.
         let dir = fixture(&[("work/02-b.md", ""), ("work/01-a.md", ""), ("01-home/", "")]);
         let (sections, _) = load(dir.path()).unwrap();
-        assert_eq!(section_titles(&sections), ["01-home", "work"]);
+        assert_eq!(section_names(&sections), ["01-home", "work"]);
         assert_eq!(titles(&sections[1]), ["01 a", "02 b"]);
     }
 
@@ -276,7 +276,7 @@ mod tests {
         ]);
         let (sections, _) = load(dir.path()).unwrap();
 
-        assert_eq!(section_titles(&sections), ["work"]);
+        assert_eq!(section_names(&sections), ["work"]);
         assert_eq!(titles(&sections[0]), ["Task"]);
     }
 

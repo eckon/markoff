@@ -16,14 +16,14 @@ use notify::{
 /// events (temp file, rename, chmod), this turns them into one reload.
 const DEBOUNCE: Duration = Duration::from_millis(100);
 
-pub struct TodoWatcher {
+pub struct RootWatcher {
     /// Only kept alive, watching stops when it is dropped.
     _watcher: RecommendedWatcher,
     events: Receiver<notify::Result<Event>>,
     debounce: Debounce,
 }
 
-impl TodoWatcher {
+impl RootWatcher {
     pub fn new(dir: &Path) -> Result<Self> {
         let (sender, events) = mpsc::channel();
         let mut watcher =
@@ -126,7 +126,7 @@ mod tests {
     #[test]
     fn notices_a_new_file() {
         let dir = TempDir::new().unwrap();
-        let mut watcher = TodoWatcher::new(dir.path()).unwrap();
+        let mut watcher = RootWatcher::new(dir.path()).unwrap();
         fs::write(dir.path().join("new.md"), "# New").unwrap();
 
         // Real file system events take a moment, poll until the debounce fires.

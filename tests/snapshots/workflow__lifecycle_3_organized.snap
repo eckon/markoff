@@ -2,9 +2,9 @@
 source: tests/workflow.rs
 expression: app.state()
 ---
-── todo  archive ── [date] ─┬───────────────────────────── 4 open · ✓ 0 done
+── tasks  archive ── [date] ─┬───────────────────────────── 4 open · ✓ 0 done
                                 │
- ▌──[1]─ house ───────────── 4  │ no notes
+ ▌──[1]─ house ───────────── 4  │ <empty>
      • Pay rent                 │
      • Buy oat milk             │
      • Call mom                 │

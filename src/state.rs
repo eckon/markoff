@@ -17,7 +17,7 @@ use std::path::PathBuf;
 
 use jiff::civil::Date;
 
-use crate::{op::Op, task::Section};
+use crate::{op::Op, task};
 
 /// File name in the root. Hidden, so it is never taken for a task.
 pub const FILE: &str = ".markoff";
@@ -25,34 +25,34 @@ pub const FILE: &str = ".markoff";
 /// Sections in order, each with its task names in order.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State {
-    pub sections: Vec<Group>,
+    pub sections: Vec<Section>,
 }
 
 /// One section in [`State`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Group {
+pub struct Section {
     pub name: String,
-    pub tasks: Vec<Item>,
+    pub tasks: Vec<Task>,
 }
 
-/// One task in a [`Group`]: `review-pr 2026-10-19`.
+/// One task in a [`Section`]: `review-pr 2026-10-19`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Item {
+pub struct Task {
     pub name: String,
     /// When it was last done.
-    pub done: Option<Date>,
+    pub last_done: Option<Date>,
 }
 
-impl Item {
+impl Task {
     /// Names are slugs without spaces, so a date after the last space can only be the date.
     /// Anything else is all name and matches no file.
     fn parse(line: &str) -> Self {
         let dated = (line.rsplit_once(' '))
             .and_then(|(name, date)| Some((name.trim_end(), date.parse().ok()?)));
-        let (name, done) = dated.map_or((line, None), |(name, date)| (name, Some(date)));
+        let (name, last_done) = dated.map_or((line, None), |(name, date)| (name, Some(date)));
         Self {
             name: name.to_string(),
-            done,
+            last_done,
         }
     }
 }
@@ -67,13 +67,13 @@ impl State {
                 continue;
             }
             match line.strip_prefix("# ") {
-                Some(name) => state.sections.push(Group {
+                Some(name) => state.sections.push(Section {
                     name: name.trim().to_string(),
                     tasks: Vec::new(),
                 }),
                 None => {
-                    if let Some(group) = state.sections.last_mut() {
-                        group.tasks.push(Item::parse(line));
+                    if let Some(section) = state.sections.last_mut() {
+                        section.tasks.push(Task::parse(line));
                     }
                 }
             }
@@ -82,18 +82,18 @@ impl State {
     }
 
     /// The order as loaded, so it lists exactly what is on disk. Index `s` is `sections[s]`.
-    pub fn of(sections: &[Section]) -> Self {
+    pub fn of(sections: &[task::Section]) -> Self {
         Self {
             sections: sections
                 .iter()
-                .map(|section| Group {
+                .map(|section| Section {
                     name: section.name.clone(),
                     tasks: section
                         .tasks
                         .iter()
-                        .map(|task| Item {
+                        .map(|task| Task {
                             name: task.stem().to_string(),
-                            done: task.done,
+                            last_done: task.last_done,
                         })
                         .collect(),
                 })
@@ -103,19 +103,21 @@ impl State {
 
     /// Position of section `name`, first match.
     pub fn section_position(&self, name: &str) -> Option<usize> {
-        self.sections.iter().position(|group| group.name == name)
+        self.sections
+            .iter()
+            .position(|section| section.name == name)
     }
 
     /// Position of task `stem` in section `section`, first match of both.
     pub fn task_position(&self, section: &str, stem: &str) -> Option<usize> {
-        let group = self.sections.iter().find(|group| group.name == section)?;
-        group.tasks.iter().position(|task| task.name == stem)
+        let order = self.sections.iter().find(|s| s.name == section)?;
+        order.tasks.iter().position(|task| task.name == stem)
     }
 
     /// When task `stem` in section `section` was last done, see [`State::task_position`].
-    pub fn done(&self, section: &str, stem: &str) -> Option<Date> {
-        let group = self.sections.iter().find(|group| group.name == section)?;
-        group.tasks.iter().find(|task| task.name == stem)?.done
+    pub fn last_done(&self, section: &str, stem: &str) -> Option<Date> {
+        let order = self.sections.iter().find(|s| s.name == section)?;
+        order.tasks.iter().find(|task| task.name == stem)?.last_done
     }
 
     /// The file content. Empty if there is nothing to order.
@@ -126,9 +128,9 @@ impl State {
         let blocks: Vec<String> = self
             .sections
             .iter()
-            .map(|group| {
-                let mut lines = vec![format!("# {}", group.name)];
-                lines.extend(group.tasks.iter().map(|task| match task.done {
+            .map(|section| {
+                let mut lines = vec![format!("# {}", section.name)];
+                lines.extend(section.tasks.iter().map(|task| match task.last_done {
                     Some(done) => format!("{} {done}", task.name),
                     None => task.name.clone(),
                 }));
@@ -172,10 +174,10 @@ impl StateFile {
 mod tests {
     use super::*;
 
-    fn group(name: &str, tasks: &[&str]) -> Group {
-        Group {
+    fn section(name: &str, tasks: &[&str]) -> Section {
+        Section {
             name: name.to_string(),
-            tasks: tasks.iter().map(|task| Item::parse(task)).collect(),
+            tasks: tasks.iter().map(|task| Task::parse(task)).collect(),
         }
     }
 
@@ -187,16 +189,16 @@ mod tests {
         assert_eq!(
             state.sections,
             [
-                group("work", &["fix-login-bug", "review-pr 2026-10-19"]),
-                group("home", &[]),
+                section("work", &["fix-login-bug", "review-pr 2026-10-19"]),
+                section("home", &[]),
             ]
         );
         assert_eq!(state.format(), CONTENT);
         let date = "2026-10-19".parse().ok();
         assert_eq!(state.sections[0].tasks[1].name, "review-pr");
-        assert_eq!(state.sections[0].tasks[1].done, date);
-        assert_eq!(state.done("work", "review-pr"), date);
-        assert_eq!(state.done("work", "fix-login-bug"), None);
+        assert_eq!(state.sections[0].tasks[1].last_done, date);
+        assert_eq!(state.last_done("work", "review-pr"), date);
+        assert_eq!(state.last_done("work", "fix-login-bug"), None);
         assert_eq!(state.task_position("work", "review-pr"), Some(1));
     }
 
@@ -204,7 +206,7 @@ mod tests {
     fn parse_only_takes_a_real_date() {
         let state = State::parse("# work\na  2026-10-19\nb 2026-13-01\nc d\n");
         let names: Vec<(&str, Option<Date>)> = (state.sections[0].tasks.iter())
-            .map(|task| (task.name.as_str(), task.done))
+            .map(|task| (task.name.as_str(), task.last_done))
             .collect();
         let date = "2026-10-19".parse().ok();
         assert_eq!(
@@ -220,7 +222,7 @@ mod tests {
         let state = State::parse("x\n\n  # work  \n\n a \n<<<<<<< HEAD\nb\n=======\n");
         assert_eq!(
             state.sections,
-            [group("work", &["a", "<<<<<<< HEAD", "b", "======="])]
+            [section("work", &["a", "<<<<<<< HEAD", "b", "======="])]
         );
     }
 
@@ -249,7 +251,7 @@ mod tests {
     fn format_empty() {
         assert_eq!(State::default().format(), "");
         let only_section = State {
-            sections: vec![group("work", &[])],
+            sections: vec![section("work", &[])],
         };
         assert_eq!(only_section.format(), "# work\n");
     }

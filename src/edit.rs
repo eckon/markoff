@@ -12,7 +12,7 @@ use crate::{
     name::slugify,
     op::Op,
     repeat,
-    state::{Group, Item, State, StateFile},
+    state::{self, State, StateFile},
     task::{EXTENSION, HEADING, Section, Task, split_heading},
 };
 
@@ -46,9 +46,9 @@ pub fn delete_section(sections: &[Section], s: usize, file: &StateFile) -> Vec<O
 /// In the section draft: a section is a directory, there is no file for text to go into.
 const SECTION_NOTE: &str = "<!-- Only the heading is used: it becomes the section name. -->";
 
-/// What the editor shows to create (`N`, empty `title`) or rename (`<CR>`) a section.
-pub fn section_draft(title: &str) -> String {
-    format!("{HEADING}{title}\n\n{SECTION_NOTE}\n")
+/// What the editor shows to create (`N`, empty `name`) or rename (`<CR>`) a section.
+pub fn section_draft(name: &str) -> String {
+    format!("{HEADING}{name}\n\n{SECTION_NOTE}\n")
 }
 
 /// The section name from a saved [`section_draft`]: the heading as slug, and whether
@@ -90,7 +90,7 @@ pub fn repeat_done(
     file: &StateFile,
 ) -> Vec<Op> {
     let mut state = State::of(sections);
-    state.sections[s].tasks[t].done = Some(date);
+    state.sections[s].tasks[t].last_done = Some(date);
     file.write(&state).into_iter().collect()
 }
 
@@ -125,18 +125,18 @@ pub fn archive(
 }
 
 /// A task file, as far as its name is concerned.
-struct Entry {
+struct TaskName {
     path: PathBuf,
     /// The name it has now. `None` if it comes from another section and has to make room for
     /// the names already there.
     current: Option<String>,
     /// The name it should have: from the heading, the current one without heading.
     slug: String,
-    /// Goes along with the name, see [`Task::done`].
-    done: Option<Date>,
+    /// Goes along with the name, see [`Task::last_done`].
+    last_done: Option<Date>,
 }
 
-impl Entry {
+impl TaskName {
     fn task(task: &Task) -> Self {
         Self {
             path: task.path.clone(),
@@ -146,14 +146,14 @@ impl Entry {
                 Some(heading) => slugify(heading),
                 None => task.stem().to_string(),
             },
-            done: task.done,
+            last_done: task.last_done,
         }
     }
 }
 
-/// The tasks of a section as [`Entry`]s, in display order.
-fn task_entries(section: &Section) -> Vec<Entry> {
-    section.tasks.iter().map(Entry::task).collect()
+/// The tasks of a section as [`TaskName`]s, in display order.
+fn task_names(section: &Section) -> Vec<TaskName> {
+    section.tasks.iter().map(TaskName::task).collect()
 }
 
 /// Renames tasks whose filename does not match their heading, and writes the state file so
@@ -163,9 +163,9 @@ pub fn normalize(sections: &[Section], file: &StateFile) -> Vec<Op> {
     let mut state = State::of(sections);
     let mut ops = Vec::new();
     for (s, section) in sections.iter().enumerate() {
-        let (renames, items) = renames(&task_entries(section), &section.dir);
+        let (renames, lines) = renames(&task_names(section), &section.dir);
         ops.extend(renames);
-        state.sections[s].tasks = items;
+        state.sections[s].tasks = lines;
     }
     ops.extend(file.write(&state));
     ops
@@ -190,9 +190,13 @@ pub fn insert(
     let name = unique_slug(&taken, slugify(repeat::split(title).0));
     let path = section.dir.join(&name).with_extension(EXTENSION);
     let mut state = State::of(sections);
-    state.sections[s]
-        .tasks
-        .insert(index, Item { name, done: None });
+    state.sections[s].tasks.insert(
+        index,
+        state::Task {
+            name,
+            last_done: None,
+        },
+    );
 
     let mut ops = vec![Op::Create {
         path: path.clone(),
@@ -215,7 +219,7 @@ pub fn insert_section(
     let mut state = State::of(sections);
     state.sections.insert(
         index,
-        Group {
+        state::Section {
             name: slug.to_string(),
             tasks: Vec::new(),
         },
@@ -241,24 +245,24 @@ pub fn move_task(
 ) -> (Vec<Op>, PathBuf) {
     let task = &sections[from].tasks[t];
     let mut state = State::of(sections);
-    let item = state.sections[from].tasks.remove(t);
+    let line = state.sections[from].tasks.remove(t);
 
     let mut ops = Vec::new();
     let path = if from == to {
-        state.sections[to].tasks.insert(index, item);
+        state.sections[to].tasks.insert(index, line);
         task.path.clone()
     } else {
         // Coming from another section: give way to the names already there.
-        let mut moved = Entry::task(task);
+        let mut moved = TaskName::task(task);
         moved.current = None;
-        let mut target = task_entries(&sections[to]);
+        let mut target = task_names(&sections[to]);
         target.insert(index, moved);
 
         let dir = &sections[to].dir;
-        let (renames, items) = renames(&target, dir);
+        let (renames, lines) = renames(&target, dir);
         ops.extend(renames);
-        let path = dir.join(&items[index].name).with_extension(EXTENSION);
-        state.sections[to].tasks = items;
+        let path = dir.join(&lines[index].name).with_extension(EXTENSION);
+        state.sections[to].tasks = lines;
         path
     };
     ops.extend(file.write(&state));
@@ -285,46 +289,46 @@ pub fn move_section(
     Some((ops, sections[s].dir.clone()))
 }
 
-/// The renames that give `entries` in `dir` their wanted names, and the order items of all
-/// entries.
-fn renames(entries: &[Entry], dir: &Path) -> (Vec<Op>, Vec<Item>) {
-    let names = target_names(entries);
-    let renames = entries
+/// The renames that give `tasks` in `dir` their wanted names, and their lines in the state
+/// file, in the same order.
+fn renames(tasks: &[TaskName], dir: &Path) -> (Vec<Op>, Vec<state::Task>) {
+    let names = target_names(tasks);
+    let renames = tasks
         .iter()
         .zip(&names)
-        .filter_map(|(entry, name)| {
+        .filter_map(|(task, name)| {
             let to = dir.join(name).with_extension(EXTENSION);
-            (entry.path != to).then(|| (entry.path.clone(), to))
+            (task.path != to).then(|| (task.path.clone(), to))
         })
         .collect();
-    let items = (entries.iter().zip(names))
-        .map(|(entry, name)| Item {
+    let lines = (tasks.iter().zip(names))
+        .map(|(task, name)| state::Task {
             name,
-            done: entry.done,
+            last_done: task.last_done,
         })
         .collect();
-    (order_renames(renames), items)
+    (order_renames(renames), lines)
 }
 
-/// Names for all entries, with their wanted slug.
+/// Names for all tasks, with their wanted slug.
 ///
-/// Entries whose name stays the same keep it, the others get a unique one (`-2`, ...), so
-/// an entry never takes the name another one already has.
-fn target_names(entries: &[Entry]) -> Vec<String> {
-    let keeps_name = |entry: &Entry| entry.current.as_ref() == Some(&entry.slug);
-    let mut taken: Vec<String> = entries
+/// Tasks whose name stays the same keep it, the others get a unique one (`-2`, ...), so
+/// a task never takes the name another one already has.
+fn target_names(tasks: &[TaskName]) -> Vec<String> {
+    let keeps_name = |task: &TaskName| task.current.as_ref() == Some(&task.slug);
+    let mut taken: Vec<String> = tasks
         .iter()
-        .filter(|entry| keeps_name(entry))
-        .map(|entry| entry.slug.clone())
+        .filter(|task| keeps_name(task))
+        .map(|task| task.slug.clone())
         .collect();
 
-    entries
+    tasks
         .iter()
-        .map(|entry| {
-            if keeps_name(entry) {
-                entry.slug.clone()
+        .map(|task| {
+            if keeps_name(task) {
+                task.slug.clone()
             } else {
-                let name = unique_slug(&taken, entry.slug.clone());
+                let name = unique_slug(&taken, task.slug.clone());
                 taken.push(name.clone());
                 name
             }

@@ -21,11 +21,11 @@ pub enum Action {
     SkipDown,
     SkipUp,
     SkipRight,
-    /// `<CR>` on the archive page: the list takes the move keys, it shows the selected day.
+    /// `<CR>` on the archive page: the list takes the move keys, it shows the selected cell.
     FocusList,
     /// `Esc` on the archive page: the heatmap takes the move keys back.
     FocusHeatmap,
-    /// `p`: shows or hides the preview of the task at the cursor, on each page of its own.
+    /// `p`: shows or hides the preview of the selected task, on each page of its own.
     Preview,
     /// `.`: shows or hides the repeating tasks that are not due, like hidden files.
     ShowHidden,
@@ -87,14 +87,14 @@ pub struct Binding {
     pub pages: &'static [Page],
 }
 
-/// Bindings of the todo list only.
-const TODO: &[Page] = &[Page::Todo];
+/// Bindings of the task list only.
+const TASKS: &[Page] = &[Page::Tasks];
 
 /// Bindings of the archive page only.
 const ARCHIVE: &[Page] = &[Page::Archive];
 
 /// Bindings that work on every page.
-const ALL: &[Page] = &[Page::Todo, Page::Archive];
+const ALL: &[Page] = &[Page::Tasks, Page::Archive];
 
 use Action as A;
 use KeyCode::{BackTab, Backspace, Char, Down, End, Enter, Esc, Home, Left, Right, Tab, Up};
@@ -106,17 +106,17 @@ use Trigger::{Ctrl, Key, Seq, Shift};
 /// rustfmt.
 #[rustfmt::skip]
 pub const BINDINGS: &[Binding] = &[
-    Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "move", pages: TODO },
-    Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "move", pages: TODO },
-    Binding { keys: &[(&[Key(Char('{'))], A::PrevSection), (&[Key(Char('}'))], A::NextSection)], help: "previous / next section", group: "move", pages: TODO },
-    Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section", group: "move", pages: TODO },
-    Binding { keys: &[(&[Key(Char('J')), Shift(Down)], A::MoveDown), (&[Key(Char('K')), Shift(Up)], A::MoveUp)], help: "move down / up", group: "change", pages: TODO },
-    Binding { keys: &[(&[Key(Enter)], A::Open)], help: "open in $EDITOR", group: "change", pages: TODO },
-    Binding { keys: &[(&[Key(Char('o'))], A::NewBelow), (&[Key(Char('O'))], A::NewAbove)], help: "new task below / above", group: "change", pages: TODO },
-    Binding { keys: &[(&[Key(Char('N'))], A::NewSection)], help: "new section", group: "change", pages: TODO },
-    Binding { keys: &[(&[Key(Char('X'))], A::Done)], help: "done (archive)", group: "change", pages: TODO },
-    Binding { keys: &[(&[Key(Char('D'))], A::Delete)], help: "delete", group: "change", pages: TODO },
-    Binding { keys: &[(&[Key(Char('u'))], A::Undo)], help: "undo", group: "change", pages: TODO },
+    Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "move", pages: TASKS },
+    Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "move", pages: TASKS },
+    Binding { keys: &[(&[Key(Char('{'))], A::PrevSection), (&[Key(Char('}'))], A::NextSection)], help: "previous / next section", group: "move", pages: TASKS },
+    Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section", group: "move", pages: TASKS },
+    Binding { keys: &[(&[Key(Char('J')), Shift(Down)], A::MoveDown), (&[Key(Char('K')), Shift(Up)], A::MoveUp)], help: "move down / up", group: "change", pages: TASKS },
+    Binding { keys: &[(&[Key(Enter)], A::Open)], help: "open in $EDITOR", group: "change", pages: TASKS },
+    Binding { keys: &[(&[Key(Char('o'))], A::NewBelow), (&[Key(Char('O'))], A::NewAbove)], help: "new task below / above", group: "change", pages: TASKS },
+    Binding { keys: &[(&[Key(Char('N'))], A::NewSection)], help: "new section", group: "change", pages: TASKS },
+    Binding { keys: &[(&[Key(Char('X'))], A::Done)], help: "done (archive)", group: "change", pages: TASKS },
+    Binding { keys: &[(&[Key(Char('D'))], A::Delete)], help: "delete", group: "change", pages: TASKS },
+    Binding { keys: &[(&[Key(Char('u'))], A::Undo)], help: "undo", group: "change", pages: TASKS },
     Binding { keys: &[(&[Key(Char('h')), Key(Left)], A::Left), (&[Key(Char('l')), Key(Right)], A::Right)], help: "left / right", group: "heatmap", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "heatmap", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('H'))], A::SkipLeft), (&[Key(Char('L'))], A::SkipRight)], help: "left / right, skip empty", group: "heatmap", pages: ARCHIVE },
@@ -127,9 +127,9 @@ pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('{'))], A::PrevSection), (&[Key(Char('}'))], A::NextSection)], help: "previous / next section", group: "list", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section", group: "list", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('p'))], A::Preview)], help: "toggle preview", group: "list", pages: ARCHIVE },
-    Binding { keys: &[(&[Key(Char('p'))], A::Preview)], help: "toggle preview", group: "other", pages: TODO },
-    Binding { keys: &[(&[Key(Char('.'))], A::ShowHidden)], help: "toggle hidden tasks", group: "other", pages: TODO },
-    Binding { keys: &[(&[Key(Char('/'))], A::Filter)], help: "filter", group: "other", pages: TODO },
+    Binding { keys: &[(&[Key(Char('p'))], A::Preview)], help: "toggle preview", group: "other", pages: TASKS },
+    Binding { keys: &[(&[Key(Char('.'))], A::ShowHidden)], help: "toggle hidden tasks", group: "other", pages: TASKS },
+    Binding { keys: &[(&[Key(Char('/'))], A::Filter)], help: "filter", group: "other", pages: TASKS },
     Binding { keys: &[(&[Key(Enter)], A::FocusList), (&[Key(Esc)], A::FocusHeatmap)], help: "keys to list / heatmap", group: "other", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('?'))], A::Help)], help: "toggle help", group: "other", pages: ALL },
     Binding { keys: &[(&[Key(Tab)], A::NextPage), (&[Key(BackTab)], A::PrevPage)], help: "next / previous page", group: "other", pages: ALL },
@@ -229,13 +229,13 @@ impl Keymap {
         None
     }
 
-    /// The unfinished sequence, to show in the status line.
+    /// The unfinished sequence, to show in the status.
     pub fn pending(&self) -> Option<char> {
         self.pending
     }
 }
 
-/// Key hints in the status line while the filter input is open, see [`filter_input`].
+/// Key hints in the footer while the filter input is open, see [`filter_input`].
 pub const FILTER_INPUT_HINTS: &[(&str, &str)] = &[("<CR>", "keep filter"), ("Esc", "clear filter")];
 
 /// Keys while the filter input is open: text goes into the filter, not to [`BINDINGS`].
@@ -262,7 +262,7 @@ mod tests {
     use super::*;
 
     fn press(keymap: &mut Keymap, code: KeyCode) -> Option<Action> {
-        keymap.handle(KeyEvent::from(code), Page::Todo)
+        keymap.handle(KeyEvent::from(code), Page::Tasks)
     }
 
     #[test]
@@ -270,7 +270,7 @@ mod tests {
         let mut keymap = Keymap::default();
         assert_eq!(press(&mut keymap, KeyCode::Char('q')), Some(Action::Quit));
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
-        assert_eq!(keymap.handle(ctrl_c, Page::Todo), Some(Action::Quit));
+        assert_eq!(keymap.handle(ctrl_c, Page::Tasks), Some(Action::Quit));
     }
 
     #[test]
@@ -340,12 +340,12 @@ mod tests {
         let mut keymap = Keymap::default();
         let shift_down = KeyEvent::new(Down, KeyModifiers::SHIFT);
         assert_eq!(
-            keymap.handle(shift_down, Page::Todo),
+            keymap.handle(shift_down, Page::Tasks),
             Some(Action::MoveDown)
         );
         // Terminals send `J` with the shift modifier set, it still is `J`.
         let shift_j = KeyEvent::new(Char('J'), KeyModifiers::SHIFT);
-        assert_eq!(keymap.handle(shift_j, Page::Todo), Some(Action::MoveDown));
+        assert_eq!(keymap.handle(shift_j, Page::Tasks), Some(Action::MoveDown));
         assert_eq!(press(&mut keymap, Down), Some(Action::Down));
     }
 
@@ -353,7 +353,7 @@ mod tests {
     fn ctrl_does_not_trigger_plain_keys() {
         let mut keymap = Keymap::default();
         let ctrl_j = KeyEvent::new(Char('j'), KeyModifiers::CONTROL);
-        assert_eq!(keymap.handle(ctrl_j, Page::Todo), None);
+        assert_eq!(keymap.handle(ctrl_j, Page::Tasks), None);
     }
 
     #[test]
@@ -383,7 +383,7 @@ mod tests {
         let mut keymap = Keymap::default();
         press(&mut keymap, Char('g'));
         let ctrl_c = KeyEvent::new(Char('c'), KeyModifiers::CONTROL);
-        assert_eq!(keymap.handle(ctrl_c, Page::Todo), Some(Action::Quit));
+        assert_eq!(keymap.handle(ctrl_c, Page::Tasks), Some(Action::Quit));
         assert_eq!(keymap.pending(), None);
     }
 
@@ -396,7 +396,7 @@ mod tests {
     #[test]
     fn esc_only_backs_out() {
         let mut keymap = Keymap::default();
-        // The filter is cleared from its input, `Esc` on the todo list does nothing.
+        // The filter is cleared from its input, `Esc` on the task list does nothing.
         assert_eq!(press(&mut keymap, KeyCode::Esc), None);
         let esc = KeyEvent::from(KeyCode::Esc);
         assert_eq!(
@@ -410,7 +410,7 @@ mod tests {
         let mut keymap = Keymap::default();
         // Terminals send `BackTab`, some with the shift modifier set.
         let back_tab = KeyEvent::new(BackTab, KeyModifiers::SHIFT);
-        assert_eq!(keymap.handle(back_tab, Page::Todo), Some(Action::PrevPage));
+        assert_eq!(keymap.handle(back_tab, Page::Tasks), Some(Action::PrevPage));
         assert_eq!(press(&mut keymap, BackTab), Some(Action::PrevPage));
         assert_eq!(press(&mut keymap, Tab), Some(Action::NextPage));
     }

@@ -71,14 +71,14 @@ impl Repeat {
         }
     }
 
-    /// Due when a day of the rule came after `done`, up to `today`. A missed day stays due
+    /// Due when a day of the rule came after `last_done`, up to `today`. A missed day stays due
     /// until it is done. Never done is due.
-    pub fn due(&self, done: Option<Date>, today: Date) -> bool {
-        let Some(done) = done else {
+    pub fn due(&self, last_done: Option<Date>, today: Date) -> bool {
+        let Some(last_done) = last_done else {
             return true;
         };
         self.cron
-            .find_next_occurrence(&done.to_datetime(Time::midnight()), false)
+            .find_next_occurrence(&last_done.to_datetime(Time::midnight()), false)
             .is_ok_and(|next| next.date() <= today)
     }
 }
