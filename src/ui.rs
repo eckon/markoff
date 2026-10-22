@@ -23,8 +23,8 @@ use crate::{
 pub struct Drawn {
     /// See [`App::list_offset`].
     pub list_offset: usize,
-    /// See [`crate::app::archive::ArchivePage::columns`].
-    pub heatmap_columns: usize,
+    /// See [`crate::app::archive::ArchivePage::heatmap_offset`].
+    pub heatmap_offset: usize,
     /// See [`crate::app::archive::ArchivePage::offset`].
     pub archive_offset: usize,
 }
@@ -46,7 +46,7 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
     render_footer(app, frame, footer_area);
     let mut drawn = Drawn {
         list_offset: app.list_offset,
-        heatmap_columns: app.archive_page.columns,
+        heatmap_offset: app.archive_page.heatmap_offset,
         archive_offset: app.archive_page.offset,
     };
     match app.page {
@@ -70,14 +70,14 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
         }
         Page::Archive => {
             let divider;
-            (drawn.heatmap_columns, drawn.archive_offset, divider) =
+            (drawn.heatmap_offset, drawn.archive_offset, divider) =
                 archive::render(app, frame, main_area);
             if let Some(x) = divider {
                 join_divider(frame, x, bottom_gap.y, footer_area.y, "┴");
             }
-            // The tasks done in the selected cell.
-            let range = archive::range(app, drawn.heatmap_columns);
-            let done = (app.archive_rows(drawn.heatmap_columns).iter())
+            // The tasks done in the selection.
+            let range = archive::range(app);
+            let done = (app.archive_rows().iter())
                 .filter(|row| matches!(row, ArchiveRow::Task(..)))
                 .count();
             render_app_header(app, frame, app_header_area, &range, done_count(done));
@@ -251,7 +251,7 @@ fn status_text(app: &App) -> Vec<Span<'_>> {
         (Some(Status::Info(message)), _) => vec![message.as_str().into()],
         (None, Some(key)) => vec![key.to_string().into()],
         (None, None) if !app.page_filter().is_empty() => {
-            // The archive counts its matches over all days, not only the selected cell.
+            // The archive counts its matches over all days, not only the selected one.
             let count = match app.archive_matches() {
                 Some(matches) if app.page == Page::Archive => matches.values().sum(),
                 _ => app

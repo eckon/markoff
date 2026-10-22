@@ -9,7 +9,7 @@ markoff is a Rust TUI for tasks stored as markdown files. This file is the sourc
 - Order lives in `.markoff` in the root, not in the filenames: renumbering prefixes renamed every file below a change, which cluttered git. The disk decides what exists, the file only orders it: unlisted files go to the end, stale names are dropped. It also keeps when a repeating task was last done, on the task's line, so checking one off never touches the task file and stays out of git with `.markoff`.
 - The `# Heading` is the task's title, the filename follows it.
 - Normalize (slug, cleaned `.markoff`) runs at startup and before every write action, never on watcher reloads: renaming a file another editor has open breaks that editor's next save.
-- Done tasks move unchanged to `.archive/YYYY-MM-DD/<section>/` in the root, the same layout as the root, so every task is the same kind of file wherever it is. A day has no order of its own, its tasks are sorted by name. The app header counts today's, so archiving is visible. The archive is a page of its own next to the task list (`Tab` / `S-Tab`, the help stays an overlay): a heatmap back to the first day, cells growing with age so years fit, and the done tasks of the cell under its cursor. It answers "what did I do lately", searching stays with the editor. Read-only, not even `$EDITOR`. Each page keeps its state and has its own keys and help, keys of the other page do nothing.
+- Done tasks move unchanged to `.archive/YYYY-MM-DD/<section>/` in the root, the same layout as the root, so every task is the same kind of file wherever it is. A day has no order of its own, its tasks are sorted by name. The app header counts today's, so archiving is visible. The archive is a page of its own next to the task list (`Tab` / `S-Tab`, the help stays an overlay): a heatmap back to the first day, a week per column, scrolled sideways, and the done tasks of the day under its cursor. It answers "what did I do lately", searching stays with the editor. Read-only, not even `$EDITOR`. Each page keeps its state and has its own keys and help, keys of the other page do nothing.
 - A task repeats with a rule as inline code at the end of its heading, ``# Water plants `* * mon` ``: the day fields of cron (day of month, month, day of week, both day fields have to match), read by croner. Nothing repeats more often than daily. `X` on it keeps the date in `.markoff` instead of archiving, the task hides until a day of the rule comes, a missed day stays due. `.` shows hidden tasks, like hidden files. Hidden tasks are not open, the filter and `list` skip them.
 - Writing text happens in `$EDITOR`, the TUI only has quick actions. Keys are vim-like. A second key only for people outside vim (arrows, `Home` / `End`), never a second vim key for the same thing. Uppercase is a variant of its lowercase key, stronger or turned around (`O` / `o`, `H` / `h`), so the keys stay easy to guess.
 - Every action is one undo step, undo puts the cursor back where it was.
@@ -26,14 +26,14 @@ Use these words in code, docs and UI, not their synonyms (in brackets).
 - **done**: what `X` does. A done task is **archived**, a repeating one is hidden until it is **due** again (completed, checked off). **last done**: the date kept in `.markoff`.
 - **archive**: `.archive` in the root, and the page that shows it (history).
 - **repeat**: a task with a **rule**, the cron day fields at the end of its heading (recurring, schedule).
-- **hidden**: a repeating task that is not due, shown with `.` like **hidden files** (dotfiles), which markoff ignores. **out of view**: rows scrolled off the list, counted in the `↑ 4 more` hints (hidden).
+- **hidden**: a repeating task that is not due, shown with `.` like **hidden files** (dotfiles), which markoff ignores. **out of view**: rows scrolled off the list or weeks off the heatmap, counted in the `↑ 4 more` hints (hidden).
 - **open**: a task that is not hidden, counted in the app header. Also the verb, open in `$EDITOR`.
 - **page**: tasks or archive, switched with `Tab` (view, screen, tab). **screen**: the whole terminal. **overlay**: the help (panel). **preview**: the body next to a list (pane, side panel).
 - **task list** / **archive list**: the list on each page. **row**: a task or a section header in it.
 - **app header**: the top line. **section header**: a section's line in a list. Its **key** is the number in `[1]` that jumps to it. **group header**: a group's line in the help overlay. **footer**: the bottom line, the **status** on the left (info, errors, filter input), **hints** on the right. All are drawn as **lines** (rule, status line, message bar).
 - **cursor**: the position in a list or the heatmap and the mark that shows it. **selected**: what is at the cursor, the selected task, day or cell (at the cursor, selection). **focus** in code is "keys" in the UI: which part of the archive page the keys move.
-- **heatmap**: the grid on the archive page, its **cells** cover one **day** or more.
-- **divider**: the vertical line next to the preview, and the marks in the heatmap's top row where the cell size changes.
+- **heatmap**: the grid on the archive page, a **column** per week, a **cell** per **day**.
+- **divider**: the vertical line next to the preview.
 - **filter**: narrowing the lists by a **query** (search, which is left to the editor).
 - **group**: only the key groups in the help overlay.
 - **draft**: the temp file opened in `$EDITOR` to create a task or section, or to rename a section.
@@ -52,7 +52,7 @@ Use these words in code, docs and UI, not their synonyms (in brackets).
 
 - Work in small steps (one concern at a time). Before each change, say what will change and wait for an ok.
 - Discuss every key mapping, user-visible text and behavior choice first. Add nothing that was not agreed (no extra flags, options, keys or helpers).
-- Visual choices (colors, symbols, layout) are decided by looking, not in the abstract: bring up as many variants of different styles as possible and offer to build them all as a try-out. A simple implementation without tests, `[` / `]` cycle the variants (while those keys have no binding, not in the filter input), the status shows the selected variant's name so it can be named. The chosen one stays, the rest comes out.
+- Visual choices (colors, symbols, layout) are decided by looking, not in the abstract: bring up as many variants of different styles as possible and offer to build them all as a try-out. A simple implementation without tests, `[` / `]` cycle the variants (while those keys have no binding, not in the filter input), the status shows the selected variant's number out of all and its name (`3/7: below`), so it can be named. The chosen one stays, the rest comes out.
 - Keep it simple. Remove code that becomes unused, unless there is a stated reason to keep it.
 - Keep files focused: when a feature grows its own part of a general file (like the archive page in `ui/archive.rs`), move it into its own module. Bring it up yourself when you notice it, don't wait to be asked.
 - Do not commit, the user reviews and commits.

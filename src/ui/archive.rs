@@ -1,5 +1,5 @@
 //! The archive page: the [heatmap](mod@heatmap) of done tasks, then the [list] of the tasks in
-//! the selected cell. The numbers come from [`crate::heatmap`], this only lays them out.
+//! the selected day. The numbers come from [`crate::heatmap`], this only lays them out.
 
 use ratatui::{
     Frame,
@@ -20,9 +20,9 @@ use crate::app::{App, archive::Focus};
 /// Lines between the heatmap and the list: a double line with a blank line on each side.
 const SEPARATOR: usize = 3;
 
-/// The heatmap from the top of `area`, the done tasks of the selected cell below it in the rest,
+/// The heatmap from the top of `area`, the done tasks of the selected day below it in the rest,
 /// a double line between them. The part without the keys is dimmed.
-/// Returns the heatmap's columns, the list's offset and the column of the preview's divider.
+/// Returns the heatmap's offset, the list's offset and the column of the preview's divider.
 pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option<u16>) {
     // Only the part with the keys shows its cursor.
     let heatmap_keys = app.archive_page.focus == Focus::Heatmap;
@@ -30,17 +30,20 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
     let block = Block::new().padding(Padding::new(2, 2, 0, 0));
     let inner = block.inner(area);
     let width = inner.width as usize;
-    let columns = heatmap::columns(width);
-    let lines = match app.days.is_empty() {
-        true => vec![Line::from("nothing archived yet".dim())],
-        false => heatmap::lines(
+    let heatmap = (!app.days.is_empty()).then(|| {
+        heatmap::lines(
             &app.days,
             app.archive_matches().as_ref(),
             app.today,
             width,
+            app.archive_page.heatmap_offset,
             app.archive_day(),
             heatmap_keys,
-        ),
+        )
+    });
+    let lines = match &heatmap {
+        None => vec![Line::from("nothing archived yet".dim())],
+        Some(heatmap) => heatmap.lines.clone(),
     };
     let height = (lines.len() as u16).min(area.height);
     let heatmap_area = Rect { height, ..area };
@@ -55,14 +58,20 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
         height: area.height - height - gap.height,
         ..area
     };
-    let (offset, preview) = list::render(app, frame, list_area, columns);
+    // In the blank line between the heatmap and the double line.
+    if let Some(heatmap) = &heatmap
+        && gap.height > 0
+    {
+        let hints_area = Rect {
+            height: 1,
+            ..block.inner(gap)
+        };
+        frame.render_widget(heatmap.hints.clone(), hints_area);
+    }
+    let (offset, preview) = list::render(app, frame, list_area);
 
     // The cursor's `[` in the first column has no gap before it, it goes into the padding.
-    let cells = crate::heatmap::columns(&app.days, app.today, columns);
-    if heatmap_keys
-        && !app.days.is_empty()
-        && let Some((0, row)) = crate::heatmap::find(&cells, app.archive_day())
-    {
+    if let Some(row) = heatmap.as_ref().and_then(|h| h.first_column_cursor) {
         // Below the row of labels.
         let y = inner.y + 1 + row as u16;
         if y < heatmap_area.bottom() {
@@ -93,7 +102,11 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
                 .set_fg(LINE_COLOR);
         }
     }
-    (columns, offset, preview.map(|preview| preview.x))
+    (
+        heatmap.map_or(0, |heatmap| heatmap.offset),
+        offset,
+        preview.map(|preview| preview.x),
+    )
 }
 
 #[cfg(test)]
@@ -172,7 +185,7 @@ mod tests {
         assert_eq!(buffer[(x - 1, y)].symbol(), "[");
         assert_eq!(buffer[(x + 1, y)].symbol(), "]");
         assert!(list.clone().all(|y| !text(&buffer, y).contains('▌')));
-        // A cell of one day: the day is in the app header, not on the rows.
+        // A selection of one day: the day is in the app header, not on the rows.
         assert!(
             list.clone()
                 .any(|y| text(&buffer, y).trim_end() == "     • Fix bug")
@@ -247,7 +260,6 @@ mod tests {
             task: Task::parse(PathBuf::new(), content),
         };
         let long = "a done task with a title long enough to run past the split";
-        // Far back, where a cell covers several days, so the rows have their day.
         let day = TODAY - 400.days();
         app.archive = [(
             day,
@@ -277,10 +289,10 @@ mod tests {
         assert_eq!(screen[double + 1].chars().nth(divider), Some('│'));
         assert_eq!(screen[22].chars().nth(divider), Some('│'), "{screen:#?}");
         assert_eq!(screen[23].chars().nth(divider), Some('┴'), "{screen:#?}");
-        // The list wraps at the split, the short date stays at its end.
+        // The list wraps at the split.
         let row = at("a done task").unwrap();
         let list = &screen[row][..screen[row].find('│').unwrap()];
-        assert!(list.trim_end().ends_with(" 17 Sep"), "{screen:#?}");
+        assert!(!list.contains("long enough"), "{screen:#?}");
 
         // The title gets all the width without the preview.
         let full_width = |app: &App| {
@@ -294,10 +306,6 @@ mod tests {
                 .find(|line| line.contains("a done task"))
                 .unwrap();
             assert!(row.contains("long enough"), "{screen:#?}");
-            assert!(
-                row.trim_end().ends_with("13 months ago · Wed 17 Sep 2025"),
-                "{screen:#?}"
-            );
         };
         // Not while the heatmap has the keys.
         app.update(Action::FocusHeatmap);
@@ -306,6 +314,28 @@ mod tests {
         app.update(Action::FocusList);
         app.update(Action::Preview);
         full_width(&app);
+    }
+
+    #[test]
+    fn heatmap_scrolls_and_counts_what_is_out_of_view() {
+        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        app.today = TODAY;
+        // Far more weeks than fit, a Wednesday 400 days back.
+        app.days = [(TODAY - 400.days(), 2), (TODAY, 1)].into();
+        app.update(Action::NextPage);
+
+        // On today, the newest weeks: the first one with its month and year, the two tasks done
+        // before them counted below the heatmap.
+        let screen = lines_80(&app, 24);
+        assert!(screen[2].starts_with("  Feb 2026 "), "{screen:#?}");
+        assert_eq!(screen[10].trim_end(), "  ← 2 more", "{screen:#?}");
+
+        // `gg` scrolls to the first week, today's task is out of view on the right.
+        app.update(Action::Top);
+        let screen = lines_80(&app, 24);
+        assert!(screen[2].starts_with("  Sep 2025 "), "{screen:#?}");
+        assert!(!screen[10].contains('←'), "{screen:#?}");
+        assert!(screen[10].trim_end().ends_with("1 more →"), "{screen:#?}");
     }
 
     #[test]
@@ -322,7 +352,7 @@ mod tests {
                 })
                 .unwrap();
             let screen = format!("{:?}", terminal.backend().buffer());
-            assert!(screen.contains("daily"), "{screen}");
+            assert!(screen.contains("Mon"), "{screen}");
         }
     }
 
@@ -371,7 +401,7 @@ mod tests {
         // On the tasks page: the list, the footer as a line, today's done in the app header.
         let screen = lines(&draw(&app));
         assert!(screen[0].ends_with(" 1 open · ✓ 3 done"), "{screen:#?}");
-        assert!(!screen.iter().any(|line| line.contains("daily")));
+        assert!(!screen.iter().any(|line| line.contains(" Mon")));
         assert_eq!(screen[38].trim(), "", "{screen:#?}");
         assert!(screen[39].starts_with("────"), "{screen:#?}");
 
@@ -389,7 +419,8 @@ mod tests {
         // Done in the selected cell, the test has no titles.
         assert!(screen[0].ends_with("─ ✓ 0 done"), "{screen:#?}");
         // Two spaces at the sides, a blank line below the heatmap.
-        assert!(screen[2].starts_with("  daily"), "{screen:#?}");
+        // The first column's month and year, `Oct` would not fit next to it.
+        assert_eq!(screen[2].trim_end(), "  Sep 2026", "{screen:#?}");
         // The weekday label at the row's end, on a Monday right after the cursor's `]`.
         assert!(screen[3].trim_end().ends_with("Mon"), "{screen:#?}");
         assert_eq!(screen[10].trim(), "", "{screen:#?}");

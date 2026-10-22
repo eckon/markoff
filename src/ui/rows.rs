@@ -169,13 +169,19 @@ fn render_out_of_view(
         else {
             continue;
         };
-        let text = match tasks.iter().filter(|i| out_of_view.contains(i)).count() {
-            0 => format!("{arrow} more"),
-            count => format!("{arrow} {count} more"),
-        };
+        let count = tasks.iter().filter(|i| out_of_view.contains(i)).count();
+        let text = format!("{arrow} {}", more(count));
         frame
             .buffer_mut()
             .set_span(x, y, &text.fg(LINE_COLOR), area.width);
+    }
+}
+
+/// `4 more` tasks out of view, only `more` without a count, for the lists and the heatmap.
+pub fn more(count: usize) -> String {
+    match count {
+        0 => "more".to_string(),
+        count => format!("{count} more"),
     }
 }
 

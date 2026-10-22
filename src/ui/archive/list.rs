@@ -1,6 +1,6 @@
-//! The done tasks of the selected heatmap cell, below the heatmap. Laid out like the task
-//! list: section headers with their keys, a bullet per task, its day on the right if the cell has
-//! more than one. The day or the days of the cell are in the app header, see [`range`].
+//! The done tasks of the selection, below the heatmap. Laid out like the task list: section
+//! headers with their keys, a bullet per task, its day on the right if the selection has more
+//! than one. The day or the days of the selection are in the app header, see [`range`].
 
 use jiff::{ToSpan, Unit, civil::Date};
 use ratatui::{
@@ -19,8 +19,8 @@ use crate::{
 
 /// The list below the heatmap, see [`rows`], with the preview of the selected task like
 /// in the task list, unless `p` hid it. Returns the scroll offset and where the preview went.
-pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> (usize, Option<Rect>) {
-    let rows = app.archive_rows(columns);
+pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, Option<Rect>) {
+    let rows = app.archive_rows();
     // Only while the list has the keys: moving in the heatmap would open and close it.
     let hidden = app.archive_page.hide_preview || app.archive_page.focus == Focus::Heatmap;
     let body = match rows.get(app.archive_page.cursor) {
@@ -31,7 +31,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> (usiz
     };
     // One day is in the app header. More need it on each row: in full where there is room, next to
     // the preview only the short date fits, the app header has the rest.
-    let (_, length) = app.archive_cell(columns);
+    let (_, length) = app.archive_selection();
     let preview = body.is_some();
     let when = |day: Date| match (length, preview) {
         (1, _) => None,
@@ -52,7 +52,7 @@ fn render_rows(
     when: impl Fn(Date) -> Option<String>,
 ) -> usize {
     let sections = app.archive_sections();
-    // No cursor while the heatmap has the keys, its selected cell says what the list shows.
+    // No cursor while the heatmap has the keys, its selected day says what the list shows.
     let cursor = (app.archive_page.focus == Focus::List).then_some(app.archive_page.cursor);
     let items: Vec<rows::Row> = (rows.iter().enumerate())
         .map(|(i, &row)| {
@@ -96,10 +96,10 @@ fn render_rows(
     rows::render(frame, area, items, (cursor, app.archive_page.offset), notes)
 }
 
-/// The day of the selected cell for the app header with how long ago, `Fri 16 Oct 2026 · today`, a
-/// cell of more days as `02 Mar 2026 – 15 Mar 2026`.
-pub fn range(app: &App, columns: usize) -> String {
-    let (start, length) = app.archive_cell(columns);
+/// The selected day for the app header with how long ago, `Fri 16 Oct 2026 · today`, a
+/// selection of more days as `02 Mar 2026 – 15 Mar 2026`.
+pub fn range(app: &App) -> String {
+    let (start, length) = app.archive_selection();
     match length {
         1 => {
             let date = start.strftime("%a %d %b %Y").to_string();

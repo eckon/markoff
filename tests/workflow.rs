@@ -464,7 +464,6 @@ fn archive() {
     // Recent days one cell each, the cursor on the last day with tasks done and its tasks below,
     // by name.
     app.press("<Tab>");
-    app.wait_for("daily");
     app.wait_for("• Old one");
     app.wait_for("• Old two");
     assert!(
@@ -472,6 +471,12 @@ fn archive() {
         "{}",
         app.screen()
     );
+
+    // `G` goes to today, `gg` back to the first day with tasks done.
+    app.press("G");
+    app.wait_for(" · today ─");
+    app.press("gg");
+    app.wait_for(" · 10 days ago ─");
 
     // `<CR>` gives the keys to the list, its task shows its body next to it. `p` hides it, so
     // does `<Esc>` back to the heatmap.

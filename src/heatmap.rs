@@ -22,34 +22,33 @@ fn monday(day: Date) -> Date {
     day - i64::from(day.weekday().to_monday_zero_offset()).days()
 }
 
-/// Cells in a heatmap column, a day each on the right, so a column is a week there.
+/// Cells in a heatmap column, a day each, so a column is a week.
 pub const CELLS: i64 = 7;
 
-/// A column of the heatmap: [`CELLS`] cells of `unit` days each, from `start`.
+/// A column of the heatmap: the week from `start`, a Monday.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Column {
     pub start: Date,
-    pub unit: i64,
 }
 
 impl Column {
-    /// The first day of a cell and its days.
-    pub fn cell(&self, row: i64) -> (Date, i64) {
-        (self.start + (row * self.unit).days(), self.unit)
+    /// The day of a cell.
+    pub fn day(&self, row: i64) -> Date {
+        self.start + row.days()
     }
 }
 
-/// The column and row of the cell that holds `day`, `None` if no column does.
+/// The column and row of the cell of `day`, `None` if no column has it.
 pub fn find(columns: &[Column], day: Date) -> Option<(usize, i64)> {
-    columns.iter().enumerate().find_map(|(i, column)| {
-        let row = i64::from((day - column.start).get_days()).div_euclid(column.unit);
-        (0..CELLS).contains(&row).then_some((i, row))
-    })
+    let first = columns.first()?.start;
+    let days = i64::from((day - first).get_days());
+    let column = usize::try_from(days.div_euclid(CELLS)).ok()?;
+    (column < columns.len()).then_some((column, days.rem_euclid(CELLS)))
 }
 
-/// The first day of the cell `columns` and `rows` away from the one that holds `day`. With
-/// `skip` the next one with tasks done that way, empty cells are skipped. Stays if there is none
-/// before the edge or before cells that start after `today`, without a cell for `day` too.
+/// The day `columns` and `rows` away from `day`. With `skip` the next one with tasks done that
+/// way, empty days are skipped. Stays if there is none before the edge or before today, without
+/// a cell for `day` too.
 pub fn step(
     columns: &[Column],
     days: &Days,
@@ -70,92 +69,60 @@ pub fn step(
             return day;
         };
         column = next;
-        let cell = columns[column].cell(row);
-        if cell.0 > today {
+        let cell = columns[column].day(row);
+        if cell > today {
             return day;
         }
-        if !skip || rate(days, cell) > 0.0 {
-            return cell.0;
+        if !skip || days.get(&cell).is_some_and(|&done| done > 0) {
+            return cell;
         }
     }
 }
 
-/// Up to `count` columns from the week of `today` back to the first archived day, oldest
-/// first. The cells grow by a constant factor from a day on the right, the smallest factor
-/// that reaches back to the first day: recent days in detail, years back still there.
-pub fn columns(days: &Days, today: Date, count: usize) -> Vec<Column> {
+/// The weeks from the first archived day to `today`, oldest first.
+pub fn columns(days: &Days, today: Date) -> Vec<Column> {
     let first = days.keys().next().map_or(today, |&day| day.min(today));
-    let mut end = monday(today) + CELLS.days();
-    let span = i64::from((end - first).get_days());
+    let mut start = monday(first);
     let mut columns = Vec::new();
-    for unit in units(count, span) {
-        let start = end - (CELLS * unit).days();
-        columns.push(Column { start, unit });
-        end = start;
-        if start <= first {
-            break;
-        }
+    while start <= today {
+        columns.push(Column { start });
+        start += CELLS.days();
     }
-    columns.reverse();
     columns
 }
 
-/// Days per cell of `count` columns from the right, see [`columns`].
-fn units(count: usize, span: i64) -> Vec<i64> {
-    let sizes = |factor: f64| -> Vec<i64> {
-        (0..count)
-            // Capped, so a steep factor cannot overflow.
-            .map(|i| (factor.powi(i as i32).floor() as i64).clamp(1, span.max(1)))
-            .collect()
-    };
-    let reaches = |factor: f64| {
-        let columns = sizes(factor)
-            .iter()
-            .fold(0i64, |sum, unit| sum.saturating_add(*unit));
-        columns.saturating_mul(CELLS) >= span
-    };
-    // A factor of `span` reaches back from the second column on, so the search starts there.
-    let (mut low, mut high) = (1.0, span.max(1) as f64);
-    for _ in 0..50 {
-        let factor = (low + high) / 2.0;
-        if reaches(factor) {
-            high = factor;
-        } else {
-            low = factor;
-        }
+/// The first of `visible` columns on screen out of `total`, with `right` of them right of the
+/// screen in the last frame. Moves only as far as the `cursor` column needs to be on screen, like
+/// the lists scroll.
+pub fn first_visible(total: usize, visible: usize, cursor: Option<usize>, right: usize) -> usize {
+    let last_start = total.saturating_sub(visible);
+    let mut first = last_start.saturating_sub(right);
+    if let Some(cursor) = cursor {
+        first = first.min(cursor).max((cursor + 1).saturating_sub(visible));
     }
-    sizes(high)
+    first.min(last_start)
 }
 
-/// Tasks done per day in a cell, so big cells compare with small ones.
-pub fn rate(days: &Days, (start, length): (Date, i64)) -> f64 {
-    let done: usize = days
-        .range(start..start + length.days())
-        .map(|(_, &done)| done)
-        .sum();
-    done as f64 / length as f64
-}
-
-/// Where each of `steps` equal groups of `rates` ends, zeros left out, see [`level`]. Ranks
+/// Where each of `steps` equal groups of `counts` ends, zeros left out, see [`level`]. Ranks
 /// instead of a share of the maximum, so a single huge day does not wash out all others.
-pub fn bounds(rates: impl Iterator<Item = f64>, steps: usize) -> Vec<f64> {
-    let mut rates: Vec<f64> = rates.filter(|&rate| rate > 0.0).collect();
-    rates.sort_by(f64::total_cmp);
+pub fn bounds(counts: impl Iterator<Item = usize>, steps: usize) -> Vec<usize> {
+    let mut counts: Vec<usize> = counts.filter(|&count| count > 0).collect();
+    counts.sort();
     // Ties go to the lower group, so a scale of mostly ones stays light.
     (1..steps)
         .map(|group| {
-            let index = (rates.len() * group / steps).saturating_sub(1);
-            rates.get(index).copied().unwrap_or_default()
+            let index = (counts.len() * group / steps).saturating_sub(1);
+            counts.get(index).copied().unwrap_or_default()
         })
         .collect()
 }
 
-/// `0` for nothing, then `1` to `steps` for the group of the [`bounds`] a rate is in.
-pub fn level(rate: f64, bounds: &[f64]) -> usize {
-    if rate <= 0.0 {
+/// `0` for nothing, then `1` to `steps` for the group of the [`bounds`] a count is in.
+pub fn level(count: usize, bounds: &[usize]) -> usize {
+    if count == 0 {
         return 0;
     }
-    1 + bounds.iter().filter(|&&end| rate > end).count()
+    1 + bounds.iter().filter(|&&end| count > end).count()
 }
 
 #[cfg(test)]
@@ -170,117 +137,89 @@ mod tests {
     }
 
     #[test]
-    fn columns_reach_back_to_the_first_day_with_days_on_the_right() {
+    fn columns_are_the_weeks_back_to_the_first_day() {
         // A Saturday, its week starts on 2026-10-12.
         let today = date("2026-10-17");
-        let days = Days::from([(date("2022-04-09"), 1)]);
-        let columns = columns(&days, today, 40);
-        assert_eq!(columns.len(), 40);
-        let last = columns.last().unwrap();
-        assert_eq!((last.start, last.unit), (date("2026-10-12"), 1));
-        assert!(columns[0].start <= date("2022-04-09"), "{:?}", columns[0]);
-        // Bigger cells further back, without gaps between the columns.
-        for pair in columns.windows(2) {
-            assert!(pair[0].unit >= pair[1].unit, "{pair:?}");
-            assert_eq!(pair[0].start + (7 * pair[0].unit).days(), pair[1].start);
-        }
-    }
-
-    #[test]
-    fn few_columns_still_reach_back_to_the_first_day() {
-        let today = date("2026-10-17");
-        let days = Days::from([(date("2022-04-09"), 1)]);
-        let columns = columns(&days, today, 3);
-        assert_eq!(columns.len(), 3);
-        assert!(columns[0].start <= date("2022-04-09"), "{:?}", columns[0]);
-    }
-
-    #[test]
-    fn short_archive_takes_only_the_columns_it_needs() {
-        let today = date("2026-10-17");
         let days = Days::from([(date("2026-09-30"), 1)]);
-        let columns = columns(&days, today, 40);
+        let columns = columns(&days, today);
         let starts: Vec<String> = columns.iter().map(|c| c.start.to_string()).collect();
         assert_eq!(starts, ["2026-09-28", "2026-10-05", "2026-10-12"]);
-        assert!(columns.iter().all(|column| column.unit == 1));
-        assert_eq!(columns.last().unwrap().cell(5).0, today);
+        assert_eq!(columns.last().unwrap().day(5), today);
+        // Years back, every week has its column.
+        let days = Days::from([(date("2022-04-09"), 1)]);
+        assert_eq!(super::columns(&days, today).len(), 237);
     }
 
     #[test]
-    fn step_over_cells_of_any_size() {
-        // A Saturday: the last column is its week, a day per cell, the one before 2 days each.
+    fn step_over_days() {
+        // A Saturday: the last column is its week.
         let today = date("2026-10-17");
         let columns = [
             Column {
                 start: date("2026-09-28"),
-                unit: 2,
+            },
+            Column {
+                start: date("2026-10-05"),
             },
             Column {
                 start: date("2026-10-12"),
-                unit: 1,
             },
         ];
-        assert_eq!(find(&columns, today), Some((1, 5)));
-        assert_eq!(find(&columns, date("2026-10-01")), Some((0, 1)));
+        assert_eq!(find(&columns, today), Some((2, 5)));
+        assert_eq!(find(&columns, date("2026-10-01")), Some((0, 3)));
         assert_eq!(find(&columns, date("2026-09-27")), None);
+        assert_eq!(find(&columns, date("2026-10-19")), None);
 
         let walk = |day: &str, by, skip| {
-            let some = Days::from([(date("2026-10-12"), 1), (date("2026-10-15"), 2)]);
+            let some = Days::from([(date("2026-09-28"), 1), (date("2026-10-15"), 2)]);
             step(&columns, &some, date(day), by, skip, today).to_string()
         };
         let step = |day: &str, by| walk(day, by, false);
-        // Into the bigger cell on the same row, to its first day, and back.
-        assert_eq!(step("2026-10-13", (-1, 0)), "2026-09-30");
-        assert_eq!(step("2026-10-01", (1, 0)), "2026-10-13");
+        assert_eq!(step("2026-10-13", (-1, 0)), "2026-10-06");
+        assert_eq!(step("2026-10-06", (1, 0)), "2026-10-13");
         assert_eq!(step("2026-10-13", (0, 1)), "2026-10-14");
         // Edges and days after today: stays.
         assert_eq!(step("2026-10-01", (-1, 0)), "2026-10-01");
         assert_eq!(step("2026-10-12", (0, -1)), "2026-10-12");
         assert_eq!(step("2026-10-17", (0, 1)), "2026-10-17");
-        assert_eq!(step("2026-10-10", (1, 0)), "2026-10-10");
+        assert_eq!(step("2026-10-11", (1, 0)), "2026-10-11");
 
-        // Skipping goes past empty cells to the next one with tasks that way, none: stays.
+        // Skipping goes past empty days to the next one with tasks that way, none: stays.
         let step = |day: &str, by| walk(day, by, true);
         assert_eq!(step("2026-10-12", (0, 1)), "2026-10-15");
-        assert_eq!(step("2026-10-15", (0, -1)), "2026-10-12");
-        assert_eq!(step("2026-10-15", (0, 1)), "2026-10-15");
+        assert_eq!(step("2026-10-15", (0, -1)), "2026-10-15");
+        assert_eq!(step("2026-10-12", (-1, 0)), "2026-09-28");
         assert_eq!(step("2026-10-15", (-1, 0)), "2026-10-15");
     }
 
     #[test]
-    fn rate_is_tasks_per_day_of_the_cell() {
-        let days = Days::from([(date("2026-10-12"), 3), (date("2026-10-14"), 4)]);
-        assert_eq!(rate(&days, (date("2026-10-12"), 1)), 3.0);
-        assert_eq!(rate(&days, (date("2026-10-12"), 7)), 1.0);
-        assert_eq!(rate(&days, (date("2026-10-13"), 1)), 0.0);
+    fn scrolls_only_as_far_as_the_cursor_needs() {
+        // 10 columns, 4 on screen: from the right edge.
+        assert_eq!(first_visible(10, 4, Some(9), 0), 6);
+        assert_eq!(first_visible(10, 4, Some(6), 0), 6);
+        // Past the left edge of the view it follows, then stays.
+        assert_eq!(first_visible(10, 4, Some(5), 0), 5);
+        assert_eq!(first_visible(10, 4, Some(7), 1), 5);
+        assert_eq!(first_visible(10, 4, Some(9), 1), 6);
+        // Everything fits.
+        assert_eq!(first_visible(3, 4, Some(0), 0), 0);
+        assert_eq!(first_visible(10, 4, None, 20), 0);
     }
 
     #[test]
     fn levels_by_equal_groups_of_the_busy_days() {
-        let rates = |values: &[u32]| {
-            values
-                .iter()
-                .map(|&value| f64::from(value))
-                .collect::<Vec<_>>()
-        };
-        let hundred: Vec<u32> = (1..=100).chain([0, 0]).collect();
-        let ends = bounds(rates(&hundred).into_iter(), 4);
-        let levels: Vec<usize> = [0.0, 1.0, 25.0, 26.0, 50.0, 51.0, 75.0, 76.0, 100.0]
+        let hundred = || (1..=100).chain([0, 0]);
+        let ends = bounds(hundred(), 4);
+        let levels: Vec<usize> = [0, 1, 25, 26, 50, 51, 75, 76, 100]
             .into_iter()
-            .map(|rate| level(rate, &ends))
+            .map(|count| level(count, &ends))
             .collect();
         assert_eq!(levels, [0, 1, 1, 2, 2, 3, 3, 4, 4]);
-        assert_eq!(level(13.0, &bounds(rates(&hundred).into_iter(), 8)), 2);
+        assert_eq!(level(13, &bounds(hundred(), 8)), 2);
         // One huge day does not wash out the rest.
-        assert_eq!(
-            level(4.0, &bounds(rates(&[1, 2, 3, 4, 50]).into_iter(), 4)),
-            4
-        );
+        assert_eq!(level(4, &bounds([1, 2, 3, 4, 50].into_iter(), 4)), 4);
         // Mostly ones stay light.
-        assert_eq!(
-            level(1.0, &bounds(rates(&[1, 1, 1, 1, 1, 5]).into_iter(), 4)),
-            1
-        );
+        assert_eq!(level(1, &bounds([1, 1, 1, 1, 1, 5].into_iter(), 4)), 1);
     }
 
     #[test]

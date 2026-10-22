@@ -21,7 +21,7 @@ pub enum Action {
     SkipDown,
     SkipUp,
     SkipRight,
-    /// `<CR>` on the archive page: the list takes the move keys, it shows the selected cell.
+    /// `<CR>` on the archive page: the list takes the move keys, it shows the selected day.
     FocusList,
     /// `Esc` on the archive page: the heatmap takes the move keys back.
     FocusHeatmap,
@@ -119,6 +119,7 @@ pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('u'))], A::Undo)], help: "undo", group: "change", pages: TASKS },
     Binding { keys: &[(&[Key(Char('h')), Key(Left)], A::Left), (&[Key(Char('l')), Key(Right)], A::Right)], help: "left / right", group: "heatmap", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "heatmap", pages: ARCHIVE },
+    Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "first day done / today", group: "heatmap", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('H'))], A::SkipLeft), (&[Key(Char('L'))], A::SkipRight)], help: "left / right, skip empty", group: "heatmap", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('J'))], A::SkipDown), (&[Key(Char('K'))], A::SkipUp)], help: "down / up, skip empty", group: "heatmap", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section in the list", group: "heatmap", pages: ARCHIVE },

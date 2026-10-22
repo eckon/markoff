@@ -180,7 +180,7 @@ impl App {
                 terminal.draw(|frame| drawn = Some(ui::render(&self, frame)))?;
                 if let Some(drawn) = drawn {
                     self.list_offset = drawn.list_offset;
-                    self.archive_page.columns = drawn.heatmap_columns;
+                    self.archive_page.heatmap_offset = drawn.heatmap_offset;
                     self.archive_page.offset = drawn.archive_offset;
                 }
                 dirty = false;
@@ -623,7 +623,7 @@ impl App {
         self.archive = load::archive(&self.root)?;
         self.days = heatmap::days(&self.archive);
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
-        let archive_rows = self.archive_rows(self.archive_page.columns).len();
+        let archive_rows = self.archive_rows().len();
         self.archive_page.cursor = self.archive_page.cursor.min(archive_rows.saturating_sub(1));
         if let Some(path) = path {
             self.select_path(path);
