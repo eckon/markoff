@@ -163,7 +163,7 @@ impl Markoff {
     /// appear instead of sleeping keeps the test fast and stable.
     ///
     /// The first line may be anywhere in a row, the next ones start the rows below it.
-    /// Whatever is right of them is ignored, like the side panel.
+    /// Whatever is right of them is ignored, like the preview.
     #[track_caller]
     fn wait_for(&self, text: &str) {
         let (first, next) = text.split_once('\n').unwrap_or((text, ""));
@@ -251,7 +251,7 @@ fn entries(dir: &Path) -> Vec<PathBuf> {
     found
 }
 
-/// Snapshots `state` with the date masked, it is in the header and the archive's file name.
+/// Snapshots `state` with the date masked, it is in the app header and the archive's file name.
 macro_rules! snapshot {
     ($name:expr, $state:expr) => {
         insta::with_settings!({ filters => vec![
@@ -363,9 +363,9 @@ fn hand_made_data() {
         ("home/water-plants.md", "# Water plants\n"),
         ("work/review-pr.md", "# Review PR\n"),
         // Named by hand, renamed after its title on start.
-        ("work/todo.md", "# Fix login bug\n\nOn mobile only.\n"),
+        ("work/login.md", "# Fix login bug\n\nOn mobile only.\n"),
         ("work/.scratch.md", "# Hidden, ignored\n"),
-        // A stale entry, and todo.md is not listed at all.
+        // A stale line, and login.md is not listed at all.
         (
             ".markoff",
             "# home\nwater-plants\ngone\n\n# work\nreview-pr\n",
@@ -485,7 +485,7 @@ fn archive() {
     app.press("<Esc>");
     app.wait_for(&format!("{} ? toggle help", "─".repeat(66)));
 
-    // Todo keys do nothing on it, `<S-Tab>` goes back to the list.
+    // Keys of the tasks page do nothing on it, `<S-Tab>` goes back to the list.
     app.press("X<S-Tab>");
     app.wait_for("• Fix bug");
     app.wait_for("✓ 0 done");

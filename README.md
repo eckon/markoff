@@ -2,7 +2,7 @@
 
 `markdown` + `checkoff` = `markoff`
 
-A TUI for todos stored as plain markdown files. Quick actions in the TUI, writing in your `$EDITOR`.
+A TUI for tasks stored as plain markdown files. Quick actions in the TUI, writing in your `$EDITOR`.
 
 ## Goals
 
@@ -10,7 +10,7 @@ A TUI for todos stored as plain markdown files. Quick actions in the TUI, writin
 - Works without markoff: version it with git, edit it with anything.
 - Fits into other markdown setups, like a personal wiki.
 - Keyboard first, with vim-like keys.
-- Short-term todos only. Keeping the list small is the point, so features like filtering stay minimal.
+- Short-term tasks only. Keeping the list small is the point, so features like filtering stay minimal.
 
 ## Install
 
@@ -33,14 +33,14 @@ cargo install --path .
 Point markoff at a directory (first match wins):
 
 ```sh
-markoff --dir ~/notes/todo
-MARKOFF_DIR=~/notes/todo markoff
+markoff --dir ~/notes/tasks
+MARKOFF_DIR=~/notes/tasks markoff
 ```
 
 ```toml
 # ~/.config/markoff/config.toml
 [general]
-dir = "~/notes/todo"
+dir = "~/notes/tasks"
 ```
 
 In an empty directory, create a section with `N`, then tasks with `o`. `?` lists all keys, `markoff --help` the arguments.
@@ -64,7 +64,7 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 - Filenames follow the title. Files added or edited by hand are renamed on start and before the next change.
 - `.markoff` is written by markoff. New files go to the end, deleted ones are dropped. Add it to `.gitignore` to keep order changes and done dates out of git.
 - Done tasks (`X`) move to `.archive/YYYY-MM-DD/<section>/` as they are. A task done twice a day gets a number: `call-bob-2.md`.
-- The archive page (`Tab`) shows a heatmap of the done tasks back to the first archived day: recent days one by one, further back each cell covers more. Brighter means more tasks per day, ranked in quarters of the days with anything done. Dividers in the top row mark where a cell starts to cover more: daily, weekly, monthly, yearly. The cursor in the heatmap picks a cell, the header shows its days (a single day with how long ago) and how many tasks were done, the list below them by section, newest day first, each with its day if the cell has more, with the body of the task at the cursor next to it while the list has the keys.
+- The archive page (`Tab`) shows a heatmap of the done tasks back to the first archived day: recent days one by one, further back each cell covers more. Brighter means more tasks per day, ranked in quarters of the days with anything done. Dividers in the top row mark where a cell starts to cover more: daily, weekly, monthly, yearly. The cursor in the heatmap picks a cell, the app header shows its days (a single day with how long ago) and how many tasks were done, the list below them by section, newest day first, each with its day if the cell has more, with the body of the selected task next to it while the list has the keys.
 
 ## Repeating tasks
 
@@ -118,7 +118,7 @@ The rule is the day part of cron: day of month, month, day of week. Both day fie
 | `/`         | Filter titles and bodies, `<CR>` keeps it   |
 | `/` `Esc`   | Clear filter                                |
 | `?`         | Toggle help, also closes with `Esc`         |
-| `Tab`       | Next page: todo list, archive, `S-Tab` back |
+| `Tab`       | Next page: tasks, archive, `S-Tab` back     |
 | `q` / `C-c` | Quit                                        |
 
 ### Archive page
@@ -129,11 +129,11 @@ The rule is the day part of cron: day of month, month, day of week. Both day fie
 | `j` / `k`   | Heatmap a day down / up, list down / up     |
 | `H` / `L`   | Like `h` / `l`, skips empty cells           |
 | `J` / `K`   | Like `j` / `k` in the heatmap, skips empty  |
-| `<CR>`      | Move keys to the list of the selected day   |
+| `<CR>`      | Move keys to the list of the selected cell  |
 | `Esc`       | Move keys back to the heatmap               |
 | `p`         | Toggle the preview, in the list             |
 
-In the list `gg` / `G`, `{` / `}` and `1`-`9` work like in the todo list, the numbers count the sections shown. `1`-`9` in the heatmap jump into the list. The other todo keys do nothing on the archive page.
+In the list `gg` / `G`, `{` / `}` and `1`-`9` work like in the task list, the numbers count the sections shown. `1`-`9` in the heatmap jump into the list. The other keys of the tasks page do nothing on the archive page.
 
 In the filter, `C-w` deletes the last word. While a filter is set, moving and adding tasks is off.
 

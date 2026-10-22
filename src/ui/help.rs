@@ -1,4 +1,4 @@
-//! The help (`?`): a panel on the right with all keys, the rest dimmed behind it.
+//! The help (`?`): an overlay on the right with all keys, the rest dimmed behind it.
 
 use ratatui::{
     Frame,
@@ -8,15 +8,15 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph},
 };
 
-use super::{LINE_COLOR, rule, section_color};
+use super::{LINE_COLOR, filled_line, section_color};
 use crate::{
     app::Page,
     keymap::{BINDINGS, Binding},
 };
 
-/// A panel on the right listing the [`BINDINGS`] of `page`, so it always matches the real keys.
-/// Groups as rules like the sections in the list, dots lead from the keys to what they do. The
-/// rest is dimmed behind it, the status line stays as it is.
+/// An overlay on the right listing the [`BINDINGS`] of `page`, so it always matches the real keys.
+/// Group headers like the section headers in the list, dots lead from the keys to what they do. The
+/// rest is dimmed behind it, the footer stays as it is.
 pub fn render(frame: &mut Frame, page: Page) {
     let bindings: Vec<&Binding> = BINDINGS
         .iter()
@@ -53,7 +53,7 @@ pub fn render(frame: &mut Frame, page: Page) {
     for (i, (binding, line)) in bindings.iter().zip(key_lines).enumerate() {
         if i == 0 || bindings[i - 1].group != binding.group {
             lines.push(Line::default());
-            lines.push(Line::from(rule(
+            lines.push(Line::from(filled_line(
                 None,
                 binding.group.fg(section_color(groups)).bold(),
                 Vec::new(),
@@ -76,9 +76,9 @@ pub fn render(frame: &mut Frame, page: Page) {
     // The columns the border and padding take.
     let chrome = area.width - block.inner(area).width;
     let width = (lines.iter().map(Line::width).max().unwrap_or(0) as u16 + chrome).min(area.width);
-    let panel = Rect::new(area.right() - width, area.y, width, height);
-    frame.render_widget(Clear, panel);
-    frame.render_widget(Paragraph::new(lines).block(block), panel);
+    let overlay = Rect::new(area.right() - width, area.y, width, height);
+    frame.render_widget(Clear, overlay);
+    frame.render_widget(Paragraph::new(lines).block(block), overlay);
 }
 
 #[cfg(test)]
@@ -132,7 +132,7 @@ mod tests {
         assert_eq!(modifier("j / k ·", 2), Modifier::DIM);
         assert_eq!(modifier("/ ····", 0), Modifier::BOLD);
 
-        // The list behind the panel is dimmed, the status line is not.
+        // The list behind the overlay is dimmed, the footer is not.
         assert!(modifier("home", 0).contains(Modifier::DIM));
         assert_eq!(modifier("? toggle help", 0), Modifier::BOLD);
     }

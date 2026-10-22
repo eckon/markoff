@@ -1,4 +1,4 @@
-//! markoff: a TUI for todos stored as markdown files.
+//! markoff: a TUI for tasks stored as markdown files.
 
 mod app;
 mod archive;
@@ -8,7 +8,7 @@ mod cursor;
 mod edit;
 mod editor;
 mod filter;
-mod history;
+mod heatmap;
 mod keymap;
 mod load;
 mod name;

@@ -1,4 +1,4 @@
-//! In-memory model of the todo tree: sections that contain tasks.
+//! In-memory model of the root: sections that contain tasks.
 //!
 //! Built from paths and file contents, no file system access here.
 
@@ -27,7 +27,7 @@ pub struct Task {
     /// The file exactly as read. Used when the file is removed or written somewhere else.
     pub content: String,
     /// When it was last done, from the state file, not the task file.
-    pub done: Option<Date>,
+    pub last_done: Option<Date>,
 }
 
 impl Task {
@@ -44,7 +44,7 @@ impl Task {
             repeat,
             body: body.to_string(),
             content: content.to_string(),
-            done: None,
+            last_done: None,
         }
     }
 
@@ -59,7 +59,7 @@ impl Task {
     /// A repeating task only while one of its days came, any other task always, see
     /// [`crate::repeat`]. The rest is hidden.
     pub fn due(&self, today: Date) -> bool {
-        (self.repeat.as_ref()).is_none_or(|repeat| repeat.due(self.done, today))
+        (self.repeat.as_ref()).is_none_or(|repeat| repeat.due(self.last_done, today))
     }
 
     /// The filename without `.md`, also its name in the state file.
@@ -116,7 +116,7 @@ mod tests {
 
     #[test]
     fn heading_and_body() {
-        let t = task("todo/fix.md", "# Fix login bug\n\nsome body\n");
+        let t = task("work/fix.md", "# Fix login bug\n\nsome body\n");
         assert_eq!(t.heading.as_deref(), Some("Fix login bug"));
         assert_eq!(t.body, "some body\n");
         assert_eq!(t.title(), "Fix login bug");
@@ -124,32 +124,32 @@ mod tests {
 
     #[test]
     fn repeat_rule_is_no_part_of_the_title() {
-        let t = task("todo/water.md", "# Water plants `* * mon`\n");
+        let t = task("work/water.md", "# Water plants `* * mon`\n");
         assert_eq!(t.title(), "Water plants");
         assert_eq!(t.repeat.unwrap().rule, "* * mon");
 
-        let t = task("todo/run.md", "# Run `cargo test`\n");
+        let t = task("work/run.md", "# Run `cargo test`\n");
         assert_eq!(t.title(), "Run `cargo test`", "no rule");
         assert_eq!(t.repeat, None);
     }
 
     #[test]
     fn heading_after_blank_lines() {
-        let t = task("todo/fix.md", "\n\n# Fix\r\nbody");
+        let t = task("work/fix.md", "\n\n# Fix\r\nbody");
         assert_eq!(t.heading.as_deref(), Some("Fix"));
         assert_eq!(t.body, "body");
     }
 
     #[test]
     fn heading_only() {
-        let t = task("todo/fix.md", "# Fix");
+        let t = task("work/fix.md", "# Fix");
         assert_eq!(t.heading.as_deref(), Some("Fix"));
         assert_eq!(t.body, "");
     }
 
     #[test]
     fn no_heading_keeps_whole_content() {
-        let t = task("todo/call-bob.md", "just text\n# Not first\n");
+        let t = task("work/call-bob.md", "just text\n# Not first\n");
         assert_eq!(t.heading, None);
         assert_eq!(t.body, "just text\n# Not first\n");
         assert_eq!(t.title(), "call bob");
@@ -157,19 +157,19 @@ mod tests {
 
     #[test]
     fn level_two_is_not_a_heading() {
-        assert_eq!(task("todo/x.md", "## Sub\n").heading, None);
+        assert_eq!(task("work/x.md", "## Sub\n").heading, None);
     }
 
     #[test]
     fn empty_heading_is_none() {
-        let t = task("todo/x.md", "# \n");
+        let t = task("work/x.md", "# \n");
         assert_eq!(t.heading, None);
         assert_eq!(t.body, "");
     }
 
     #[test]
     fn title_and_stem_from_filename() {
-        let t = task("todo/my-notes.md", "");
+        let t = task("work/my-notes.md", "");
         assert_eq!(t.title(), "my notes");
         assert_eq!(t.stem(), "my-notes");
     }

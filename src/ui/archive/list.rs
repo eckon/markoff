@@ -1,6 +1,6 @@
-//! The done tasks of the selected heatmap cell, below the heatmap. Laid out like the todo
-//! list: section rules with their keys, a bullet per task, its day on the right if the cell has
-//! more than one. The day or the days of the cell are in the header, see [`range`].
+//! The done tasks of the selected heatmap cell, below the heatmap. Laid out like the task
+//! list: section headers with their keys, a bullet per task, its day on the right if the cell has
+//! more than one. The day or the days of the cell are in the app header, see [`range`].
 
 use jiff::{ToSpan, Unit, civil::Date};
 use ratatui::{
@@ -18,20 +18,20 @@ use crate::{
     ui::{list_with_preview, rows, section_color},
 };
 
-/// The list below the heatmap, see [`rows`], with the preview of the task at the cursor like
-/// in the todo list, unless `p` hid it. Returns the scroll offset and where the preview went.
+/// The list below the heatmap, see [`rows`], with the preview of the selected task like
+/// in the task list, unless `p` hid it. Returns the scroll offset and where the preview went.
 pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> (usize, Option<Rect>) {
     let rows = app.archive_rows(columns);
     // Only while the list has the keys: moving in the heatmap would open and close it.
-    let hidden = app.archive.hide_preview || app.archive.focus == Focus::Heatmap;
-    let body = match rows.get(app.archive.cursor) {
+    let hidden = app.archive_page.hide_preview || app.archive_page.focus == Focus::Heatmap;
+    let body = match rows.get(app.archive_page.cursor) {
         _ if hidden => None,
-        Some(&ArchiveRow::Task(_, day, index)) => Some(app.done[&day][index].task.body.as_str()),
+        Some(&ArchiveRow::Task(_, day, index)) => Some(app.archive[&day][index].task.body.as_str()),
         Some(_) => Some(""),
         None => None,
     };
-    // One day is in the header. More need it on each row: in full where there is room, next to
-    // the preview only the short date fits, the header has the rest.
+    // One day is in the app header. More need it on each row: in full where there is room, next to
+    // the preview only the short date fits, the app header has the rest.
     let (_, length) = app.archive_cell(columns);
     let preview = body.is_some();
     let when = |day: Date| match (length, preview) {
@@ -43,7 +43,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> (usiz
     list_with_preview(frame, area, body, "", list)
 }
 
-/// The rows themselves, the rules `width` wide.
+/// The rows themselves, the section headers `width` wide.
 fn render_rows(
     app: &App,
     frame: &mut Frame,
@@ -54,10 +54,10 @@ fn render_rows(
 ) -> usize {
     let sections = app.archive_sections();
     // No cursor while the heatmap has the keys, its selected cell says what the list shows.
-    let cursor = (app.archive.focus == Focus::List).then_some(app.archive.cursor);
+    let cursor = (app.archive_page.focus == Focus::List).then_some(app.archive_page.cursor);
     let items: Vec<rows::Row> = (rows.iter().enumerate())
         .map(|(i, &row)| {
-            // The colors stay those of the todo list, the keys count the sections shown.
+            // The colors stay those of the task list, the keys count the sections shown.
             let (ArchiveRow::Section(s, _) | ArchiveRow::Task(s, ..)) = row;
             let color = section_color(s);
             let kind = match row {
@@ -66,14 +66,14 @@ fn render_rows(
                         .iter()
                         .filter(|row| matches!(row, ArchiveRow::Task(task_s, ..) if *task_s == s))
                         .count();
-                    let rule = rows::section_rule(
+                    let header = rows::section_header(
                         key,
                         color,
                         &sections[s],
                         count,
                         width.saturating_sub(1),
                     );
-                    rows::Kind::Header(rule)
+                    rows::Kind::Section(header)
                 }
                 ArchiveRow::Task(_, day, index) => {
                     let style = if cursor == Some(i) {
@@ -81,22 +81,18 @@ fn render_rows(
                     } else {
                         Style::new()
                     };
-                    let title = Span::styled(app.done[&day][index].task.title(), style);
+                    let title = Span::styled(app.archive[&day][index].task.title(), style);
                     rows::Kind::Task(vec![title], when(day).map(Stylize::dim), false)
                 }
             };
             rows::Row { color, kind }
         })
         .collect();
-    let notes: &[&str] = if items.is_empty() {
-        &["nothing done"]
-    } else {
-        &[]
-    };
-    rows::render(frame, area, items, (cursor, app.archive.offset), notes)
+    let notes: &[&str] = if items.is_empty() { &["<empty>"] } else { &[] };
+    rows::render(frame, area, items, (cursor, app.archive_page.offset), notes)
 }
 
-/// The day of the selected cell for the header with how long ago, `Fri 16 Oct 2026 · today`, a
+/// The day of the selected cell for the app header with how long ago, `Fri 16 Oct 2026 · today`, a
 /// cell of more days as `02 Mar 2026 – 15 Mar 2026`.
 pub fn range(app: &App, columns: usize) -> String {
     let (start, length) = app.archive_cell(columns);

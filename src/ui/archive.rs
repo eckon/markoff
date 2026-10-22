@@ -1,5 +1,5 @@
 //! The archive page: the [heatmap](mod@heatmap) of done tasks, then the [list] of the tasks in
-//! the heatmap's cursor. The numbers come from [`crate::history`], this only lays them out.
+//! the selected cell. The numbers come from [`crate::heatmap`], this only lays them out.
 
 use ratatui::{
     Frame,
@@ -15,21 +15,18 @@ mod list;
 pub use list::range;
 
 use super::LINE_COLOR;
-use crate::{
-    app::{App, archive::Focus},
-    history,
-};
+use crate::app::{App, archive::Focus};
 
 /// Lines between the heatmap and the list: a double line with a blank line on each side.
 const SEPARATOR: usize = 3;
 
-/// The heatmap from the top of `area`, the done tasks of the cursor's cell below it in the rest,
+/// The heatmap from the top of `area`, the done tasks of the selected cell below it in the rest,
 /// a double line between them. The part without the keys is dimmed.
 /// Returns the heatmap's columns, the list's offset and the column of the preview's divider.
 pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option<u16>) {
     // Only the part with the keys shows its cursor.
-    let heatmap_keys = app.archive.focus == Focus::Heatmap;
-    // The heatmap starts where the section rules of the list do.
+    let heatmap_keys = app.archive_page.focus == Focus::Heatmap;
+    // The heatmap starts where the section headers of the list do.
     let block = Block::new().padding(Padding::new(2, 2, 0, 0));
     let inner = block.inner(area);
     let width = inner.width as usize;
@@ -54,10 +51,10 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
     let (offset, preview) = list::render(app, frame, list_area, columns);
 
     // The cursor's `[` in the first column has no gap before it, it goes into the padding.
-    let cells = history::columns(&app.days, app.today, columns);
+    let cells = crate::heatmap::columns(&app.days, app.today, columns);
     if heatmap_keys
         && !app.days.is_empty()
-        && let Some((0, row)) = history::find(&cells, app.archive_day())
+        && let Some((0, row)) = crate::heatmap::find(&cells, app.archive_day())
     {
         // Below the row of labels.
         let y = inner.y + 1 + row as u16;
@@ -67,7 +64,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
     }
 
     // The part without the keys is dimmed, a double line between the two.
-    let dimmed = match app.archive.focus {
+    let dimmed = match app.archive_page.focus {
         Focus::Heatmap => list_area,
         Focus::List => heatmap_area,
     };
@@ -124,15 +121,15 @@ mod tests {
     }
 
     #[test]
-    fn one_cursor_and_the_selection_in_the_current_color() {
+    fn one_cursor_and_the_selected_cell_in_the_current_color() {
         let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
         app.today = TODAY;
         let done = crate::archive::Done {
             section: "work".to_string(),
             task: Task::parse(PathBuf::new(), "# Fix bug\n"),
         };
-        app.done = [(TODAY - 1.days(), vec![done])].into();
-        app.days = history::days(&app.done);
+        app.archive = [(TODAY - 1.days(), vec![done])].into();
+        app.days = crate::heatmap::days(&app.archive);
         app.update(Action::NextPage);
         let draw = |app: &App| {
             let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
@@ -158,26 +155,27 @@ mod tests {
         // The heatmap has the keys: the selected day in the current color between brackets. The
         // list has no cursor.
         let buffer = draw(&app);
-        let selected = current(&buffer);
+        let selected_cell = current(&buffer);
         assert_eq!(
-            selected.len(),
+            selected_cell.len(),
             1,
-            "only the selection is in the current color"
+            "only the selected cell is in the current color"
         );
-        let (x, y) = selected[0];
+        let (x, y) = selected_cell[0];
         assert_eq!(buffer[(x - 1, y)].symbol(), "[");
         assert_eq!(buffer[(x + 1, y)].symbol(), "]");
         assert!(list.clone().all(|y| !text(&buffer, y).contains('▌')));
-        // A cell of one day: the day is in the header, not on the rows.
+        // A cell of one day: the day is in the app header, not on the rows.
         assert!(
             list.clone()
                 .any(|y| text(&buffer, y).trim_end() == "     • Fix bug")
         );
 
-        // The list has the keys: its cursor shows, the brackets go, the selection keeps its color.
+        // The list has the keys: its cursor shows, the brackets go, the selected cell keeps its
+        // color.
         app.update(Action::FocusList);
         let buffer = draw(&app);
-        assert_eq!(current(&buffer), selected);
+        assert_eq!(current(&buffer), selected_cell);
         assert!(heatmap.clone().all(|y| !text(&buffer, y).contains('[')));
         assert!(
             list.clone()
@@ -196,7 +194,7 @@ mod tests {
         let long = "a done task with a title long enough to run past the split";
         // Far back, where a cell covers several days, so the rows have their day.
         let day = TODAY - 400.days();
-        app.done = [(
+        app.archive = [(
             day,
             vec![
                 done("# Plain\n"),
@@ -204,7 +202,7 @@ mod tests {
             ],
         )]
         .into();
-        app.days = history::days(&app.done);
+        app.days = crate::heatmap::days(&app.archive);
         app.update(Action::NextPage);
         app.update(Action::FocusList);
         // `Plain` first, then the one with a body.
@@ -214,7 +212,7 @@ mod tests {
         let at = |text: &str| screen.iter().position(|line| line.contains(text));
         let notes = at("## Notes").expect("preview");
         let divider = screen[notes].chars().position(|c| c == '│').unwrap();
-        // The divider joins the double line above and the status line's rule below.
+        // The divider joins the double line above and the footer below.
         let double = at("═").unwrap();
         assert_eq!(
             screen[double].chars().nth(divider),
@@ -280,7 +278,7 @@ mod tests {
         let first = TODAY - 30.days();
         app.days = [(first, 1)].into();
         app.update(Action::NextPage);
-        app.archive.day = Some(first);
+        app.archive_page.day = Some(first);
 
         let screen = lines_80(&app, 24);
         let row = 3 + first.weekday().to_monday_zero_offset() as usize;
@@ -315,32 +313,32 @@ mod tests {
         app.days = [(TODAY, 3), (TODAY - 10.days(), 1), (TODAY - 20.days(), 2)].into();
         app.hide_preview = true;
 
-        // On the todo page: the list, the status line as a rule, today's done in the header.
+        // On the tasks page: the list, the footer as a line, today's done in the app header.
         let screen = lines(&draw(&app));
         assert!(screen[0].ends_with(" 1 open · ✓ 3 done"), "{screen:#?}");
         assert!(!screen.iter().any(|line| line.contains("daily")));
         assert_eq!(screen[38].trim(), "", "{screen:#?}");
         assert!(screen[39].starts_with("────"), "{screen:#?}");
 
-        // On its page: the selected day in the header, the heatmap from the top.
+        // On its page: the selected day in the app header, the heatmap from the top.
         app.update(Action::NextPage);
         let buffer = draw(&app);
         let screen = lines(&buffer);
         assert!(
             screen[0].starts_with(&format!(
-                "── todo  archive ── {} · today ─",
+                "── tasks  archive ── {} · today ─",
                 TODAY.strftime("%a %d %b %Y")
             )),
             "{screen:#?}"
         );
-        // Done in the selection, the test has no titles.
+        // Done in the selected cell, the test has no titles.
         assert!(screen[0].ends_with("─ ✓ 0 done"), "{screen:#?}");
         // Two spaces at the sides, a blank line below the heatmap.
         assert!(screen[2].starts_with("  daily"), "{screen:#?}");
         // The weekday label at the row's end, on a Monday right after the cursor's `]`.
         assert!(screen[3].trim_end().ends_with("Mon"), "{screen:#?}");
         assert_eq!(screen[10].trim(), "", "{screen:#?}");
-        // Nothing done yet: the selection is today, the one cell in the current color, between
+        // Nothing done yet: today is selected, the one cell in the current color, between
         // brackets.
         let row = 3 + TODAY.weekday().to_monday_zero_offset() as u16;
         let current: Vec<u16> = (0..80)
@@ -353,7 +351,7 @@ mod tests {
         // Between heatmap and list a double line, the list without the keys is dimmed.
         assert_eq!(screen[11].trim(), "═".repeat(76), "{screen:#?}");
         assert_eq!(screen[12].trim(), "", "{screen:#?}");
-        assert!(screen[13].contains("nothing done"), "{screen:#?}");
+        assert!(screen[13].contains("<empty>"), "{screen:#?}");
         assert!(buffer[(2, 13)].modifier.contains(Modifier::DIM));
         assert!(!buffer[(2, 3)].modifier.contains(Modifier::DIM));
         assert!(screen[39].ends_with("? toggle help"), "{screen:#?}");

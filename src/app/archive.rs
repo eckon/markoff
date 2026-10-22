@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use jiff::{ToSpan, civil::Date};
 
 use super::App;
-use crate::{cursor, history, keymap::Action};
+use crate::{cursor, heatmap, keymap::Action};
 
 /// Where the archive page is, kept while switching pages.
 #[derive(Debug, Default)]
@@ -21,7 +21,7 @@ pub struct ArchivePage {
     /// First list line on screen, like [`App::list_offset`].
     pub offset: usize,
     pub focus: Focus,
-    /// `p` hid the preview next to the list, its own and not the todo list's.
+    /// `p` hid the preview next to the list, its own and not the task list's.
     pub hide_preview: bool,
 }
 
@@ -33,7 +33,7 @@ pub enum Focus {
     List,
 }
 
-/// One line in the list of done tasks, grouped like the todo list.
+/// One line in the list of done tasks, grouped like the task list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArchiveRow {
     /// Index into [`App::archive_sections`], for its color, and its key: the position among the
@@ -48,7 +48,7 @@ impl App {
     /// tasks done, so a Monday shows Friday. Today if nothing is done yet.
     pub fn archive_day(&self) -> Date {
         let today = self.today;
-        self.archive.day.unwrap_or_else(|| {
+        self.archive_page.day.unwrap_or_else(|| {
             // A day directory can be empty, that is no day with tasks done.
             let last = self.days.range(..=today).rfind(|(_, done)| **done > 0);
             last.map_or(today, |(&day, _)| day)
@@ -56,42 +56,42 @@ impl App {
     }
 
     /// Runs `action` on the archive page. `false` for those of every page, the rest stays here
-    /// and never reaches the todo list behind it.
+    /// and never reaches the task list behind it.
     pub(super) fn update_archive(&mut self, action: Action) -> bool {
-        let (by, skip) = match (action, self.archive.focus) {
+        let (by, skip) = match (action, self.archive_page.focus) {
             (Action::Help | Action::PrevPage | Action::NextPage | Action::Quit, _) => {
                 return false;
             }
             (Action::FocusList, _) => {
-                self.archive.focus = Focus::List;
+                self.archive_page.focus = Focus::List;
                 return true;
             }
             (Action::FocusHeatmap, _) => {
-                self.archive.focus = Focus::Heatmap;
+                self.archive_page.focus = Focus::Heatmap;
                 return true;
             }
             (Action::Preview, Focus::List) => {
-                self.archive.hide_preview = !self.archive.hide_preview;
+                self.archive_page.hide_preview = !self.archive_page.hide_preview;
                 return true;
             }
-            // Like in the todo list, `h` / `l` do nothing. A section key from the heatmap goes
+            // Like in the task list, `h` / `l` do nothing. A section key from the heatmap goes
             // to the list, like `<CR>` and the jump in one.
             (_, Focus::List) | (Action::JumpSection(_), Focus::Heatmap) => {
-                let lines: Vec<cursor::Line> = (self.archive_rows(self.archive.columns))
+                let lines: Vec<cursor::Line> = (self.archive_rows(self.archive_page.columns))
                     .into_iter()
                     .map(|row| match row {
-                        ArchiveRow::Section(_, key) => cursor::Line::Header(key),
-                        ArchiveRow::Task(..) => cursor::Line::Item,
+                        ArchiveRow::Section(_, key) => cursor::Line::Section(key),
+                        ArchiveRow::Task(..) => cursor::Line::Task,
                     })
                     .collect();
                 // Only to a section that is there, otherwise the heatmap keeps the keys.
                 if let Action::JumpSection(s) = action
-                    && !lines.contains(&cursor::Line::Header(s))
+                    && !lines.contains(&cursor::Line::Section(s))
                 {
                     return true;
                 }
-                self.archive.focus = Focus::List;
-                self.archive.cursor = cursor::moved(&lines, self.archive.cursor, action);
+                self.archive_page.focus = Focus::List;
+                self.archive_page.cursor = cursor::moved(&lines, self.archive_page.cursor, action);
                 return true;
             }
             (Action::Left, _) => ((-1, 0), false),
@@ -104,8 +104,8 @@ impl App {
             (Action::SkipDown, _) => ((0, 1), true),
             _ => return true,
         };
-        let columns = history::columns(&self.days, self.today, self.archive.columns);
-        let day = history::step(
+        let columns = heatmap::columns(&self.days, self.today, self.archive_page.columns);
+        let day = heatmap::step(
             &columns,
             &self.days,
             self.archive_day(),
@@ -113,7 +113,7 @@ impl App {
             skip,
             self.today,
         );
-        if Some(day) != self.archive.day {
+        if Some(day) != self.archive_page.day {
             self.select_day(day);
         }
         true
@@ -121,7 +121,7 @@ impl App {
 
     /// The first time the page opens, see [`Self::archive_day`]. Later it stays where it was.
     pub(super) fn open_archive(&mut self) {
-        if self.archive.day.is_none() {
+        if self.archive_page.day.is_none() {
             self.select_day(self.archive_day());
         }
     }
@@ -129,18 +129,18 @@ impl App {
     /// Moves the heatmap cursor to `day`. A new list, on its first task like a jump to a
     /// section.
     fn select_day(&mut self, day: Date) {
-        self.archive.day = Some(day);
-        let rows = self.archive_rows(self.archive.columns);
-        self.archive.cursor = usize::from(!rows.is_empty());
-        self.archive.offset = 0;
+        self.archive_page.day = Some(day);
+        let rows = self.archive_rows(self.archive_page.columns);
+        self.archive_page.cursor = usize::from(!rows.is_empty());
+        self.archive_page.offset = 0;
     }
 
-    /// The sections of the done tasks: those of the todo list in its order, so they keep their
+    /// The sections of the done tasks: those of the task list in its order, so they keep their
     /// key and color, then the ones only in the archive by name.
     pub fn archive_sections(&self) -> Vec<String> {
         let mut names: Vec<String> = self.sections.iter().map(|s| s.name.clone()).collect();
         let gone: BTreeSet<&String> = self
-            .done
+            .archive
             .values()
             .flatten()
             .map(|done| &done.section)
@@ -152,9 +152,9 @@ impl App {
 
     /// The first day of the selected cell and its days, in a heatmap of `columns` columns.
     pub fn archive_cell(&self, columns: usize) -> (Date, i64) {
-        let columns = history::columns(&self.days, self.today, columns);
+        let columns = heatmap::columns(&self.days, self.today, columns);
         let day = self.archive_day();
-        match history::find(&columns, day) {
+        match heatmap::find(&columns, day) {
             Some((column, row)) => columns[column].cell(row),
             None => (day, 1),
         }
@@ -165,7 +165,7 @@ impl App {
     pub fn archive_rows(&self, columns: usize) -> Vec<ArchiveRow> {
         let (start, length) = self.archive_cell(columns);
         let days: Vec<_> = self
-            .done
+            .archive
             .range(start..start + length.days())
             .rev()
             .collect();
@@ -207,13 +207,13 @@ mod tests {
         app.today = TODAY;
         // Far back, where a cell covers several days, the newest day without tasks.
         let day = TODAY - 400.days();
-        app.done = [
+        app.archive = [
             (day - 1.days(), vec![done("work")]),
             (day, vec![done("work")]),
             (day + 1.days(), Vec::new()),
         ]
         .into();
-        app.days = history::days(&app.done);
+        app.days = heatmap::days(&app.archive);
 
         // Before the first frame the heatmap's columns are not known yet.
         app.update(Action::NextPage);
@@ -221,7 +221,7 @@ mod tests {
         // In the frame the cell covers all three days, the cursor is on the newest task.
         let rows = app.archive_rows(40);
         assert!(app.archive_cell(40).1 > 1);
-        assert_eq!(rows[app.archive.cursor], ArchiveRow::Task(0, day, 0));
+        assert_eq!(rows[app.archive_page.cursor], ArchiveRow::Task(0, day, 0));
     }
 
     /// A done task in `section`.
@@ -234,16 +234,16 @@ mod tests {
 
     #[test]
     fn heatmap_moves_by_cell_and_skips_empty_ones() {
-        // A Wednesday three weeks back, so up and down stay in its column. A short history,
+        // A Wednesday three weeks back, so up and down stay in its column. A short archive,
         // every cell is a day.
         let day = jiff::civil::date(2026, 9, 30);
         let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
         app.today = jiff::civil::date(2026, 10, 21);
-        app.done = [day - 28.days(), day, day + 2.days(), day + 14.days()]
+        app.archive = [day - 28.days(), day, day + 2.days(), day + 14.days()]
             .map(|day| (day, vec![done("work")]))
             .into();
-        app.days = history::days(&app.done);
-        app.archive.columns = 40;
+        app.days = heatmap::days(&app.archive);
+        app.archive_page.columns = 40;
         app.update(Action::NextPage);
         assert_eq!(app.archive_day(), day + 14.days());
         let mut press = |action, expected: Date| {
@@ -251,7 +251,7 @@ mod tests {
             assert_eq!(app.archive_day(), expected, "{action:?}");
             // A new cell puts the list on its first task, if it has one.
             assert_eq!(
-                app.archive.cursor,
+                app.archive_page.cursor,
                 usize::from(app.days.contains_key(&expected))
             );
         };
@@ -270,7 +270,7 @@ mod tests {
         press(Action::SkipLeft, day - 28.days());
         // The first column is the edge, after today there is nothing.
         press(Action::Left, day - 28.days());
-        app.archive.day = Some(app.today);
+        app.archive_page.day = Some(app.today);
         app.update(Action::Down);
         assert_eq!(app.archive_day(), app.today);
     }
@@ -282,34 +282,43 @@ mod tests {
             sections(&[("work", &[]), ("home", &[]), ("misc", &[])]),
         );
         app.today = TODAY;
-        app.done = [(TODAY, vec![done("work"), done("misc"), done("misc")])].into();
-        app.days = history::days(&app.done);
+        app.archive = [(TODAY, vec![done("work"), done("misc"), done("misc")])].into();
+        app.days = heatmap::days(&app.archive);
         app.update(Action::NextPage);
         // Without tasks `home` is not in the list, the keys count the sections shown.
-        let rows = app.archive_rows(app.archive.columns);
+        let rows = app.archive_rows(app.archive_page.columns);
         assert_eq!(rows[2], ArchiveRow::Section(2, 1));
 
         // A key without a section shown does nothing, the heatmap keeps the keys.
         app.update(Action::JumpSection(2));
-        assert_eq!((app.archive.focus, app.archive.cursor), (Focus::Heatmap, 1));
+        assert_eq!(
+            (app.archive_page.focus, app.archive_page.cursor),
+            (Focus::Heatmap, 1)
+        );
         // `2` goes to `misc`'s first task in the list.
         app.update(Action::JumpSection(1));
-        assert_eq!((app.archive.focus, app.archive.cursor), (Focus::List, 3));
+        assert_eq!(
+            (app.archive_page.focus, app.archive_page.cursor),
+            (Focus::List, 3)
+        );
         app.update(Action::Down);
-        assert_eq!(app.archive.cursor, 4);
+        assert_eq!(app.archive_page.cursor, 4);
         // `h` / `l` do nothing in the list, the day stays.
         app.update(Action::Left);
-        assert_eq!((app.archive_day(), app.archive.cursor), (TODAY, 4));
+        assert_eq!((app.archive_day(), app.archive_page.cursor), (TODAY, 4));
 
         // `Esc` gives the keys back to the heatmap, `<CR>` to the list, the list cursor stays.
         // Twice changes nothing.
         app.update(Action::FocusHeatmap);
         app.update(Action::FocusHeatmap);
-        assert_eq!(app.archive.focus, Focus::Heatmap);
+        assert_eq!(app.archive_page.focus, Focus::Heatmap);
         app.update(Action::FocusList);
         app.update(Action::FocusList);
-        assert_eq!((app.archive.focus, app.archive.cursor), (Focus::List, 4));
+        assert_eq!(
+            (app.archive_page.focus, app.archive_page.cursor),
+            (Focus::List, 4)
+        );
         app.update(Action::Up);
-        assert_eq!(app.archive.cursor, 3);
+        assert_eq!(app.archive_page.cursor, 3);
     }
 }

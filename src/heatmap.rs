@@ -1,14 +1,11 @@
-//! The archive over time, for the archive page: the heatmap's columns and shades. Pure, the
-//! days come from [`crate::load::archive`].
+//! The heatmap of the archive page: its columns, cells and shades. Pure, the days come from
+//! [`crate::load::archive`].
 
 use std::collections::BTreeMap;
 
 use jiff::{ToSpan, civil::Date};
 
-use crate::archive::Done;
-
-/// The done tasks per day, only days with an archive directory, see [`crate::load::archive`].
-pub type Archive = BTreeMap<Date, Vec<Done>>;
+use crate::archive::Archive;
 
 /// Tasks done per day, only days with an archive directory.
 pub type Days = BTreeMap<Date, usize>;
@@ -166,7 +163,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::task::Task;
+    use crate::{archive::Done, task::Task};
 
     fn date(text: &str) -> Date {
         text.parse().unwrap()
@@ -199,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn short_history_takes_only_the_columns_it_needs() {
+    fn short_archive_takes_only_the_columns_it_needs() {
         let today = date("2026-10-17");
         let days = Days::from([(date("2026-09-30"), 1)]);
         let columns = columns(&days, today, 40);

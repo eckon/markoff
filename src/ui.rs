@@ -1,4 +1,4 @@
-//! Rendering: header, list, preview and status line. The help is in [`help`], the archive in
+//! Rendering: app header, list, preview and footer. The help is in [`help`], the archive in
 //! [`archive`]. Reads the app, never changes it.
 
 use ratatui::{
@@ -32,9 +32,9 @@ pub struct Drawn {
 /// Draws the whole screen from the current state. Rendering never mutates the app, what the
 /// next frame needs comes back in [`Drawn`].
 pub fn render(app: &App, frame: &mut Frame) -> Drawn {
-    // The header gets a blank line below, like the one above every section, the status line one
-    // above, so the two rules frame the page alike.
-    let [header_area, top_gap, main_area, bottom_gap, status_area] = Layout::vertical([
+    // The app header gets a blank line below, like the one above every section, the footer one
+    // above, so the two lines frame the page alike.
+    let [app_header_area, top_gap, main_area, bottom_gap, footer_area] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Min(0),
@@ -43,14 +43,14 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
     ])
     .areas(frame.area());
     // Before the preview, so its divider can join it.
-    render_status(app, frame, status_area);
+    render_footer(app, frame, footer_area);
     let mut drawn = Drawn {
         list_offset: app.list_offset,
-        heatmap_columns: app.archive.columns,
-        archive_offset: app.archive.offset,
+        heatmap_columns: app.archive_page.columns,
+        archive_offset: app.archive_page.offset,
     };
     match app.page {
-        Page::Todo => {
+        Page::Tasks => {
             // The tasks in all sections and those archived today, so done tasks don't just
             // vanish.
             let today = app.today.strftime("%a %d %b").to_string();
@@ -60,12 +60,12 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
                 .count();
             let mut count = vec![format!("{open} open · ").dim()];
             count.extend(done_count(app.done_today()));
-            render_header(app, frame, header_area, &today, count);
+            render_app_header(app, frame, app_header_area, &today, count);
             let preview;
-            (drawn.list_offset, preview) = render_todo(app, frame, main_area);
+            (drawn.list_offset, preview) = render_tasks(app, frame, main_area);
             if let Some(x) = preview {
-                join_divider(frame, x, top_gap.y, header_area.y, "┬");
-                join_divider(frame, x, bottom_gap.y, status_area.y, "┴");
+                join_divider(frame, x, top_gap.y, app_header_area.y, "┬");
+                join_divider(frame, x, bottom_gap.y, footer_area.y, "┴");
             }
         }
         Page::Archive => {
@@ -73,14 +73,14 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
             (drawn.heatmap_columns, drawn.archive_offset, divider) =
                 archive::render(app, frame, main_area);
             if let Some(x) = divider {
-                join_divider(frame, x, bottom_gap.y, status_area.y, "┴");
+                join_divider(frame, x, bottom_gap.y, footer_area.y, "┴");
             }
             // The tasks done in the selected cell.
-            let selected = archive::range(app, drawn.heatmap_columns);
+            let range = archive::range(app, drawn.heatmap_columns);
             let done = (app.archive_rows(drawn.heatmap_columns).iter())
                 .filter(|row| matches!(row, ArchiveRow::Task(..)))
                 .count();
-            render_header(app, frame, header_area, &selected, done_count(done));
+            render_app_header(app, frame, app_header_area, &range, done_count(done));
         }
     }
     if app.show_help {
@@ -89,9 +89,9 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
     drawn
 }
 
-/// The list, and the preview of the task at the cursor next to it unless `p` hid it. Returns
+/// The list, and the preview of the selected task next to it unless `p` hid it. Returns
 /// the list's offset and the column of the preview's divider.
-fn render_todo(app: &App, frame: &mut Frame, main_area: Rect) -> (usize, Option<u16>) {
+fn render_tasks(app: &App, frame: &mut Frame, main_area: Rect) -> (usize, Option<u16>) {
     let body = match app.selected() {
         _ if app.hide_preview => None,
         Some(Row::Task(s, t)) => Some(app.sections[s].tasks[t].body.as_str()),
@@ -108,8 +108,8 @@ fn render_todo(app: &App, frame: &mut Frame, main_area: Rect) -> (usize, Option<
 
 /// A list in `area` drawn by `list`, and next to it the preview of `body` with the matches of
 /// `filter`, also when it is empty: the list keeps its width while moving, so wrapped titles
-/// stay put. Without a preview (`None`) the list takes all the width, its rules keep the split
-/// width. Returns the list's offset and where the preview went.
+/// stay put. Without a preview (`None`) the list takes all the width, its section headers keep
+/// the split width. Returns the list's offset and where the preview went.
 fn list_with_preview(
     frame: &mut Frame,
     area: Rect,
@@ -119,35 +119,41 @@ fn list_with_preview(
 ) -> (usize, Option<Rect>) {
     let [list_area, preview_area] =
         Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)]).areas(area);
-    let rule_width = rows::block().inner(list_area).width as usize;
+    let header_width = rows::block().inner(list_area).width as usize;
     match body {
         Some(body) => {
             render_preview(frame, preview_area, body, filter);
-            (list(frame, list_area, rule_width), Some(preview_area))
+            (list(frame, list_area, header_width), Some(preview_area))
         }
-        None => (list(frame, area, rule_width), None),
+        None => (list(frame, area, header_width), None),
     }
 }
 
-/// `✓ 2 done` for the header.
+/// `✓ 2 done` for the app header.
 fn done_count(done: usize) -> Vec<Span<'static>> {
     vec!["✓".fg(DONE_COLOR), format!(" {done} done").dim()]
 }
 
-/// Joins the preview divider at column `x` to the rule in row `rule_y`: `│` in the blank line
-/// between, `joint` in the rule. Only where the rule is a line, never over the date, the counts,
+/// Joins the preview divider at column `x` to the line in row `line_y`: `│` in the blank line
+/// between, `joint` in the line. Only where it is drawn, never over the date, the counts,
 /// the status or the hints.
-fn join_divider(frame: &mut Frame, x: u16, gap_y: u16, rule_y: u16, joint: &str) {
+fn join_divider(frame: &mut Frame, x: u16, gap_y: u16, line_y: u16, joint: &str) {
     let buffer = frame.buffer_mut();
     buffer[(x, gap_y)].set_symbol("│").set_fg(LINE_COLOR);
-    if buffer[(x, rule_y)].symbol() == "─" {
-        buffer[(x, rule_y)].set_symbol(joint);
+    if buffer[(x, line_y)].symbol() == "─" {
+        buffer[(x, line_y)].set_symbol(joint);
     }
 }
 
-/// `── todo  archive ── Sat 17 Oct ──── 4 open · ✓ 2 done` over the whole width: the pages with
+/// `── tasks  archive ── Sat 17 Oct ──── 4 open · ✓ 2 done` over the whole width: the pages with
 /// the current one in [`CURRENT_COLOR`], then the page's `date` and `count`.
-fn render_header(app: &App, frame: &mut Frame, area: Rect, date: &str, count: Vec<Span<'static>>) {
+fn render_app_header(
+    app: &App,
+    frame: &mut Frame,
+    area: Rect,
+    date: &str,
+    count: Vec<Span<'static>>,
+) {
     let mut pages = vec!["── ".fg(LINE_COLOR)];
     for (i, page) in Page::ALL.into_iter().enumerate() {
         if i > 0 {
@@ -160,7 +166,7 @@ fn render_header(app: &App, frame: &mut Frame, area: Rect, date: &str, count: Ve
     }
     pages.push(" ── ".fg(LINE_COLOR));
     // Not bold, that is for keys.
-    let spans = rule(
+    let spans = filled_line(
         Some(pages),
         date.to_string().into(),
         count,
@@ -169,10 +175,10 @@ fn render_header(app: &App, frame: &mut Frame, area: Rect, date: &str, count: Ve
     frame.render_widget(Line::from(spans), area);
 }
 
-/// `── what just happened ──── hints` over the whole width, a rule like the header: left the
-/// filter input or what just happened, right the key hints. Without either side the rule runs
+/// `── what just happened ──── hints` over the whole width, a line like the app header: left the
+/// filter input or the status, right the key hints. Without either side the line runs
 /// to the edge.
-fn render_status(app: &App, frame: &mut Frame, area: Rect) {
+fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
     let left = match app.filter_input {
         true => vec![format!("/{}", app.filter).into()],
         false => status_text(app),
@@ -189,7 +195,7 @@ fn render_status(app: &App, frame: &mut Frame, area: Rect) {
         frame.set_cursor_position((end.min(area.right().saturating_sub(1)), area.y));
     }
 
-    // Between the hints, and at least that much rule between the two sides.
+    // Between the hints, and at least that much line between the two sides.
     const GAP: usize = 2;
     let hint_spans = |hints: &[(String, &str)]| {
         let mut spans: Vec<Span> = Vec::new();
@@ -231,14 +237,14 @@ fn hints(app: &App) -> Vec<(String, &'static str)> {
     };
     let mut hints = Vec::new();
     // The filter is cleared from its input: its key, then `Esc`.
-    if !app.filter.is_empty() && !app.show_help && app.page == Page::Todo {
+    if !app.filter.is_empty() && !app.show_help && app.page == Page::Tasks {
         hints.extend(key(Action::Filter).map(|key| (format!("{key} Esc"), "clear filter")));
     }
     hints.extend(key(Action::Help).map(|key| (key, "toggle help")));
     hints
 }
 
-/// The left side of the status line when the filter input is closed, empty for nothing.
+/// The status, left in the footer when the filter input is closed, empty for nothing.
 fn status_text(app: &App) -> Vec<Span<'_>> {
     match (&app.status, app.keymap.pending()) {
         (Some(Status::Error(message)), _) => vec![message.as_str().red().bold()],
@@ -265,7 +271,7 @@ fn status_text(app: &App) -> Vec<Span<'_>> {
 /// colors, so they follow the terminal theme.
 const SECTION_COLORS: [Color; 4] = [Color::Blue, Color::Magenta, Color::Green, Color::Yellow];
 
-/// Where you are: the current page and the heatmap's selected cell.
+/// Where you are: the current page and the selected heatmap cell.
 const CURRENT_COLOR: Color = Color::Blue;
 
 /// The check for tasks done today.
@@ -278,7 +284,7 @@ fn section_color(index: usize) -> Color {
     SECTION_COLORS[index % SECTION_COLORS.len()]
 }
 
-/// The todo list: the sections with their tasks, see [`rows`].
+/// The task list: the sections with their tasks, see [`rows`].
 /// Returns the scroll offset.
 fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize {
     let rows = app.rows();
@@ -294,7 +300,7 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                         .filter(|row| matches!(row, Row::Task(task_s, _) if *task_s == s))
                         .count();
                     let name = &app.sections[s].name;
-                    rows::Kind::Header(rows::section_rule(
+                    rows::Kind::Section(rows::section_header(
                         s,
                         color,
                         name,
@@ -361,9 +367,9 @@ fn spans(chars: &[(char, Style)]) -> Vec<Span<'static>> {
         .collect()
 }
 
-/// `── work ─────── 2`, filled to `width`. Section headers, the date header, help groups.
+/// `── work ─────── 2`, filled to `width`. Section headers, the app header, group headers.
 /// `lead` replaces the `── ` before the title, `count` goes after the fill as styled.
-fn rule(
+fn filled_line(
     lead: Option<Vec<Span<'static>>>,
     title: Span<'static>,
     mut count: Vec<Span<'static>>,
@@ -382,10 +388,10 @@ fn rule(
 }
 
 /// Task body as raw text, read only, with the matches of `filter`. No title, the list shows it
-/// in full. The todo list and the archive page.
+/// in full. The task list and the archive page.
 fn render_preview(frame: &mut Frame, area: Rect, body: &str, filter: &str) {
     let text = match body.trim().is_empty() {
-        true => Text::from("no notes".dim()),
+        true => Text::from("<empty>".dim()),
         false => body_text(body, filter),
     };
 
@@ -475,7 +481,7 @@ mod tests {
         let lines = draw(&mut app);
         assert!(lines[6].contains("▌   • Task 20"), "{lines:#?}");
 
-        // Moving up inside the screen moves the cursor, not the view.
+        // Moving up inside the screen moves the cursor, the list does not scroll.
         app.update(Action::Up);
         draw(&mut app);
         app.update(Action::Up);
@@ -550,7 +556,7 @@ mod tests {
     }
 
     #[test]
-    fn preview_divider_joins_the_header_and_the_rule() {
+    fn preview_divider_joins_the_app_header_and_the_footer() {
         let mut app = App::new(
             PathBuf::new(),
             sections(&[("home", &["Fix typo", "Empty"])]),
@@ -561,7 +567,7 @@ mod tests {
         app.update(Action::Down);
         let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
         let divider = column(&lines[2], '│').expect("preview divider");
-        // 50 wide, the pages and the date in the header cover it, it is never drawn over them.
+        // 50 wide, the pages and the date in the app header cover it, it is never drawn over them.
         assert_eq!(column(&lines[0], '┬'), None, "{lines:#?}");
         assert_eq!(column(&lines[1], '│'), Some(divider), "{lines:#?}");
         assert_eq!(column(&lines[7], '│'), Some(divider), "{lines:#?}");
@@ -572,7 +578,7 @@ mod tests {
         let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
         assert_eq!(column(&lines[2], '│'), Some(divider), "{lines:#?}");
 
-        // Without a preview the header and the rule are plain lines.
+        // Without a preview the app header and the footer are plain lines.
         app.update(Action::Preview);
         let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
         assert!(!lines[0].contains('┬'), "{lines:#?}");
@@ -603,14 +609,14 @@ mod tests {
             app.update(Action::FilterType(c));
         }
         let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
-        // The first visible section starts right below the header, without another blank line.
+        // The first visible section starts right below the app header, without another blank line.
         assert!(lines[2].contains("work"), "{lines:#?}");
         assert!(lines[3].contains("Review"), "{lines:#?}");
         assert!(!lines.join("\n").contains("Fix typo"));
         assert!(lines[8].starts_with("── /rev ─"), "input at the bottom");
         assert!(lines[8].ends_with("<CR> keep filter  Esc clear filter"));
 
-        // Accepted, the filter stays visible in the status line, with its matches.
+        // Accepted, the filter stays visible in the footer, with its matches.
         app.update(Action::FilterAccept);
         let screen = screen(&app);
         let status = screen.lines().last().unwrap();
@@ -667,7 +673,7 @@ mod tests {
 
         assert!(
             lines[0].starts_with(&format!(
-                "── todo  archive ── {} ─",
+                "── tasks  archive ── {} ─",
                 TODAY.strftime("%a %d %b")
             )),
             "{lines:#?}"
@@ -688,7 +694,7 @@ mod tests {
             sections(&[("home", &["Water `* * mon-fri`", "Dust `* * *`", "Fix typo"])]),
         );
         app.today = TODAY;
-        app.sections[0].tasks[1].done = Some(TODAY);
+        app.sections[0].tasks[1].last_done = Some(TODAY);
         app.hide_preview = true;
         let mut terminal = Terminal::new(TestBackend::new(60, 9)).unwrap();
         terminal.draw(|frame| _ = render(&app, frame)).unwrap();
@@ -805,7 +811,7 @@ mod tests {
         // On the section header, then on the task with a blank body.
         for _ in 0..2 {
             let screen = screen(&app);
-            assert!(screen.contains("│ no notes"), "{screen}");
+            assert!(screen.contains("│ <empty>"), "{screen}");
             app.update(Action::Down);
         }
 

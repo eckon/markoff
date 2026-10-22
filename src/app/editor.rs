@@ -68,8 +68,8 @@ impl App {
         }
     }
 
-    /// `o` / `O`: a new task next to the cursor's task. From a header both put it first in the
-    /// section, so an empty section can get its first task.
+    /// `o` / `O`: a new task next to the selected task. From a section header both put it first
+    /// in the section, so an empty section can get its first task.
     pub(super) fn new_task(&mut self, below: bool) {
         let (section, index) = match self.selected() {
             Some(Row::Task(section, task)) => (section, task + usize::from(below)),
@@ -79,7 +79,7 @@ impl App {
         self.editor_request = Some(EditorRequest::Create { section, index });
     }
 
-    /// `N`: a new section after the cursor's section. On top if there are no rows at all, so the
+    /// `N`: a new section after the selected section. On top if there are no rows at all, so the
     /// first section can always be created.
     pub(super) fn new_section(&mut self) {
         let index = match self.selected() {
@@ -122,7 +122,7 @@ impl App {
     /// Creates a section named by the heading written in the editor, at `index`.
     fn after_create_section(&mut self, index: usize, content: &str) -> Result<()> {
         let (slug, more) =
-            edit::section_name(content).ok_or_else(|| eyre!("aborted, empty title"))?;
+            edit::section_name(content).ok_or_else(|| eyre!("aborted, empty name"))?;
         self.ensure_no_section(&slug)?;
         // Normalizing keeps the order of sections, so `index` stays valid.
         self.normalize_before_action();
@@ -149,7 +149,7 @@ impl App {
     /// Renames section `s` to the heading written in the editor.
     fn after_rename_section(&mut self, s: usize, content: &str) -> Result<()> {
         let (slug, more) =
-            edit::section_name(content).ok_or_else(|| eyre!("aborted, empty title"))?;
+            edit::section_name(content).ok_or_else(|| eyre!("aborted, empty name"))?;
         if slug == self.sections[s].name {
             return Ok(());
         }
@@ -294,7 +294,7 @@ mod tests {
             app.after_create_section(1, &draft(""))
                 .unwrap_err()
                 .to_string(),
-            "aborted, empty title"
+            "aborted, empty name"
         );
         assert_eq!(
             app.after_create_section(1, &draft("Home"))
@@ -358,13 +358,13 @@ mod tests {
         let (dir, mut app) = app_with_files(&["work/a.md", "home/"]);
         let before = listing(&app);
         let template = edit::section_draft("work");
-        let draft = |title: &str| template.replace("# work", title);
+        let draft = |name: &str| template.replace("# work", name);
 
-        // Empty title, unchanged name and a clash change nothing.
+        // Empty name, unchanged name and a clash change nothing.
         let (empty, same, clash) = (draft("# "), draft("# work"), draft("# Home"));
         assert_eq!(
             app.after_rename_section(0, &empty).unwrap_err().to_string(),
-            "aborted, empty title"
+            "aborted, empty name"
         );
         app.after_rename_section(0, &same).unwrap();
         assert_eq!(

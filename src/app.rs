@@ -20,14 +20,14 @@ use archive::ArchivePage;
 use editor::EditorRequest;
 
 use crate::{
-    cursor, edit, filter, history,
+    cursor, edit, filter, heatmap,
     keymap::{self, Action, Keymap},
     load,
     op::{self, Op},
     state::{self, StateFile},
     task::{Section, Task},
     ui,
-    watch::TodoWatcher,
+    watch::RootWatcher,
 };
 
 /// How long to wait for a key before checking the file watcher again.
@@ -44,26 +44,26 @@ pub enum Row {
     Task(usize, usize),
 }
 
-/// A screen of its own, switched with `Tab` / `S-Tab` in this order. The help is an overlay.
+/// Fills the screen, switched with `Tab` / `S-Tab` in this order. The help is an overlay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
-    Todo,
+    Tasks,
     /// The done tasks: heatmap and list, see [`crate::ui`].
     Archive,
 }
 
 impl Page {
-    pub const ALL: [Page; 2] = [Page::Todo, Page::Archive];
+    pub const ALL: [Page; 2] = [Page::Tasks, Page::Archive];
 
     pub fn name(self) -> &'static str {
         match self {
-            Page::Todo => "todo",
+            Page::Tasks => "tasks",
             Page::Archive => "archive",
         }
     }
 }
 
-/// Message for the status line, cleared on the next key press.
+/// Message for the status, cleared on the next key press.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Status {
     Error(String),
@@ -104,7 +104,7 @@ pub struct App {
     /// tests can set it. A placeholder until the first loop.
     pub today: Date,
     pub page: Page,
-    pub archive: ArchivePage,
+    pub archive_page: ArchivePage,
     editor_request: Option<EditorRequest>,
     /// `/` filter, empty for none. Applied in [`App::rows`], so everything that works on rows
     /// sees only what matches.
@@ -115,9 +115,9 @@ pub struct App {
     /// cursor would leave it, see [`ui::render`].
     pub list_offset: usize,
     /// The done tasks, from the archive.
-    pub done: history::Archive,
+    pub archive: crate::archive::Archive,
     /// Tasks done per day, from the archive.
-    pub days: history::Days,
+    pub days: heatmap::Days,
 }
 
 impl App {
@@ -140,18 +140,18 @@ impl App {
             hide_preview: false,
             show_hidden: false,
             today: Date::ZERO,
-            page: Page::Todo,
-            archive: ArchivePage::default(),
+            page: Page::Tasks,
+            archive_page: ArchivePage::default(),
             editor_request: None,
             filter: String::new(),
             filter_input: false,
             list_offset: 0,
-            done: history::Archive::new(),
-            days: history::Days::new(),
+            archive: crate::archive::Archive::new(),
+            days: heatmap::Days::new(),
         }
     }
 
-    /// Loads `root` and normalizes it, renames are mentioned in the status line.
+    /// Loads `root` and normalizes it, renames are mentioned in the status.
     pub fn load(root: PathBuf) -> Result<Self> {
         let mut app = Self::new(root, Vec::new());
         app.reload(None)?;
@@ -164,12 +164,12 @@ impl App {
     /// Keys are read on this thread (no background reader), so the TUI can hand the
     /// terminal to `$EDITOR` without the two fighting over stdin.
     pub fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
-        let mut watcher = TodoWatcher::new(&self.root)?;
+        let mut watcher = RootWatcher::new(&self.root)?;
         // Only redraw after something happened, not on every poll.
         let mut dirty = true;
 
         while self.running {
-            // At midnight the header, the due tasks and the archive's today move on.
+            // At midnight the app header, the due tasks and the archive's today move on.
             let today = jiff::Zoned::now().date();
             if today != self.today {
                 self.today = today;
@@ -180,8 +180,8 @@ impl App {
                 terminal.draw(|frame| drawn = Some(ui::render(&self, frame)))?;
                 if let Some(drawn) = drawn {
                     self.list_offset = drawn.list_offset;
-                    self.archive.columns = drawn.heatmap_columns;
-                    self.archive.offset = drawn.archive_offset;
+                    self.archive_page.columns = drawn.heatmap_columns;
+                    self.archive_page.offset = drawn.archive_offset;
                 }
                 dirty = false;
             }
@@ -231,7 +231,7 @@ impl App {
     }
 
     /// Where the cursor goes when its task goes away, so it never ends up in another section
-    /// by itself: the next task, else the row before, a task or the header. `None` on a
+    /// by itself: the next task, else the row before, a task or the section header. `None` on a
     /// section, its row number stays.
     fn neighbor_in_section(&self) -> Option<PathBuf> {
         let rows = self.rows();
@@ -271,7 +271,7 @@ impl App {
                 return;
             }
             // Only `?` and `Esc` close the help, other keys do nothing, so a stray key cannot
-            // change tasks that are dimmed behind it. `Esc` by its code, on the todo list it has
+            // change tasks that are dimmed behind it. `Esc` by its code, on the task list it has
             // no binding.
             if self.show_help {
                 if action == Some(Action::Help) || key.code == KeyCode::Esc {
@@ -285,7 +285,7 @@ impl App {
         }
     }
 
-    /// Runs an action. Errors end up in the status line instead of ending the app.
+    /// Runs an action. Errors end up in the status instead of ending the app.
     pub fn update(&mut self, action: Action) {
         let result = self.try_update(action);
         self.report(result);
@@ -343,8 +343,8 @@ impl App {
             | Action::JumpSection(_) => {
                 let lines: Vec<cursor::Line> = (self.rows().into_iter())
                     .map(|row| match row {
-                        Row::Section(s) => cursor::Line::Header(s),
-                        Row::Task(..) => cursor::Line::Item,
+                        Row::Section(s) => cursor::Line::Section(s),
+                        Row::Task(..) => cursor::Line::Task,
                     })
                     .collect();
                 self.cursor = cursor::moved(&lines, self.cursor, action);
@@ -438,7 +438,7 @@ impl App {
     /// [`Self::normalize`] at startup and before an action that writes, so the action sees
     /// clean names.
     ///
-    /// Renames are mentioned in the status line. A failure is reported there too, everything
+    /// Renames are mentioned in the status. A failure is reported there too, everything
     /// was rolled back then, so the action still runs on the unchanged files.
     fn normalize_before_action(&mut self) {
         match self.normalize() {
@@ -470,7 +470,7 @@ impl App {
             .map(Path::to_path_buf)
             .collect();
         missing.reverse();
-        let taken: Vec<String> = (self.done.get(&date).into_iter().flatten())
+        let taken: Vec<String> = (self.archive.get(&date).into_iter().flatten())
             .filter(|done| &done.section == section)
             .map(|done| done.task.stem().to_string())
             .collect();
@@ -572,9 +572,9 @@ impl App {
     /// Only empty sections, so `D` never takes tasks with it.
     fn delete_section(&mut self, s: usize) -> Result<()> {
         let section = &self.sections[s];
-        let title = section.name.clone();
+        let name = section.name.clone();
         if !section.tasks.is_empty() {
-            return Err(eyre!("{title} is not empty"));
+            return Err(eyre!("{name} is not empty"));
         }
         // Cursor stays on the same row, which is now the next section.
         let ops = edit::delete_section(&self.sections, s, &self.state_file);
@@ -611,16 +611,16 @@ impl App {
         Ok(true)
     }
 
-    /// Reads the root again and puts the cursor on `select` if it still exists, else keeps the
+    /// Reads the root again and puts the cursor on `path` if it still exists, else keeps the
     /// row number, clamped. The disk is the source of truth, `sections` is only a view of it.
-    fn reload(&mut self, select: Option<&Path>) -> Result<()> {
+    fn reload(&mut self, path: Option<&Path>) -> Result<()> {
         (self.sections, self.state_file) = load::load(&self.root)?;
-        self.done = load::archive(&self.root)?;
-        self.days = history::days(&self.done);
+        self.archive = load::archive(&self.root)?;
+        self.days = heatmap::days(&self.archive);
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
-        let archive_rows = self.archive_rows(self.archive.columns).len();
-        self.archive.cursor = self.archive.cursor.min(archive_rows.saturating_sub(1));
-        if let Some(path) = select {
+        let archive_rows = self.archive_rows(self.archive_page.columns).len();
+        self.archive_page.cursor = self.archive_page.cursor.min(archive_rows.saturating_sub(1));
+        if let Some(path) = path {
             self.select_path(path);
         }
         Ok(())
@@ -667,7 +667,7 @@ impl App {
         self.rows().get(self.cursor).copied()
     }
 
-    /// Tasks archived today, shown in the header.
+    /// Tasks archived today, shown in the app header.
     pub fn done_today(&self) -> usize {
         self.days.get(&self.today).copied().unwrap_or(0)
     }
@@ -690,7 +690,7 @@ pub mod tests {
 
     use super::*;
     use crate::{
-        state::{Group, Item, State},
+        state::{self, State},
         task::Task,
     };
 
@@ -721,7 +721,7 @@ pub mod tests {
         for file in files {
             let (section, name) = file.split_once('/').expect("tasks live in a section");
             if state.section_position(section).is_none() {
-                state.sections.push(Group {
+                state.sections.push(state::Section {
                     name: section.to_string(),
                     tasks: Vec::new(),
                 });
@@ -734,13 +734,10 @@ pub mod tests {
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             let stem = name.trim_end_matches(".md");
             fs::write(&path, format!("# {stem}")).unwrap();
-            let group = state
-                .sections
-                .iter_mut()
-                .find(|group| group.name == section);
-            group.unwrap().tasks.push(Item {
+            let order = state.sections.iter_mut().find(|s| s.name == section);
+            order.unwrap().tasks.push(state::Task {
                 name: stem.to_string(),
-                done: None,
+                last_done: None,
             });
         }
         fs::write(root.join(state::FILE), state.format()).unwrap();
@@ -816,7 +813,7 @@ pub mod tests {
     }
 
     #[test]
-    fn pages_wrap_around_and_keep_todo_keys_to_the_list() {
+    fn pages_wrap_around_and_keep_task_keys_to_the_list() {
         let (_dir, mut app) = app_with_files(&["work/a.md"]);
         app.cursor = 1;
         app.handle_event(Event::Key(KeyCode::Tab.into()));
@@ -826,7 +823,7 @@ pub mod tests {
         assert_eq!(listing(&app), ["[work]", "a.md"], "X did not archive");
 
         app.handle_event(Event::Key(KeyCode::Tab.into()));
-        assert_eq!(app.page, Page::Todo, "wraps around");
+        assert_eq!(app.page, Page::Tasks, "wraps around");
         app.handle_event(Event::Key(KeyCode::BackTab.into()));
         assert_eq!(app.page, Page::Archive);
     }
@@ -840,14 +837,14 @@ pub mod tests {
         assert!(!app.hide_preview);
         app.update(Action::Preview);
 
-        // On the archive page only in the list, and not the todo list's.
+        // On the archive page only in the list, and not the task list's.
         app.update(Action::NextPage);
         app.update(Action::Preview);
-        assert!(!app.archive.hide_preview, "not in the heatmap");
+        assert!(!app.archive_page.hide_preview, "not in the heatmap");
         app.update(Action::FocusList);
         app.update(Action::Preview);
-        assert!(app.archive.hide_preview);
-        assert!(app.hide_preview, "the todo list's stays");
+        assert!(app.archive_page.hide_preview);
+        assert!(app.hide_preview, "the task list's stays");
     }
 
     #[test]
@@ -927,7 +924,7 @@ pub mod tests {
         app.cursor = 2;
         app.update(Action::Delete);
         assert_eq!(app.selected(), Some(Row::Task(0, 0)), "{:?}", listing(&app));
-        // Its only task: the header.
+        // Its only task: onto the section header.
         app.update(Action::Done);
         assert_eq!(app.selected(), Some(Row::Section(0)), "{:?}", listing(&app));
         // Gone from outside too.
