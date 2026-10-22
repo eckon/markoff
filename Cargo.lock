@@ -993,6 +993,7 @@ dependencies = [
  "serde",
  "tempfile",
  "toml",
+ "unicode-width",
  "vt100",
 ]
 

@@ -1,8 +1,8 @@
 //! The done tasks of the selected heatmap cell, below the heatmap. Laid out like the todo
-//! list: section rules with their keys, a bullet per task, its day on the right. The day or the
-//! days of the cell are in the header, see [`range`].
+//! list: section rules with their keys, a bullet per task, its day on the right if the cell has
+//! more than one. The day or the days of the cell are in the header, see [`range`].
 
-use jiff::{ToSpan, civil::Date};
+use jiff::{ToSpan, Unit, civil::Date};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -30,7 +30,16 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> (usiz
         Some(_) => Some(""),
         None => None,
     };
-    let list = |frame: &mut Frame, area, width| render_rows(app, frame, area, &rows, width);
+    // One day is in the header. More need it on each row: in full where there is room, next to
+    // the preview only the short date fits, the header has the rest.
+    let (_, length) = app.archive_cell(columns);
+    let preview = body.is_some();
+    let when = |day: Date| match (length, preview) {
+        (1, _) => None,
+        (_, true) => Some(day.strftime("%d %b").to_string()),
+        (_, false) => Some(when(day, app.today)),
+    };
+    let list = |frame: &mut Frame, area, width| render_rows(app, frame, area, &rows, width, when);
     list_with_preview(frame, area, body, "", list)
 }
 
@@ -41,8 +50,8 @@ fn render_rows(
     area: Rect,
     rows: &[ArchiveRow],
     width: usize,
+    when: impl Fn(Date) -> Option<String>,
 ) -> usize {
-    let today = app.today;
     let sections = app.archive_sections();
     // No cursor while the heatmap has the keys, its selected cell says what the list shows.
     let cursor = (app.archive.focus == Focus::List).then_some(app.archive.cursor);
@@ -73,7 +82,7 @@ fn render_rows(
                         Style::new()
                     };
                     let title = Span::styled(app.done[&day][index].task.title(), style);
-                    rows::Kind::Task(vec![title], Some(when(day, today).dim()), false)
+                    rows::Kind::Task(vec![title], when(day).map(Stylize::dim), false)
                 }
             };
             rows::Row { color, kind }
@@ -87,12 +96,18 @@ fn render_rows(
     rows::render(frame, area, items, (cursor, app.archive.offset), notes)
 }
 
-/// The day of the selected cell for the header, `Fri 16 Oct 2026`, a cell of more days as
-/// `02 Mar 2026 – 15 Mar 2026`.
+/// The day of the selected cell for the header with how long ago, `Fri 16 Oct 2026 · today`, a
+/// cell of more days as `02 Mar 2026 – 15 Mar 2026`.
 pub fn range(app: &App, columns: usize) -> String {
     let (start, length) = app.archive_cell(columns);
     match length {
-        1 => start.strftime("%a %d %b %Y").to_string(),
+        1 => {
+            let date = start.strftime("%a %d %b %Y").to_string();
+            match ago(start, app.today) {
+                Some(ago) => format!("{date} · {ago}"),
+                None => date,
+            }
+        }
         _ => {
             let end = start + (length - 1).days();
             format!(
@@ -104,15 +119,36 @@ pub fn range(app: &App, columns: usize) -> String {
     }
 }
 
-/// The day a task was done, as near days are said: `today`, `yesterday`, `Mon 13` within a
-/// week, further back the date.
+/// The day a task was done with how long ago: `3 days ago · Mon 19 Oct`, with the year if it is
+/// not this one.
 fn when(day: Date, today: Date) -> String {
-    match (today - day).get_days() {
+    let format = match day.year() == today.year() {
+        true => "%a %d %b",
+        false => "%a %d %b %Y",
+    };
+    let date = day.strftime(format).to_string();
+    match ago(day, today) {
+        Some(ago) => format!("{ago} · {date}"),
+        None => date,
+    }
+}
+
+/// How long ago `day` was, in the largest whole unit: `today`, `3 days ago`, `2 weeks ago`.
+/// `None` after today, which only an archive edited by hand has.
+fn ago(day: Date, today: Date) -> Option<String> {
+    let days = (today - day).get_days();
+    let months = (day.until((Unit::Month, today))).map_or(0, |span| span.get_months());
+    let ago = match days {
+        ..0 => return None,
         0 => "today".to_string(),
         1 => "yesterday".to_string(),
-        2..=6 => day.strftime("%a %d").to_string(),
-        _ => day.to_string(),
-    }
+        2..=13 => format!("{days} days ago"),
+        // Under two months is at most 61 days, so 2 to 8 weeks.
+        _ if months < 2 => format!("{} weeks ago", days / 7),
+        _ if months < 24 => format!("{months} months ago"),
+        _ => format!("{} years ago", months / 12),
+    };
+    Some(ago)
 }
 
 #[cfg(test)]
@@ -120,12 +156,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn near_days_by_name() {
+    fn how_long_ago_in_the_largest_whole_unit() {
         let today: Date = "2026-10-18".parse().unwrap();
         let when = |day: &str| when(day.parse().unwrap(), today);
-        assert_eq!(when("2026-10-18"), "today");
-        assert_eq!(when("2026-10-17"), "yesterday");
-        assert_eq!(when("2026-10-12"), "Mon 12");
-        assert_eq!(when("2026-10-11"), "2026-10-11");
+        assert_eq!(when("2026-10-18"), "today · Sun 18 Oct");
+        assert_eq!(when("2026-10-17"), "yesterday · Sat 17 Oct");
+        assert_eq!(when("2026-10-05"), "13 days ago · Mon 05 Oct");
+        assert_eq!(when("2026-10-04"), "2 weeks ago · Sun 04 Oct");
+        assert_eq!(when("2026-08-19"), "8 weeks ago · Wed 19 Aug");
+        assert_eq!(when("2026-08-18"), "2 months ago · Tue 18 Aug");
+        assert_eq!(when("2024-10-19"), "23 months ago · Sat 19 Oct 2024");
+        assert_eq!(when("2024-10-18"), "2 years ago · Fri 18 Oct 2024");
+        assert_eq!(when("2026-10-19"), "Mon 19 Oct", "after today");
     }
 }

@@ -9,6 +9,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, List, ListItem, ListState, Padding},
 };
+use unicode_width::UnicodeWidthChar;
 
 use super::{LINE_COLOR, rule, spans};
 use crate::keymap;
@@ -176,15 +177,29 @@ fn chars(spans: Vec<Span<'static>>) -> Vec<(char, Style)> {
         .collect()
 }
 
-/// Lines of at most `width`, broken at spaces, words longer than a line are split.
+/// Lines of at most `width` cells, broken at spaces, words longer than a line are split. Wide
+/// chars (`✅`, CJK) take two cells.
 fn wrap(text: Vec<Span<'static>>, width: usize) -> Vec<Vec<Span<'static>>> {
     let mut rest = chars(text);
     let mut lines = Vec::new();
-    while rest.len() > width && width > 0 {
-        let space = rest[..=width].iter().rposition(|(c, _)| *c == ' ');
+    loop {
+        let mut used = 0;
+        let fits = (rest.iter())
+            .take_while(|(c, _)| {
+                used += c.width().unwrap_or(0);
+                used <= width
+            })
+            .count();
+        if fits == rest.len() || width == 0 {
+            break;
+        }
+        // The space right after the line is dropped too, so it may break there.
+        let space = rest[..=fits].iter().rposition(|(c, _)| *c == ' ');
+        // At least one char, even one wider than the line, or this never ends.
+        let split = fits.max(1);
         let (line, next) = match space {
             Some(at) if at > 0 => (&rest[..at], &rest[at + 1..]),
-            _ => (&rest[..width], &rest[width..]),
+            _ => (&rest[..split], &rest[split..]),
         };
         lines.push(spans(line));
         rest = next.to_vec();
@@ -268,6 +283,15 @@ mod tests {
         assert_eq!(lines[3].trim_end(), " ▌     long for one line");
         // Dots lead from a short title to it.
         assert_eq!(lines[4], "     • short ··················· today  ");
+    }
+
+    #[test]
+    fn wide_chars_take_two_cells() {
+        let lines = draw(vec![task(&"✅".repeat(13), Some("today"))], 1, &[]);
+        // 12 fill the 24 cells left for the title, the gap to `today` stays. The test backend
+        // shows the second cell of each as a space.
+        assert_eq!(lines[0], format!("     • {}  today  ", "✅ ".repeat(12)));
+        assert_eq!(lines[1].trim_end(), "       ✅");
     }
 
     #[test]

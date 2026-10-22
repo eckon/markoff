@@ -168,6 +168,11 @@ mod tests {
         assert_eq!(buffer[(x - 1, y)].symbol(), "[");
         assert_eq!(buffer[(x + 1, y)].symbol(), "]");
         assert!(list.clone().all(|y| !text(&buffer, y).contains('▌')));
+        // A cell of one day: the day is in the header, not on the rows.
+        assert!(
+            list.clone()
+                .any(|y| text(&buffer, y).trim_end() == "     • Fix bug")
+        );
 
         // The list has the keys: its cursor shows, the brackets go, the selection keeps its color.
         app.update(Action::FocusList);
@@ -189,8 +194,10 @@ mod tests {
             task: Task::parse(PathBuf::new(), content),
         };
         let long = "a done task with a title long enough to run past the split";
+        // Far back, where a cell covers several days, so the rows have their day.
+        let day = TODAY - 400.days();
         app.done = [(
-            TODAY,
+            day,
             vec![
                 done("# Plain\n"),
                 done(&format!("# {long}\n\n## Notes\nline")),
@@ -217,9 +224,10 @@ mod tests {
         assert_eq!(screen[double + 1].chars().nth(divider), Some('│'));
         assert_eq!(screen[22].chars().nth(divider), Some('│'), "{screen:#?}");
         assert_eq!(screen[23].chars().nth(divider), Some('┴'), "{screen:#?}");
-        // The list wraps at the split, the date stays at its end.
+        // The list wraps at the split, the short date stays at its end.
         let row = at("a done task").unwrap();
-        assert!(screen[row][..screen[row].find('│').unwrap()].contains("today"));
+        let list = &screen[row][..screen[row].find('│').unwrap()];
+        assert!(list.trim_end().ends_with(" 17 Sep"), "{screen:#?}");
 
         // The title gets all the width without the preview.
         let full_width = |app: &App| {
@@ -232,8 +240,11 @@ mod tests {
                 .iter()
                 .find(|line| line.contains("a done task"))
                 .unwrap();
-            assert!(row.contains("past the split"), "{screen:#?}");
-            assert!(row.trim_end().ends_with("today"), "{screen:#?}");
+            assert!(row.contains("long enough"), "{screen:#?}");
+            assert!(
+                row.trim_end().ends_with("13 months ago · Wed 17 Sep 2025"),
+                "{screen:#?}"
+            );
         };
         // Not while the heatmap has the keys.
         app.update(Action::FocusHeatmap);
@@ -317,7 +328,7 @@ mod tests {
         let screen = lines(&buffer);
         assert!(
             screen[0].starts_with(&format!(
-                "── todo  archive ── {} ─",
+                "── todo  archive ── {} · today ─",
                 TODAY.strftime("%a %d %b %Y")
             )),
             "{screen:#?}"
