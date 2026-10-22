@@ -7,7 +7,6 @@ use ratatui::{
     Frame,
     layout::Rect,
     style::{Style, Stylize},
-    text::Span,
 };
 
 use crate::{
@@ -15,7 +14,7 @@ use crate::{
         App,
         archive::{ArchiveRow, Focus},
     },
-    ui::{list_with_preview, rows, section_color},
+    ui::{filtered_title, list_with_preview, rows, section_color},
 };
 
 /// The list below the heatmap, see [`rows`], with the preview of the selected task like
@@ -40,7 +39,7 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect, columns: usize) -> (usiz
         (_, false) => Some(when(day, app.today)),
     };
     let list = |frame: &mut Frame, area, width| render_rows(app, frame, area, &rows, width, when);
-    list_with_preview(frame, area, body, "", list)
+    list_with_preview(frame, area, body, &app.archive_page.filter, list)
 }
 
 /// The rows themselves, the section headers `width` wide.
@@ -81,14 +80,19 @@ fn render_rows(
                     } else {
                         Style::new()
                     };
-                    let title = Span::styled(app.archive[&day][index].task.title(), style);
-                    rows::Kind::Task(vec![title], when(day).map(Stylize::dim), false)
+                    let title = app.archive[&day][index].task.title();
+                    let spans = filtered_title(&title, &app.archive_page.filter, style);
+                    rows::Kind::Task(spans, when(day).map(Stylize::dim), false)
                 }
             };
             rows::Row { color, kind }
         })
         .collect();
-    let notes: &[&str] = if items.is_empty() { &["<empty>"] } else { &[] };
+    let notes: &[&str] = match (items.is_empty(), app.archive_page.filter.is_empty()) {
+        (false, _) => &[],
+        (true, true) => &["<empty>"],
+        (true, false) => &["no matches"],
+    };
     rows::render(frame, area, items, (cursor, app.archive_page.offset), notes)
 }
 

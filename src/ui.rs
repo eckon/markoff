@@ -180,7 +180,7 @@ fn render_app_header(
 /// to the edge.
 fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
     let left = match app.filter_input {
-        true => vec![format!("/{}", app.filter).into()],
+        true => vec![format!("/{}", app.page_filter()).into()],
         false => status_text(app),
     };
     let mut spans = Vec::new();
@@ -237,7 +237,7 @@ fn hints(app: &App) -> Vec<(String, &'static str)> {
     };
     let mut hints = Vec::new();
     // The filter is cleared from its input: its key, then `Esc`.
-    if !app.filter.is_empty() && !app.show_help && app.page == Page::Tasks {
+    if !app.page_filter().is_empty() && !app.show_help {
         hints.extend(key(Action::Filter).map(|key| (format!("{key} Esc"), "clear filter")));
     }
     hints.extend(key(Action::Help).map(|key| (key, "toggle help")));
@@ -250,16 +250,20 @@ fn status_text(app: &App) -> Vec<Span<'_>> {
         (Some(Status::Error(message)), _) => vec![message.as_str().red().bold()],
         (Some(Status::Info(message)), _) => vec![message.as_str().into()],
         (None, Some(key)) => vec![key.to_string().into()],
-        (None, None) if !app.filter.is_empty() => {
-            let count = app
-                .rows()
-                .iter()
-                .filter(|row| matches!(row, Row::Task(..)))
-                .count();
+        (None, None) if !app.page_filter().is_empty() => {
+            // The archive counts its matches over all days, not only the selected cell.
+            let count = match app.archive_matches() {
+                Some(matches) if app.page == Page::Archive => matches.values().sum(),
+                _ => app
+                    .rows()
+                    .iter()
+                    .filter(|row| matches!(row, Row::Task(..)))
+                    .count(),
+            };
             let tasks = if count == 1 { "task" } else { "tasks" };
             vec![
                 "filter: ".dim(),
-                app.filter.as_str().into(),
+                app.page_filter().into(),
                 format!(" · {count} {tasks}").dim(),
             ]
         }
@@ -315,20 +319,12 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                         true => Style::new().fg(color),
                         false => Style::new(),
                     };
-                    // Listed for a match in the body only: weaker, `…` hints at the preview.
-                    let body_only = !filter::matches(&title, &app.filter);
-                    if body_only {
-                        style = style.dim();
-                    }
                     // Shown by `.` only: weaker and struck through, it is not due.
                     let due = task.due(app.today);
                     if !due {
                         style = style.dim().crossed_out();
                     }
-                    let mut spans = highlight(&title, &app.filter, style);
-                    if body_only {
-                        spans.push(" …".dim());
-                    }
+                    let spans = filtered_title(&title, &app.filter, style);
                     // Why it is there, where the archive puts the day. Struck through like the
                     // title while it is not due.
                     let rule = task.repeat.as_ref().map(|repeat| {
@@ -410,6 +406,18 @@ fn body_text(body: &str, filter: &str) -> Text<'static> {
     body.lines()
         .map(|line| Line::from(highlight(line, filter, Style::new())))
         .collect()
+}
+
+/// A task's title in a list, in `style` with the matches of `filter`. Listed for a match in the
+/// body only: weaker, `…` hints at the preview.
+fn filtered_title(title: &str, filter: &str, style: Style) -> Vec<Span<'static>> {
+    let body_only = !filter::matches(title, filter);
+    let style = if body_only { style.dim() } else { style };
+    let mut spans = highlight(title, filter, style);
+    if body_only {
+        spans.push(" …".dim());
+    }
+    spans
 }
 
 /// Filter matches: yellow alone would vanish in the yellow section, bold keeps them visible.

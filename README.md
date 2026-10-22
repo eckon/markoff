@@ -132,10 +132,11 @@ The rule is the day part of cron: day of month, month, day of week. Both day fie
 | `<CR>`      | Move keys to the list of the selected cell  |
 | `Esc`       | Move keys back to the heatmap               |
 | `p`         | Toggle the preview, in the list             |
+| `/`         | Filter, its own: the list keeps the matches |
 
-In the list `gg` / `G`, `{` / `}` and `1`-`9` work like in the task list, the numbers count the sections shown. `1`-`9` in the heatmap jump into the list. The other keys of the tasks page do nothing on the archive page.
+In the list `gg` / `G`, `{` / `}` and `1`-`9` work like in the task list, the numbers count the sections shown. `1`-`9` in the heatmap jump into the list. With a filter, cells without a match turn gray and `H` / `J` / `K` / `L` skip them. The other keys of the tasks page do nothing on the archive page.
 
-In the filter, `C-w` deletes the last word. While a filter is set, moving and adding tasks is off.
+In the filter, `C-w` deletes the last word. While a filter is set on the tasks page, moving and adding tasks is off.
 
 The editor is `$VISUAL`, then `$EDITOR`, then `vi`.
 

@@ -3,11 +3,11 @@
 use std::ops::Range;
 
 /// Whether `query` occurs in `text`, ignoring case. An empty query matches everything.
+///
+/// Lowercased as a whole, unlike [`find`]: no ranges needed, and it runs over the whole archive
+/// on every key.
 pub fn matches(text: &str, query: &str) -> bool {
-    query.is_empty()
-        || text
-            .char_indices()
-            .any(|(start, _)| match_len(&text[start..], query).is_some())
+    query.is_empty() || text.to_lowercase().contains(&query.to_lowercase())
 }
 
 /// Byte ranges of all non-overlapping matches of `query` in `text`, ignoring case. For the

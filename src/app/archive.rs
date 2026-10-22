@@ -23,6 +23,8 @@ pub struct ArchivePage {
     pub focus: Focus,
     /// `p` hid the preview next to the list, its own and not the task list's.
     pub hide_preview: bool,
+    /// `/` filter of the archive page, its own and not the task list's. Empty for none.
+    pub filter: String,
 }
 
 /// What takes the move keys on the archive page, switched with `<CR>` / `Esc`.
@@ -59,7 +61,19 @@ impl App {
     /// and never reaches the task list behind it.
     pub(super) fn update_archive(&mut self, action: Action) -> bool {
         let (by, skip) = match (action, self.archive_page.focus) {
-            (Action::Help | Action::PrevPage | Action::NextPage | Action::Quit, _) => {
+            (
+                Action::Help
+                | Action::PrevPage
+                | Action::NextPage
+                | Action::Quit
+                | Action::Filter
+                | Action::FilterType(_)
+                | Action::FilterBackspace
+                | Action::FilterDeleteWord
+                | Action::FilterAccept
+                | Action::FilterClear,
+                _,
+            ) => {
                 return false;
             }
             (Action::FocusList, _) => {
@@ -105,9 +119,11 @@ impl App {
             _ => return true,
         };
         let columns = heatmap::columns(&self.days, self.today, self.archive_page.columns);
+        // With a filter, skipping goes from match to match.
+        let matches = self.archive_matches();
         let day = heatmap::step(
             &columns,
-            &self.days,
+            matches.as_ref().unwrap_or(&self.days),
             self.archive_day(),
             by,
             skip,
@@ -130,9 +146,28 @@ impl App {
     /// section.
     fn select_day(&mut self, day: Date) {
         self.archive_page.day = Some(day);
+        self.reset_archive_list();
+    }
+
+    /// The list on its first task, for a new cell or filter.
+    pub(super) fn reset_archive_list(&mut self) {
         let rows = self.archive_rows(self.archive_page.columns);
         self.archive_page.cursor = usize::from(!rows.is_empty());
         self.archive_page.offset = 0;
+    }
+
+    /// Matching tasks per day, `None` without a filter. Only days with a match.
+    pub fn archive_matches(&self) -> Option<heatmap::Days> {
+        if self.archive_page.filter.is_empty() {
+            return None;
+        }
+        let days = self.archive.iter().filter_map(|(&day, done)| {
+            let count = (done.iter())
+                .filter(|done| done.task.matches(&self.archive_page.filter))
+                .count();
+            (count > 0).then_some((day, count))
+        });
+        Some(days.collect())
     }
 
     /// The sections of the done tasks: those of the task list in its order, so they keep their
@@ -176,7 +211,10 @@ impl App {
                 .iter()
                 .flat_map(|&(&day, done)| {
                     (0..done.len())
-                        .filter(|&i| &done[i].section == name)
+                        .filter(|&i| {
+                            &done[i].section == name
+                                && done[i].task.matches(&self.archive_page.filter)
+                        })
                         .map(move |i| ArchiveRow::Task(s, day, i))
                 })
                 .collect();
@@ -273,6 +311,58 @@ mod tests {
         app.archive_page.day = Some(app.today);
         app.update(Action::Down);
         assert_eq!(app.archive_day(), app.today);
+    }
+
+    #[test]
+    fn filter_keeps_matches_and_skips_to_them() {
+        let mut app = App::new(PathBuf::new(), sections(&[("work", &[]), ("home", &[])]));
+        app.today = TODAY;
+        let done = |section: &str, content: &str| Done {
+            section: section.to_string(),
+            task: Task::parse(PathBuf::new(), content),
+        };
+        let water = || done("home", "# Water plants\n");
+        let review = || done("work", "# Review PR\n");
+        // The last days of one week, so up stays in today's column.
+        app.archive = [
+            (TODAY - 2.days(), vec![water()]),
+            (TODAY - 1.days(), vec![review()]),
+            (TODAY, vec![review(), water()]),
+        ]
+        .into();
+        app.days = heatmap::days(&app.archive);
+        app.archive_page.columns = 40;
+        app.update(Action::NextPage);
+        app.update(Action::FocusList);
+        app.update(Action::Bottom);
+        app.update(Action::Filter);
+        for c in "WATER".chars() {
+            app.update(Action::FilterType(c));
+        }
+        app.update(Action::FilterAccept);
+
+        // Only the matches in the list, the cursor on the first one. The task list keeps its own.
+        let rows = app.archive_rows(app.archive_page.columns);
+        assert_eq!(
+            rows,
+            [ArchiveRow::Section(1, 0), ArchiveRow::Task(1, TODAY, 1)]
+        );
+        assert_eq!(app.archive_page.cursor, 1);
+        assert_eq!(app.filter, "");
+        assert_eq!(
+            app.archive_matches(),
+            Some([(TODAY - 2.days(), 1), (TODAY, 1)].into())
+        );
+
+        // Skipping goes from match to match, cells with other tasks done are passed.
+        app.update(Action::FocusHeatmap);
+        app.update(Action::SkipUp);
+        assert_eq!(app.archive_day(), TODAY - 2.days());
+        app.update(Action::Filter);
+        app.update(Action::FilterClear);
+        assert_eq!(app.archive_matches(), None);
+        app.update(Action::SkipDown);
+        assert_eq!(app.archive_day(), TODAY - 1.days());
     }
 
     #[test]

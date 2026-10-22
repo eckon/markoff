@@ -31,9 +31,11 @@ fn steps() -> [Span<'static>; 4] {
 /// The tasks done over time, back to the first archived day, see [`heatmap::columns`]: labels,
 /// 7 rows of cells with the one of `selected_day` in [`CURRENT_COLOR`] and the weekdays on the
 /// right where cells are days, and a divider through the gap where the cell size changes. With
-/// the `cursor` there too, it is between brackets.
+/// the `cursor` there too, it is between brackets. With a filter, the cells without `matches` are
+/// gray, the shades stay those of all tasks.
 pub fn lines(
     days: &heatmap::Days,
+    matches: Option<&heatmap::Days>,
     today: Date,
     width: usize,
     selected_day: Date,
@@ -71,6 +73,9 @@ pub fn lines(
             }
             let shade = match heatmap::level(heatmap::rate(days, cell), &bounds) {
                 0 => "·".fg(LINE_COLOR),
+                level if matches.is_some_and(|matches| heatmap::rate(matches, cell) == 0.0) => {
+                    steps[level - 1].clone().fg(LINE_COLOR)
+                }
                 level => steps[level - 1].clone(),
             };
             // The selected cell in the current page's color, it shows without the brackets too.

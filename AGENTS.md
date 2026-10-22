@@ -52,6 +52,7 @@ Use these words in code, docs and UI, not their synonyms (in brackets).
 
 - Work in small steps (one concern at a time). Before each change, say what will change and wait for an ok.
 - Discuss every key mapping, user-visible text and behavior choice first. Add nothing that was not agreed (no extra flags, options, keys or helpers).
+- Visual choices (colors, symbols, layout) are decided by looking, not in the abstract: bring up as many variants of different styles as possible and offer to build them all as a try-out. A simple implementation without tests, `[` / `]` cycle the variants (while those keys have no binding, not in the filter input), the status shows the selected variant's name so it can be named. The chosen one stays, the rest comes out.
 - Keep it simple. Remove code that becomes unused, unless there is a stated reason to keep it.
 - Keep files focused: when a feature grows its own part of a general file (like the archive page in `ui/archive.rs`), move it into its own module. Bring it up yourself when you notice it, don't wait to be asked.
 - Do not commit, the user reviews and commits.

@@ -20,7 +20,7 @@ use archive::ArchivePage;
 use editor::EditorRequest;
 
 use crate::{
-    cursor, edit, filter, heatmap,
+    cursor, edit, heatmap,
     keymap::{self, Action, Keymap},
     load,
     op::{self, Op},
@@ -397,6 +397,11 @@ impl App {
     /// Changes the filter. The cursor stays on its task or section if that still matches,
     /// otherwise it goes to the first row.
     fn set_filter(&mut self, change: impl FnOnce(&mut String)) {
+        if self.page == Page::Archive {
+            change(&mut self.archive_page.filter);
+            self.reset_archive_list();
+            return;
+        }
         let selected = self.selected().map(|row| self.row_path(row));
         change(&mut self.filter);
         self.cursor = 0;
@@ -648,9 +653,7 @@ impl App {
             let tasks: Vec<Row> = (0..section.tasks.len())
                 .filter(|&t| {
                     let task = &section.tasks[t];
-                    self.shown(task)
-                        && (filter::matches(&task.title(), &self.filter)
-                            || filter::matches(&task.body, &self.filter))
+                    self.shown(task) && task.matches(&self.filter)
                 })
                 .map(|t| Row::Task(s, t))
                 .collect();
@@ -665,6 +668,14 @@ impl App {
     /// The row under the cursor, `None` only if there are no rows at all.
     pub fn selected(&self) -> Option<Row> {
         self.rows().get(self.cursor).copied()
+    }
+
+    /// The filter of the current page, each page has its own.
+    pub fn page_filter(&self) -> &str {
+        match self.page {
+            Page::Tasks => &self.filter,
+            Page::Archive => &self.archive_page.filter,
+        }
     }
 
     /// Tasks archived today, shown in the app header.

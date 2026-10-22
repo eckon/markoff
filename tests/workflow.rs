@@ -485,6 +485,13 @@ fn archive() {
     app.press("<Esc>");
     app.wait_for(&format!("{} ? toggle help", "─".repeat(66)));
 
+    // `/` filters the archive on its own, the list keeps the matches. `/ <Esc>` clears it.
+    app.press("/two<CR>");
+    app.wait_for("filter: two · 1 task");
+    assert!(!app.screen().contains("Old one"), "{}", app.screen());
+    app.press("/<Esc>");
+    app.wait_for("• Old one");
+
     // Keys of the tasks page do nothing on it, `<S-Tab>` goes back to the list.
     app.press("X<S-Tab>");
     app.wait_for("• Fix bug");

@@ -33,7 +33,14 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
     let columns = heatmap::columns(width);
     let lines = match app.days.is_empty() {
         true => vec![Line::from("nothing archived yet".dim())],
-        false => heatmap::lines(&app.days, app.today, width, app.archive_day(), heatmap_keys),
+        false => heatmap::lines(
+            &app.days,
+            app.archive_matches().as_ref(),
+            app.today,
+            width,
+            app.archive_day(),
+            heatmap_keys,
+        ),
     };
     let height = (lines.len() as u16).min(area.height);
     let heatmap_area = Rect { height, ..area };
@@ -101,7 +108,7 @@ mod tests {
         app::tests::{TODAY, sections},
         keymap::Action,
         task::Task,
-        ui::{CURRENT_COLOR, render},
+        ui::{CURRENT_COLOR, DONE_COLOR, render},
     };
 
     /// Renders the app 80 wide and returns the screen as lines.
@@ -180,6 +187,54 @@ mod tests {
         assert!(
             list.clone()
                 .any(|y| text(&buffer, y).contains("▌   • Fix bug"))
+        );
+    }
+
+    #[test]
+    fn filter_grays_cells_without_matches() {
+        let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
+        app.today = TODAY;
+        let done = |content: &str| crate::archive::Done {
+            section: "home".to_string(),
+            task: Task::parse(PathBuf::new(), content),
+        };
+        // A Monday, the first row of the heatmap, the selected cell is today.
+        let monday = TODAY - 10.days();
+        app.archive = [
+            (monday, vec![done("# Fix bug\n")]),
+            (TODAY, vec![done("# Water plants\n")]),
+        ]
+        .into();
+        app.days = crate::heatmap::days(&app.archive);
+        app.update(Action::NextPage);
+        let draw = |app: &App| {
+            let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+            terminal
+                .draw(|frame| {
+                    render(app, frame);
+                })
+                .unwrap();
+            terminal.backend().buffer().clone()
+        };
+        let monday_color = |buffer: &ratatui::buffer::Buffer| {
+            let x = (0..80)
+                .find(|&x| "░▒▓█".contains(buffer[(x, 3)].symbol()))
+                .unwrap();
+            buffer[(x, 3)].fg
+        };
+        assert_eq!(monday_color(&draw(&app)), DONE_COLOR);
+
+        app.update(Action::Filter);
+        for c in "water".chars() {
+            app.update(Action::FilterType(c));
+        }
+        app.update(Action::FilterAccept);
+        let buffer = draw(&app);
+        assert_eq!(monday_color(&buffer), LINE_COLOR);
+        let footer: String = (0..80).map(|x| buffer[(x, 23)].symbol()).collect();
+        assert!(
+            footer.starts_with("── filter: water · 1 task ─"),
+            "{footer:?}"
         );
     }
 

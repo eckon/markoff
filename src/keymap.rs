@@ -129,7 +129,7 @@ pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('p'))], A::Preview)], help: "toggle preview", group: "list", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('p'))], A::Preview)], help: "toggle preview", group: "other", pages: TASKS },
     Binding { keys: &[(&[Key(Char('.'))], A::ShowHidden)], help: "toggle hidden tasks", group: "other", pages: TASKS },
-    Binding { keys: &[(&[Key(Char('/'))], A::Filter)], help: "filter", group: "other", pages: TASKS },
+    Binding { keys: &[(&[Key(Char('/'))], A::Filter)], help: "filter", group: "other", pages: ALL },
     Binding { keys: &[(&[Key(Enter)], A::FocusList), (&[Key(Esc)], A::FocusHeatmap)], help: "keys to list / heatmap", group: "other", pages: ARCHIVE },
     Binding { keys: &[(&[Key(Char('?'))], A::Help)], help: "toggle help", group: "other", pages: ALL },
     Binding { keys: &[(&[Key(Tab)], A::NextPage), (&[Key(BackTab)], A::PrevPage)], help: "next / previous page", group: "other", pages: ALL },

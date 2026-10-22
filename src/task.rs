@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 
 use jiff::civil::Date;
 
-use crate::repeat::{self, Repeat};
+use crate::{
+    filter,
+    repeat::{self, Repeat},
+};
 
 /// Extension of task files. Drafts have it too, for markdown highlighting.
 pub const EXTENSION: &str = "md";
@@ -54,6 +57,11 @@ impl Task {
             Some(heading) => heading.clone(),
             None => self.stem().replace('-', " "),
         }
+    }
+
+    /// Whether the `/` filter `query` is in its title or body.
+    pub fn matches(&self, query: &str) -> bool {
+        filter::matches(&self.title(), query) || filter::matches(&self.body, query)
     }
 
     /// A repeating task only while one of its days came, any other task always, see
