@@ -595,28 +595,20 @@ impl App {
         self.reload(cursor.as_deref())
     }
 
-    /// Applies ops, records them for undo together with the cursor position, and reloads. The
-    /// cursor stays on its task, or in its section when the task is gone, see
-    /// [`Self::neighbor_in_section`].
+    /// Applies ops, records them for undo together with the cursor position, and reloads,
+    /// keeping the selection, see [`Self::reload_keep_selection`].
     /// Without ops nothing changed, so there is no undo step either. Returns whether anything
     /// changed, so the caller only reports what really happened.
     fn apply(&mut self, ops: Vec<Op>) -> Result<bool> {
         if ops.is_empty() {
             return Ok(false);
         }
-        let cursor = self.selected().map(|row| self.row_path(row));
-        let neighbor = self.neighbor_in_section();
         op::apply_all(&ops)?;
-        self.undo.push(UndoEntry {
-            ops,
-            cursor: cursor.clone(),
-        });
-        self.reload(None)?;
-        for path in [cursor, neighbor].iter().flatten() {
-            if self.select_path(path) {
-                break;
-            }
-        }
+        // `sections` still shows the disk before the ops until the reload, so the cursor and
+        // its neighbor are found in it.
+        let cursor = self.selected().map(|row| self.row_path(row));
+        self.undo.push(UndoEntry { ops, cursor });
+        self.reload_keep_selection()?;
         Ok(true)
     }
 
