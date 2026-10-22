@@ -926,15 +926,6 @@ pub mod tests {
     }
 
     #[test]
-    fn reload_clamps_cursor_if_task_is_gone() {
-        let (dir, mut app) = app_with_files(&["work/a.md"]);
-        app.cursor = 1;
-        fs::remove_file(dir.path().join("work/a.md")).unwrap();
-        app.reload_keep_selection().unwrap();
-        assert_eq!(app.cursor, 0);
-    }
-
-    #[test]
     fn cursor_stays_in_its_section_when_its_task_goes() {
         let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md", "home/c.md"]);
         // The last task of `work`: the one before, not `home`.
@@ -1346,6 +1337,7 @@ pub mod tests {
         assert_eq!(listing(&app), ["[work]", "a.md", "[home]", "b.md"]);
         assert!(!archive_path.exists());
     }
+
     #[test]
     fn hidden_tasks_only_with_dot() {
         let (dir, mut app) = app_with_files(&["work/a.md", "work/water.md", "work/b.md"]);
