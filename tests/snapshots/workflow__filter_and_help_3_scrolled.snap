@@ -1,0 +1,47 @@
+---
+source: tests/workflow.rs
+expression: app.state()
+---
+── tasks  archive ── T║  ↑ 10 more
+                      ║  u ············ undo the last change
+ ▌──[1]─ home ────────║
+     • Buy milk       ║  ── show ──────────────────────────────────────────────
+     • Call mom       ║  p ············ toggle preview of the task
+                      ║  . ············ toggle hidden tasks: repeating, not due
+  ──[2]─ work ────────║
+     • Review PR      ║  ── global ────────────────────────────────────────────
+                      ║  / ············ filter titles and bodies
+                      ║  ? ············ toggle help
+                      ║  Tab / S-Tab ·· next / previous page
+                      ║  q ············ quit, also C-c
+                      ║
+                      ║  ── help ──────────────────────────────────────────────
+                      ║  j / k ········ scroll down / up, also ↓ / ↑
+                      ║  gg / G ······· top / bottom, also Home / End
+                      ║  / ············ filter keys
+                      ║  ? ············ close help, also Esc
+                      ║
+────────────────────────────────┴───────────────────────────────── ? toggle help
+
+--- .markoff
+# home
+buy-milk
+call-mom
+
+# work
+review-pr
+
+--- home/
+
+--- home/buy-milk.md
+# Buy milk
+
+--- home/call-mom.md
+# Call mom
+
+Ask about the milk frother.
+
+--- work/
+
+--- work/review-pr.md
+# Review PR

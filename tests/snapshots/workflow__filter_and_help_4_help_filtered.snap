@@ -1,0 +1,47 @@
+---
+source: tests/workflow.rs
+expression: app.state()
+---
+── tasks  archive ── T║
+                      ║  help · tasks
+ ▌──[1]─ home ────────║
+     • Buy milk       ║  ── move ──────────────────────────────────────────────
+     • Call mom       ║  gg / G ······· top / bottom, also Home / End
+                      ║
+  ──[2]─ work ────────║  ── help ──────────────────────────────────────────────
+     • Review PR      ║  gg / G ······· top / bottom, also Home / End
+                      ║
+                      ║
+                      ║
+                      ║
+                      ║
+                      ║
+                      ║
+                      ║
+                      ║
+                      ║
+                      ║
+── filter: top · 2 keys ────────┴───────────── / Esc clear filter  ? toggle help
+
+--- .markoff
+# home
+buy-milk
+call-mom
+
+# work
+review-pr
+
+--- home/
+
+--- home/buy-milk.md
+# Buy milk
+
+--- home/call-mom.md
+# Call mom
+
+Ask about the milk frother.
+
+--- work/
+
+--- work/review-pr.md
+# Review PR

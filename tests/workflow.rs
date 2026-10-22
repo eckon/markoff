@@ -421,13 +421,23 @@ fn filter_and_help() {
     app.press("/<Esc>");
     app.wait_for("• Review PR");
 
-    // Other keys do nothing while the help is open, it closes with ? or <Esc>.
+    // The help scrolls with the move keys, other keys do nothing while it is open, it closes
+    // with ? or <Esc>.
     app.press("?");
     app.wait_for("toggle help");
     snapshot!("filter_and_help_2_help", app.state());
-    app.press("D?");
+    app.press("G");
+    app.wait_for("close help");
+    snapshot!("filter_and_help_3_scrolled", app.state());
+    // It has a filter of its own, gone when it closes.
+    app.press("/top<CR>");
+    app.wait_for("filter: top · 2 keys");
+    snapshot!("filter_and_help_4_help_filtered", app.state());
+    app.press("D??");
+    app.wait_for("── change");
+    app.press("?");
     app.wait_for("• Buy milk");
-    snapshot!("filter_and_help_3_closed", app.state());
+    snapshot!("filter_and_help_5_closed", app.state());
 
     // The preview shows a task's body, `p` hides it and shows it again.
     app.press("1j");

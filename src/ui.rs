@@ -19,13 +19,15 @@ use crate::{
         archive::{ArchiveRow, Focus},
     },
     filter,
-    keymap::{Action, BINDINGS, FILTER_INPUT_HINTS},
+    keymap::{Action, BINDINGS, Context},
 };
 
 /// What a frame leaves for the next one, the caller keeps it in the app.
 pub struct Drawn {
     /// See [`App::list_offset`].
     pub list_offset: usize,
+    /// See [`App::help_offset`].
+    pub help_offset: usize,
     /// See [`crate::app::archive::ArchivePage::heatmap_offset`].
     pub heatmap_offset: usize,
     /// See [`crate::app::archive::ArchivePage::offset`].
@@ -49,6 +51,7 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
     render_footer(app, frame, footer_area);
     let mut drawn = Drawn {
         list_offset: app.list_offset,
+        help_offset: app.help_offset,
         heatmap_offset: app.archive_page.heatmap_offset,
         archive_offset: app.archive_page.offset,
     };
@@ -87,7 +90,7 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
         }
     }
     if app.show_help {
-        help::render(frame, app.page);
+        drawn.help_offset = help::render(frame, app.page, &app.help_filter, app.help_offset);
     }
     drawn
 }
@@ -183,7 +186,7 @@ fn render_app_header(
 /// to the edge.
 fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
     let left = match app.filter_input {
-        true => vec![format!("/{}", app.page_filter()).into()],
+        true => vec![format!("/{}", app.active_filter()).into()],
         false => status_text(app),
     };
     let mut spans = Vec::new();
@@ -224,23 +227,26 @@ fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
 }
 
 /// Key hints per mode: how to get out of the filter, and where to find the rest. Keys from
-/// [`BINDINGS`], so they always match. Own texts, the help's would not fit every mode.
+/// [`BINDINGS`], so they always match. The filter input's with their texts, the others with own
+/// ones that fit the footer.
 fn hints(app: &App) -> Vec<(String, &'static str)> {
-    if app.filter_input {
-        return FILTER_INPUT_HINTS
-            .iter()
-            .map(|(key, text)| (key.to_string(), *text))
-            .collect();
-    }
-    let key = |action| {
+    let binding = |context, action| {
         BINDINGS
             .iter()
-            .find(|b| b.keys.iter().any(|(_, a)| *a == action))
-            .map(|b| b.labels().join(" / "))
+            .find(|b| b.contexts.contains(&context) && b.keys.iter().any(|(_, a)| *a == action))
     };
+    if app.filter_input {
+        return [Action::FilterAccept, Action::FilterClear]
+            .into_iter()
+            .filter_map(|action| binding(Context::Filter, action))
+            .map(|b| (b.labels().join(" / "), b.help))
+            .collect();
+    }
+    // The page's keys, also while the help is open.
+    let key = |action| binding(Context::Page(app.page), action).map(|b| b.labels().join(" / "));
     let mut hints = Vec::new();
     // The filter is cleared from its input: its key, then `Esc`.
-    if !app.page_filter().is_empty() && !app.show_help {
+    if !app.active_filter().is_empty() {
         hints.extend(key(Action::Filter).map(|key| (format!("{key} Esc"), "clear filter")));
     }
     // A range is ended with the key that started it or `Esc`, in the heatmap.
@@ -261,6 +267,15 @@ fn status_text(app: &App) -> Vec<Span<'_>> {
         (Some(Status::Error(message)), _) => vec![message.as_str().red().bold()],
         (Some(Status::Info(message)), _) => vec![message.as_str().into()],
         (None, Some(key)) => vec![key.to_string().into()],
+        (None, None) if app.show_help && !app.help_filter.is_empty() => {
+            let count = help::bindings(app.page, &app.help_filter).len();
+            let keys = if count == 1 { "key" } else { "keys" };
+            vec![
+                "filter: ".dim(),
+                app.help_filter.as_str().into(),
+                format!(" · {count} {keys}").dim(),
+            ]
+        }
         (None, None) if !app.page_filter().is_empty() => {
             // The archive counts its matches over all days, not only the selected ones.
             let count = match app.archive_matches() {

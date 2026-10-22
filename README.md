@@ -109,12 +109,19 @@ The rule is the day part of cron: day of month, month, day of week. Both day fie
 | `D`         | Delete task, or empty section               |
 | `u`         | Undo                                        |
 
-### Other
+### Show
 
 | Key         | Action                                      |
 | ----------- | ------------------------------------------- |
 | `p`         | Toggle the preview next to the list         |
 | `.`         | Toggle hidden tasks: repeating, not due     |
+
+### Global
+
+On every page.
+
+| Key         | Action                                      |
+| ----------- | ------------------------------------------- |
 | `/`         | Filter titles and bodies, `<CR>` keeps it   |
 | `/` `Esc`   | Clear filter                                |
 | `?`         | Toggle help, also closes with `Esc`         |
@@ -131,12 +138,14 @@ The rule is the day part of cron: day of month, month, day of week. Both day fie
 | `J` / `K`   | Like `j` / `k` in the heatmap, skips empty  |
 | `gg` / `G`  | Heatmap first day done / today              |
 | `v`         | Select a range from here, `v` again ends it |
-| `<CR>`      | Move keys to the list of the selected days  |
-| `Esc`       | Keys back to heatmap, there it ends a range |
+| `<CR>`      | Go to the tasks of the selected days        |
+| `Esc`       | Back to the heatmap, there it ends a range  |
 | `p`         | Toggle the preview, in the list             |
 | `/`         | Filter, its own: the list keeps the matches |
 
 In the list `gg` / `G`, `{` / `}` and `1`-`9` work like in the task list, the numbers count the sections shown. `1`-`9` in the heatmap jump into the list. With a filter, cells without a match turn gray and `H` / `J` / `K` / `L` skip them. The other keys of the tasks page do nothing on the archive page.
+
+In the help, `j` / `k` and `gg` / `G` scroll it, `/` filters it by keys and texts until it closes, other keys do nothing.
 
 In the filter, `C-w` deletes the last word. While a filter is set on the tasks page, moving and adding tasks is off.
 

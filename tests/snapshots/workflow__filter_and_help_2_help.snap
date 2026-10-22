@@ -2,25 +2,25 @@
 source: tests/workflow.rs
 expression: app.state()
 ---
-── tasks  archive ── [date] ─┬─────║
-                                │     ║  help
- ▌──[1]─ home ────────────── 2  │ <emp║
-     • Buy milk                 │     ║  ── move ──────────────────────────────
-     • Call mom                 │     ║  j / k ········ down / up
-                                │     ║  gg / G ······· top / bottom
-  ──[2]─ work ────────────── 1  │     ║  { / } ········ previous / next section
-     • Review PR                │     ║  1-9 ·········· jump to section
-                                │     ║
-                                │     ║  ── change ────────────────────────────
-                                │     ║  J / K ········ move down / up
-                                │     ║  <CR> ········· open in $EDITOR
-                                │     ║  o / O ········ new task below / above
-                                │     ║  N ············ new section
-                                │     ║  X ············ done (archive)
-                                │     ║  D ············ delete
-                                │     ║  u ············ undo
-                                │     ║
-                                │     ║  ── other ─────────────────────────────
+── tasks  archive ── T║
+                      ║  help · tasks
+ ▌──[1]─ home ────────║
+     • Buy milk       ║  ── move ──────────────────────────────────────────────
+     • Call mom       ║  j / k ········ down / up, also ↓ / ↑
+                      ║  gg / G ······· top / bottom, also Home / End
+  ──[2]─ work ────────║  { / } ········ previous / next section
+     • Review PR      ║  1-9 ·········· jump to section by its number
+                      ║
+                      ║  ── change ────────────────────────────────────────────
+                      ║  J / K ········ move down / up, also S-↓ / S-↑
+                      ║  <CR> ········· open task in $EDITOR, or rename section
+                      ║  o / O ········ new task below / above
+                      ║  N ············ new section
+                      ║  X ············ done: archive, a repeating task hides
+                      ║  D ············ delete task, or empty section
+                      ║  u ············ undo the last change
+                      ║
+                      ║  ↓ 10 more
 ────────────────────────────────┴───────────────────────────────── ? toggle help
 
 --- .markoff

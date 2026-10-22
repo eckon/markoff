@@ -10,7 +10,7 @@ use color_eyre::{Result, eyre::eyre};
 use jiff::civil::Date;
 use ratatui::{
     DefaultTerminal,
-    crossterm::event::{self, Event, KeyCode, KeyEventKind},
+    crossterm::event::{self, Event, KeyEventKind},
 };
 
 pub mod archive;
@@ -21,7 +21,7 @@ use editor::EditorRequest;
 
 use crate::{
     cursor, edit, heatmap,
-    keymap::{self, Action, Keymap},
+    keymap::{Action, Context, Keymap},
     load,
     op::{self, Op},
     state::{self, StateFile},
@@ -114,6 +114,10 @@ pub struct App {
     /// First list line on screen. Kept between frames so the view only scrolls when the
     /// cursor would leave it, see [`ui::render`].
     pub list_offset: usize,
+    /// First help line on screen, kept within the lines by [`ui::render`].
+    pub help_offset: usize,
+    /// `/` filter of the help, empty for none. The help is temporary: it opens without one.
+    pub help_filter: String,
     /// The done tasks, from the archive.
     pub archive: crate::archive::Archive,
     /// Tasks done per day, from the archive.
@@ -146,6 +150,8 @@ impl App {
             filter: String::new(),
             filter_input: false,
             list_offset: 0,
+            help_offset: 0,
+            help_filter: String::new(),
             archive: crate::archive::Archive::new(),
             days: heatmap::Days::new(),
         }
@@ -180,6 +186,7 @@ impl App {
                 terminal.draw(|frame| drawn = Some(ui::render(&self, frame)))?;
                 if let Some(drawn) = drawn {
                     self.list_offset = drawn.list_offset;
+                    self.help_offset = drawn.help_offset;
                     self.archive_page.heatmap_offset = drawn.heatmap_offset;
                     self.archive_page.offset = drawn.archive_offset;
                 }
@@ -260,28 +267,20 @@ impl App {
             && key.kind == KeyEventKind::Press
         {
             self.status = None;
-            let action = if self.filter_input {
-                keymap::filter_input(key)
-            } else {
-                self.keymap.handle(key, self.page)
-            };
-            // The quit keys quit everywhere, also from the help.
-            if action == Some(Action::Quit) {
-                self.running = false;
-                return;
-            }
-            // Only `?` and `Esc` close the help, other keys do nothing, so a stray key cannot
-            // change tasks that are dimmed behind it. `Esc` by its code, on the task list it has
-            // no binding.
-            if self.show_help {
-                if action == Some(Action::Help) || key.code == KeyCode::Esc {
-                    self.show_help = false;
-                }
-                return;
-            }
-            if let Some(action) = action {
+            if let Some(action) = self.keymap.handle(key, self.context()) {
                 self.update(action);
             }
+        }
+    }
+
+    /// Where keys go: the filter input or the help while open, else the page.
+    pub fn context(&self) -> Context {
+        if self.filter_input {
+            Context::Filter
+        } else if self.show_help {
+            Context::Help
+        } else {
+            Context::Page(self.page)
         }
     }
 
@@ -298,6 +297,20 @@ impl App {
     }
 
     fn try_update(&mut self, action: Action) -> Result<()> {
+        // The help scrolls, the page behind it keeps its cursor. Past the end is cut back when
+        // drawn.
+        if self.show_help
+            && let Some(offset) = match action {
+                Action::Down => Some(self.help_offset.saturating_add(1)),
+                Action::Up => Some(self.help_offset.saturating_sub(1)),
+                Action::Top => Some(0),
+                Action::Bottom => Some(usize::MAX),
+                _ => None,
+            }
+        {
+            self.help_offset = offset;
+            return Ok(());
+        }
         if self.page == Page::Archive && self.update_archive(action) {
             return Ok(());
         }
@@ -357,7 +370,11 @@ impl App {
             Action::Done => self.done()?,
             Action::Delete => self.delete()?,
             Action::Undo => self.undo()?,
-            Action::Help => self.show_help = true,
+            Action::Help => {
+                self.show_help = !self.show_help;
+                self.help_offset = 0;
+                self.help_filter.clear();
+            }
             Action::Preview => self.hide_preview = !self.hide_preview,
             Action::ShowHidden => self.toggle_hidden(),
             Action::PrevPage | Action::NextPage => {
@@ -398,6 +415,11 @@ impl App {
     /// Changes the filter. The cursor stays on its task or section if that still matches,
     /// otherwise it goes to the first row.
     fn set_filter(&mut self, change: impl FnOnce(&mut String)) {
+        if self.show_help {
+            change(&mut self.help_filter);
+            self.help_offset = 0;
+            return;
+        }
         if self.page == Page::Archive {
             change(&mut self.archive_page.filter);
             self.reset_archive_list();
@@ -672,6 +694,14 @@ impl App {
     }
 
     /// The filter of the current page, each page has its own.
+    /// The filter of the help while it is open, else of the page.
+    pub fn active_filter(&self) -> &str {
+        match self.show_help {
+            true => &self.help_filter,
+            false => self.page_filter(),
+        }
+    }
+
     pub fn page_filter(&self) -> &str {
         match self.page {
             Page::Tasks => &self.filter,
@@ -697,7 +727,7 @@ fn renamed_message(count: usize) -> String {
 pub mod tests {
     use std::fs;
 
-    use ratatui::crossterm::event::{KeyEvent, KeyModifiers};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use tempfile::TempDir;
 
     use super::*;
@@ -817,11 +847,55 @@ pub mod tests {
         assert_eq!(listing(&app), ["[work]", "a.md"], "X did not archive");
 
         for code in [KeyCode::Char('?'), KeyCode::Esc] {
-            app.update(Action::Help);
+            app.show_help = true;
             app.handle_event(Event::Key(code.into()));
             assert!(!app.show_help, "{code:?} closes the help");
             assert!(app.running, "{code:?} does not quit");
         }
+    }
+
+    #[test]
+    fn help_scrolls_and_keeps_the_cursor() {
+        let (_dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
+        app.cursor = 1;
+        app.update(Action::Help);
+        app.update(Action::Down);
+        app.update(Action::Down);
+        app.update(Action::Up);
+        assert_eq!(app.help_offset, 1);
+        assert_eq!(app.cursor, 1, "the list behind it stays");
+        app.update(Action::Bottom);
+        app.update(Action::Down);
+        assert_eq!(app.help_offset, usize::MAX, "cut back when drawn");
+        app.update(Action::Top);
+        assert_eq!(app.help_offset, 0);
+
+        app.update(Action::Down);
+        app.update(Action::Help);
+        app.update(Action::Help);
+        assert_eq!(app.help_offset, 0, "opens at the top");
+    }
+
+    #[test]
+    fn help_has_its_own_filter_cleared_on_close() {
+        let (_dir, mut app) = app_with_files(&["work/a.md"]);
+        app.update(Action::Filter);
+        app.update(Action::FilterType('a'));
+        app.update(Action::FilterAccept);
+        app.update(Action::Help);
+        app.update(Action::Down);
+        app.update(Action::Filter);
+        app.update(Action::FilterType('q'));
+        assert_eq!(app.help_filter, "q");
+        assert_eq!(app.help_offset, 0, "back to the top");
+        assert_eq!(app.filter, "a", "the page's stays");
+        app.update(Action::FilterAccept);
+        assert_eq!(app.context(), Context::Help);
+
+        app.update(Action::Help);
+        app.update(Action::Help);
+        assert_eq!(app.help_filter, "", "opens without");
+        assert_eq!(app.filter, "a");
     }
 
     #[test]
