@@ -37,7 +37,8 @@ pub fn block<'a>() -> Block<'a> {
 
 /// The rows with the cursor on row `cursor`, `None` while the list does not have the keys. Then
 /// the `notes` dimmed, a blank line before each unless it is at the top. Starts from `offset`,
-/// returns the new one.
+/// returns the new one. What is scrolled out of `area` is counted on the lines around it, see
+/// [`render_hidden`].
 pub fn render(
     frame: &mut Frame,
     area: Rect,
@@ -48,6 +49,8 @@ pub fn render(
     let block = block();
     let width = block.inner(area).width as usize;
     let mut items: Vec<ListItem> = Vec::new();
+    // Which items are tasks, for the counts of the hidden ones.
+    let mut tasks = Vec::new();
     let mut selected = 0;
     for (i, row) in rows.into_iter().enumerate() {
         let is_cursor = cursor == Some(i);
@@ -73,7 +76,10 @@ pub fn render(
                 items.push(ListItem::new(Line::from(line)));
                 continue;
             }
-            Kind::Task(title, right, repeats) => (title, right, repeats),
+            Kind::Task(title, right, repeats) => {
+                tasks.push(items.len());
+                (title, right, repeats)
+            }
         };
         // Gutter and indent before the title, the bullet below the key of the section.
         let prefix = |first: bool| -> Vec<Span<'static>> {
@@ -122,6 +128,7 @@ pub fn render(
         items.push(ListItem::new(format!(" {note}").dim()));
     }
 
+    let heights: Vec<usize> = items.iter().map(ListItem::height).collect();
     let list = List::new(items).block(block);
     // Starts from the last offset, ratatui only scrolls when the cursor would leave the
     // screen. A fresh offset would pin the cursor to the bottom edge while moving up.
@@ -129,7 +136,40 @@ pub fn render(
         .with_offset(offset)
         .with_selected(Some(selected));
     frame.render_stateful_widget(list, area, &mut state);
+    render_hidden(frame, area, &heights, &tasks, state.offset());
     state.offset()
+}
+
+/// `↑ 4 more` on the line above `area` if items from `offset` on do not start at the top, `↓ 12
+/// more` on the line below if they do not all fit: the tasks out of sight, those cut off at the
+/// bottom too. Without a hidden task only `↑ more`. Both lists have a blank line there, between
+/// them and the header or the status line.
+fn render_hidden(frame: &mut Frame, area: Rect, heights: &[usize], tasks: &[usize], offset: usize) {
+    let mut end = offset;
+    let mut used = 0;
+    while end < heights.len() && used + heights[end] <= area.height as usize {
+        used += heights[end];
+        end += 1;
+    }
+    let x = block().inner(area).x;
+    let screen = frame.area();
+    let hints = [
+        (area.y.checked_sub(1), "↑", 0..offset),
+        (Some(area.bottom()), "↓", end..heights.len()),
+    ];
+    for (y, arrow, hidden) in hints {
+        let Some(y) = y.filter(|&y| !hidden.is_empty() && y >= screen.y && y < screen.bottom())
+        else {
+            continue;
+        };
+        let text = match tasks.iter().filter(|i| hidden.contains(i)).count() {
+            0 => format!("{arrow} more"),
+            count => format!("{arrow} {count} more"),
+        };
+        frame
+            .buffer_mut()
+            .set_span(x, y, &text.fg(LINE_COLOR), area.width);
+    }
 }
 
 /// Opens the section key in a section rule: `──[1]─ work`.
@@ -292,6 +332,44 @@ mod tests {
         // shows the second cell of each as a space.
         assert_eq!(lines[0], format!("     • {}  today  ", "✅ ".repeat(12)));
         assert_eq!(lines[1].trim_end(), "       ✅");
+    }
+
+    #[test]
+    fn hidden_tasks_counted_around_the_list() {
+        let rows = || {
+            let mut rows = vec![header("work")];
+            rows.extend((0..6).map(|i| task(&format!("task {i}"), None)));
+            rows
+        };
+        let draw = |cursor: usize| -> Vec<String> {
+            let mut terminal = Terminal::new(TestBackend::new(30, 6)).unwrap();
+            terminal
+                .draw(|frame| {
+                    // A blank line above and below, like on both pages.
+                    let area = Rect::new(0, 1, 30, 4);
+                    render(frame, area, rows(), (Some(cursor), 0), &[]);
+                })
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            (buffer.content().chunks(30))
+                .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+                .collect()
+        };
+
+        // At the top only below: 3 of 6 tasks fit.
+        let lines = draw(0);
+        assert_eq!(lines[0].trim(), "", "{lines:#?}");
+        assert_eq!(lines[5].trim(), "↓ 3 more", "{lines:#?}");
+
+        // At the bottom the header and two tasks are above.
+        let lines = draw(6);
+        assert_eq!(lines[0].trim(), "↑ 2 more", "{lines:#?}");
+        assert_eq!(lines[5].trim(), "", "{lines:#?}");
+
+        // Only the header above: no task to count.
+        let lines = draw(4);
+        assert_eq!(lines[0].trim(), "↑ more", "{lines:#?}");
+        assert_eq!(lines[5].trim(), "↓ 2 more", "{lines:#?}");
     }
 
     #[test]
