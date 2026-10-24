@@ -2,39 +2,33 @@
 
 > `markdown` + `checkoff` = `markoff`
 
-A terminal task manager where every task is a markdown file
+A terminal task manager where every task is a markdown file.
 
 ![markoff task page with sections, repeating tasks and the preview of the selected task](assets/tasks-view_050.png)
 
-Tasks live in plain directories you can read, edit and version without markoff.
-The TUI is for the quick things, writing happens in your editor.
-
 > [!WARNING]
-> markoff is experimental and still changing.
-> Configuration, setups, keys and all in between could change between versions, without migration.
-> Read the [changelog](CHANGELOG.md) before updating, or stay on a version that works for you.
+> markoff is experimental. Keys, config and the file layout can change between versions, without a migration.
+> Check the [changelog](CHANGELOG.md) before updating, or stay on a version that works for you.
 
 ## Why
 
-- **Plain files.** A section is a directory, a task is a `.md` file. No database, no hidden metadata.
-- **Your editor.** Writing happens in your `$EDITOR`, with your keys, plugins and spell check. markoff only does the quick actions around it: reorder, check off, undo.
-- **Notes included.** A task is a whole file, so links, checklists and context fit next to the title.
-- **Fits your setup.** Keep it in git, sync it, edit it with anything, put it in your wiki.
-- **Keyboard first.** Vim-like keys, every action is one undo step.
-- **Built to stay small.** For short-term tasks: done ones move to a dated archive, with a heatmap of what you got done.
+- **Plain files.** A section is a directory, a task is a markdown file. Keep them in git, sync them, edit them with anything.
+- **Your editor.** You write in your `$EDITOR`, markoff does the quick actions: reorder, check off, undo.
+- **Keyboard first.** Vim-like keys, every action can be undone.
+- **Notes included.** A task is a whole file, with room for links, checklists and context.
+- **Repeating tasks.** A cron-like rule in the heading brings a task back on its days.
+- **Stays small.** Made for short-term tasks. Done ones move to a dated archive, with a heatmap of what you got done.
 
 ## Install
 
-Prebuilt binaries for Linux (x86_64, ARM) and macOS (Apple Silicon):
+Prebuilt binaries for Linux (x86_64, ARM) and macOS (Apple Silicon), from the [releases](https://github.com/eckon/markoff/releases) or with the installer:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/eckon/markoff/releases/latest/download/markoff-installer.sh | sh
 ```
 
-Run it again to update. The binaries are also on the [releases](https://github.com/eckon/markoff/releases) page.
-
-It installs a single binary to `~/.local/bin/markoff`, remove that file to uninstall.
-Only if `~/.local/bin` was not on your `PATH`, it also adds an `env` script there and a line loading it to your shell config (like `~/.profile`, `~/.zshrc`).
+Run it again to update. To uninstall, delete `~/.local/bin/markoff`.
+If `~/.local/bin` was not on your `PATH`, the installer also added it to your shell config.
 
 From source:
 
@@ -57,18 +51,17 @@ MARKOFF_DIR=~/notes/tasks markoff
 dir = "~/notes/tasks"
 ```
 
-In an empty directory, press `N` to create a section, then `o` to create a task.
-Both open your editor with a draft: write the title after `# `, save and quit. A task can take notes below its title.
-`<CR>` opens a task in your editor again.
+In an empty directory, press `N` for a section, then `o` for a task.
+Both open your editor: write the title after `# `, save and quit.
+Notes go below a task's title, `<CR>` opens the task again.
 
-The editor is `$VISUAL`, then `$EDITOR`, then `vi`.
-`?` lists all keys, `markoff --help` the arguments.
+The editor is `$VISUAL`, then `$EDITOR`, then `vi`. `?` shows all keys.
 
 ## Files
 
 ```text
 <root>/
-  .markoff             <- stores order and when repeating tasks were last done
+  .markoff             <- order, and when repeating tasks were last done
   .archive/
     2026-10-14/        <- tasks done that day, laid out like the root
       work/
@@ -79,10 +72,9 @@ The editor is `$VISUAL`, then `$EDITOR`, then `vi`.
     review-pr.md
 ```
 
-- A section is a directory, a task is a `.md` file in it starting with `# Title`.
 - Filenames follow the title. Files added or edited by hand are renamed on start and before the next change.
-- `.markoff` is written by markoff. New files go to the end, deleted ones are dropped. Add it to `.gitignore` to keep order changes and done dates out of git.
-- Done tasks (`X`) move to `.archive/YYYY-MM-DD/<section>/` as they are. A task done twice a day gets a number: `call-bob-2.md`.
+- `.markoff` is written by markoff. Add it to `.gitignore` to keep order changes and done dates out of git.
+- Done tasks (`X`) move unchanged to `.archive/YYYY-MM-DD/<section>/`.
 
 ## Repeating tasks
 
@@ -102,17 +94,17 @@ The rule is the day part of cron: day of month, month, day of week. Both day fie
 | `1 * *`       | On the 1st of every month |
 | `1 1 *`       | Every year on January 1st |
 
-`X` on a repeating task keeps the task and notes the date in `.markoff`. The task hides until a day of its rule comes, a missed day stays until it is done. `.` shows the hidden ones. Code that is no rule (`` `cargo test` ``) stays part of the title.
+`X` on a repeating task hides it until the next day of its rule. A missed day stays until it is done. `.` shows hidden tasks.
 
 ## Archive
 
-`Tab` opens the archive: a heatmap of every day you finished something, and the tasks of the selected day or range below it. Read-only, to answer "what did I do lately".
+`Tab` opens the archive: a heatmap of the days you got things done, and the tasks of the selected day or range. Read-only.
 
 ![markoff archive page with the heatmap, a selected range and its done tasks](assets/archive-view_050.png)
 
 ## Keys
 
-All keys are also in the help inside markoff, `?` on any page.
+All keys are also in the help, `?` on any page.
 
 <details>
 <summary>Key reference</summary>
@@ -180,22 +172,14 @@ In the filter, `C-w` deletes the last word. While a filter is set on the tasks p
 
 ## CLI
 
-Commands for scripts, `--dir` works with them as usual:
+For scripts:
 
 | Command                 | Action                                                        |
 | ----------------------- | ------------------------------------------------------------- |
 | `list`                  | Print sections and tasks as markdown, in the order of the TUI |
 | `add <section> <title>` | Add a task at the end of an existing section, print its path  |
 
-`markoff list` prints:
-
-```markdown
-## work
-- Fix login bug
-- Review PR
-
-## home
-```
+`markoff --help` shows all arguments.
 
 ## Development
 
@@ -205,6 +189,6 @@ cargo clippy --all-targets
 cargo run -- --dir <scratch dir>
 ```
 
-For the scratch dir, `./assets/make-example.py <dir>` builds an example root: sections, repeating tasks and a few months of archive. It is realistic data to try changes on without touching your own notes, and the data the screenshots come from.
+`./assets/make-example.py <dir>` builds an example root with a few months of archive, to try changes without touching your own notes. The screenshots are made from it.
 
 Design rules are in [AGENTS.md](AGENTS.md).
