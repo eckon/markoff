@@ -1,16 +1,27 @@
 # markoff
 
-`markdown` + `checkoff` = `markoff`
+> `markdown` + `checkoff` = `markoff`
 
-A TUI for tasks stored as plain markdown files. Quick actions in the TUI, writing in your `$EDITOR`.
+A terminal task manager where every task is a markdown file
 
-## Goals
+![markoff task page with sections, repeating tasks and the preview of the selected task](assets/tasks-view_050.png)
 
-- Plain markdown, close to how you would write it by hand.
-- Works without markoff: version it with git, edit it with anything.
-- Fits into other markdown setups, like a personal wiki.
-- Keyboard first, with vim-like keys.
-- Short-term tasks only. Keeping the list small is the point, so features like filtering stay minimal.
+Tasks live in plain directories you can read, edit and version without markoff.
+The TUI is for the quick things, writing happens in your editor.
+
+> [!WARNING]
+> markoff is experimental and still changing.
+> Configuration, setups, keys and all in between could change between versions, without migration.
+> Read the [changelog](CHANGELOG.md) before updating, or stay on a version that works for you.
+
+## Why
+
+- **Plain files.** A section is a directory, a task is a `.md` file. No database, no hidden metadata.
+- **Your editor.** Writing happens in your `$EDITOR`, with your keys, plugins and spell check. markoff only does the quick actions around it: reorder, check off, undo.
+- **Notes included.** A task is a whole file, so links, checklists and context fit next to the title.
+- **Fits your setup.** Keep it in git, sync it, edit it with anything, put it in your wiki.
+- **Keyboard first.** Vim-like keys, every action is one undo step.
+- **Built to stay small.** For short-term tasks: done ones move to a dated archive, with a heatmap of what you got done.
 
 ## Install
 
@@ -25,10 +36,10 @@ Do the same again to update.
 From source:
 
 ```sh
-cargo install --path .
+cargo install --locked --git https://github.com/eckon/markoff
 ```
 
-## Usage
+## Quick start
 
 Point markoff at a directory (first match wins):
 
@@ -43,13 +54,18 @@ MARKOFF_DIR=~/notes/tasks markoff
 dir = "~/notes/tasks"
 ```
 
-In an empty directory, create a section with `N`, then tasks with `o`. `?` lists all keys, `markoff --help` the arguments.
+In an empty directory, press `N` to create a section, then `o` to create a task.
+Both open your editor with a draft: write the title after `# `, save and quit. A task can take notes below its title.
+`<CR>` opens a task in your editor again.
+
+The editor is `$VISUAL`, then `$EDITOR`, then `vi`.
+`?` lists all keys, `markoff --help` the arguments.
 
 ## Files
 
 ```text
 <root>/
-  .markoff             <- order, when repeating tasks were last done
+  .markoff             <- stores order and when repeating tasks were last done
   .archive/
     2026-10-14/        <- tasks done that day, laid out like the root
       work/
@@ -64,7 +80,6 @@ In an empty directory, create a section with `N`, then tasks with `o`. `?` lists
 - Filenames follow the title. Files added or edited by hand are renamed on start and before the next change.
 - `.markoff` is written by markoff. New files go to the end, deleted ones are dropped. Add it to `.gitignore` to keep order changes and done dates out of git.
 - Done tasks (`X`) move to `.archive/YYYY-MM-DD/<section>/` as they are. A task done twice a day gets a number: `call-bob-2.md`.
-- The archive page (`Tab`) shows a heatmap of the done tasks back to the first archived day, a week per column. It scrolls sideways: the first column shows its month and year, below the heatmap the tasks done out of view are counted on each side. Brighter means more tasks per day, ranked in quarters of the days with anything done. The cursor in the heatmap picks a day, `v` a range of days like vim's visual mode. The app header shows the day with how long ago or the range, and how many tasks were done, the list below them by section, in a range each with its day, with the body of the selected task next to it while the list has the keys.
 
 ## Repeating tasks
 
@@ -86,7 +101,18 @@ The rule is the day part of cron: day of month, month, day of week. Both day fie
 
 `X` on a repeating task keeps the task and notes the date in `.markoff`. The task hides until a day of its rule comes, a missed day stays until it is done. `.` shows the hidden ones. Code that is no rule (`` `cargo test` ``) stays part of the title.
 
+## Archive
+
+`Tab` opens the archive: a heatmap of every day you finished something, and the tasks of the selected day or range below it. Read-only, to answer "what did I do lately".
+
+![markoff archive page with the heatmap, a selected range and its done tasks](assets/archive-view_050.png)
+
 ## Keys
+
+All keys are also in the help inside markoff, `?` on any page.
+
+<details>
+<summary>Key reference</summary>
 
 ### Move
 
@@ -143,13 +169,11 @@ On every page.
 | `p`         | Toggle the preview, in the list             |
 | `/`         | Filter, its own: the list keeps the matches |
 
-In the list `gg` / `G`, `{` / `}` and `1`-`9` work like in the task list, the numbers count the sections shown. `1`-`9` in the heatmap jump into the list. With a filter, cells without a match turn gray and `H` / `J` / `K` / `L` skip them. The other keys of the tasks page do nothing on the archive page.
-
-In the help, `j` / `k` and `gg` / `G` scroll it, `/` filters it by keys and texts until it closes, other keys do nothing.
+In the archive list `gg` / `G`, `{` / `}` and `1`-`9` work like in the task list. `1`-`9` in the heatmap jump into the list. With a filter, cells without a match turn gray and `H` / `J` / `K` / `L` skip them.
 
 In the filter, `C-w` deletes the last word. While a filter is set on the tasks page, moving and adding tasks is off.
 
-The editor is `$VISUAL`, then `$EDITOR`, then `vi`.
+</details>
 
 ## CLI
 
@@ -177,5 +201,7 @@ cargo test
 cargo clippy --all-targets
 cargo run -- --dir <scratch dir>
 ```
+
+For the scratch dir, `./assets/make-example.py <dir>` builds an example root: sections, repeating tasks and a few months of archive. It is realistic data to try changes on without touching your own notes, and the data the screenshots come from.
 
 Design rules are in [AGENTS.md](AGENTS.md).
