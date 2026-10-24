@@ -7,7 +7,11 @@ members = ["cargo:."]
 cargo-dist-version = "0.32.0"
 # CI backends to support
 ci = "github"
+# Installers to generate for each app
+installers = ["shell"]
+# Already on the PATH on most Linux setups, unlike ~/.cargo/bin without Rust
+install-path = "~/.local/bin"
 # Target platforms to build apps for (Rust target-triple syntax)
-targets = ["x86_64-unknown-linux-musl"]
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-musl", "x86_64-unknown-linux-musl"]
 # release-plz creates the draft release with the changelog, dist uploads to it and publishes it
 create-release = false

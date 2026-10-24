@@ -25,13 +25,16 @@ The TUI is for the quick things, writing happens in your editor.
 
 ## Install
 
-Prebuilt static binary for Linux (x86_64): download `markoff-x86_64-unknown-linux-musl.tar.xz` from the latest [release](https://github.com/eckon/markoff/releases), then:
+Prebuilt binaries for Linux (x86_64, ARM) and macOS (Apple Silicon):
 
 ```sh
-tar -xJf markoff-x86_64-unknown-linux-musl.tar.xz --strip-components=1 -C ~/.local/bin markoff-x86_64-unknown-linux-musl/markoff
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/eckon/markoff/releases/latest/download/markoff-installer.sh | sh
 ```
 
-Do the same again to update.
+Run it again to update. The binaries are also on the [releases](https://github.com/eckon/markoff/releases) page.
+
+It installs a single binary to `~/.local/bin/markoff`, remove that file to uninstall.
+Only if `~/.local/bin` was not on your `PATH`, it also adds an `env` script there and a line loading it to your shell config (like `~/.profile`, `~/.zshrc`).
 
 From source:
 
