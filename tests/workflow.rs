@@ -257,6 +257,8 @@ macro_rules! snapshot {
         insta::with_settings!({ filters => vec![
             (r"\d{4}-\d{2}-\d{2}", "[date]"),
             (r"\w{3} \d{1,2} \w{3} ─*", "[date] ─"),
+            // Cut short when the help overlay narrows the task list.
+            (r"archive ── [^║\n]*║", "archive ── [date]║"),
         ]}, {
             insta::assert_snapshot!($name, $state);
         })

@@ -2,7 +2,7 @@
 source: tests/workflow.rs
 expression: app.state()
 ---
-── tasks  archive ── T║  ↑ 10 more
+── tasks  archive ── [date]║  ↑ 10 more
                       ║  u ············ undo the last change
  ▌──[1]─ home ────────║
      • Buy milk       ║  ── show ──────────────────────────────────────────────
