@@ -7,10 +7,10 @@ use jiff::{ToSpan, civil::Date};
 
 use crate::archive::Archive;
 
-/// Tasks done per day, only days with an archive directory.
+/// Tasks archived per day, done or canceled, only days with an archive directory.
 pub type Days = BTreeMap<Date, usize>;
 
-/// Tasks done per day.
+/// Tasks archived per day, a canceled one is finished all the same.
 pub fn days(archive: &Archive) -> Days {
     archive
         .iter()

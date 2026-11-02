@@ -118,9 +118,9 @@ pub struct App {
     pub help_offset: usize,
     /// `/` filter of the help, empty for none. The help is temporary: it opens without one.
     pub help_filter: String,
-    /// The done tasks, from the archive.
+    /// The archived tasks, done or canceled.
     pub archive: crate::archive::Archive,
-    /// Tasks done per day, from the archive.
+    /// Tasks archived per day, for the heatmap.
     pub days: heatmap::Days,
 }
 

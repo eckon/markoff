@@ -16,7 +16,8 @@ use crate::task::Task;
 /// Directory in the root. Hidden, so it is never loaded as a section.
 pub const DIR: &str = ".archive";
 
-/// The done tasks per day, only days with an archive directory, see [`crate::load::archive`].
+/// The archived tasks per day, done or canceled, only days with an archive directory, see
+/// [`crate::load::archive`].
 pub type Archive = BTreeMap<Date, Vec<Done>>;
 
 /// A task in the archive with the name of its section.
