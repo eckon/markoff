@@ -2,7 +2,7 @@
 source: tests/workflow.rs
 expression: app.state()
 ---
-── tasks  archive ── [date] ─ 0 open · ✓ 0 done
+── tasks  archive ── [date] ─ 0 open
 
   no sections yet, N creates one
 

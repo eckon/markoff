@@ -45,6 +45,7 @@ pub enum Action {
     NewAbove,
     NewSection,
     Done,
+    Cancel,
     Delete,
     Undo,
     Help,
@@ -133,7 +134,7 @@ pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Enter)], A::Open)], help: "open task in $EDITOR, or rename section", group: "change", contexts: TASKS },
     Binding { keys: &[(&[Key(Char('o'))], A::NewBelow), (&[Key(Char('O'))], A::NewAbove)], help: "new task below / above", group: "change", contexts: TASKS },
     Binding { keys: &[(&[Key(Char('N'))], A::NewSection)], help: "new section", group: "change", contexts: TASKS },
-    Binding { keys: &[(&[Key(Char('X'))], A::Done)], help: "done: archive, a repeating task hides", group: "change", contexts: TASKS },
+    Binding { keys: &[(&[Key(Char('x'))], A::Done), (&[Key(Char('X'))], A::Cancel)], help: "done / cancel, a repeating task hides", group: "change", contexts: TASKS },
     Binding { keys: &[(&[Key(Char('D'))], A::Delete)], help: "delete task, or empty section", group: "change", contexts: TASKS },
     Binding { keys: &[(&[Key(Char('u'))], A::Undo)], help: "undo the last change", group: "change", contexts: TASKS },
     Binding { keys: &[(&[Key(Char('h')), Key(Left)], A::Left), (&[Key(Char('l')), Key(Right)], A::Right)], help: "previous / next week", group: "heatmap", contexts: ARCHIVE },
@@ -315,7 +316,8 @@ mod tests {
         assert_eq!(press(&mut keymap, KeyCode::Char('k')), Some(Action::Up));
         assert_eq!(press(&mut keymap, KeyCode::Up), Some(Action::Up));
         assert_eq!(press(&mut keymap, KeyCode::Char('u')), Some(Action::Undo));
-        assert_eq!(press(&mut keymap, KeyCode::Char('X')), Some(Action::Done));
+        assert_eq!(press(&mut keymap, KeyCode::Char('x')), Some(Action::Done));
+        assert_eq!(press(&mut keymap, KeyCode::Char('X')), Some(Action::Cancel));
         assert_eq!(press(&mut keymap, KeyCode::Char('D')), Some(Action::Delete));
         assert_eq!(press(&mut keymap, KeyCode::Enter), Some(Action::Open));
         assert_eq!(

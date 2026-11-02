@@ -13,7 +13,7 @@ use crate::{
     op::Op,
     repeat,
     state::{self, State, StateFile},
-    task::{EXTENSION, HEADING, Section, Task, split_heading},
+    task::{self, EXTENSION, HEADING, Section, Task, split_heading},
 };
 
 /// `D`: removes task `t` of section `s`.
@@ -80,7 +80,7 @@ pub fn rename_section(
     (ops, to)
 }
 
-/// `X` on a repeating task: `date` becomes its last done in the state file. The task file
+/// `x` on a repeating task, `X` too: `date` becomes its last done in the state file. The task file
 /// stays as it is and nothing is archived, see [`crate::repeat`].
 pub fn repeat_done(
     sections: &[Section],
@@ -94,7 +94,18 @@ pub fn repeat_done(
     file.write(&state).into_iter().collect()
 }
 
-/// `X`: moves task `t` of section `s` as it is into `dir`, its section in today's archive.
+/// `X`: strikes the heading of task `t` of section `s` through, see [`task::cancel`], then
+/// [`archive`] moves it. `None` if it is struck through by hand already.
+pub fn cancel(sections: &[Section], s: usize, t: usize) -> Option<Op> {
+    let task = &sections[s].tasks[t];
+    (!task.canceled).then(|| Op::Update {
+        path: task.path.clone(),
+        before: task.content.clone(),
+        after: task::cancel(&task.content, &task.title()),
+    })
+}
+
+/// `x`: moves task `t` of section `s` as it is into `dir`, its section in today's archive.
 ///
 /// `missing` are the directories up to `dir` that do not exist yet, outermost first: created
 /// as ops, so undo leaves no empty ones behind. `taken` are the names already in `dir`, a task
@@ -521,6 +532,18 @@ mod tests {
 
         let ops = archive(&s, 0, 0, dir, &[], &["fix-bug".to_string()], &file);
         assert_eq!(describe(&ops)[0], "rename fix-bug.md -> fix-bug-2.md");
+    }
+
+    #[test]
+    fn cancel_strikes_the_heading() {
+        let s = tree_with(&[("work", &[("a.md", "# A\n\nbody"), ("b.md", "# ~~B~~")])]);
+        let op = cancel(&s, 0, 0).unwrap();
+        assert_eq!(describe(std::slice::from_ref(&op)), ["update a.md"]);
+        let Op::Update { after, .. } = op else {
+            unreachable!()
+        };
+        assert_eq!(after, "# ~~A~~\n\nbody");
+        assert_eq!(cancel(&s, 0, 1), None, "struck through already");
     }
 
     #[test]

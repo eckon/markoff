@@ -75,13 +75,17 @@ fn render_rows(
                     rows::Kind::Section(header)
                 }
                 ArchiveRow::Task(_, day, index) => {
-                    let style = if cursor == Some(i) {
+                    let task = &app.archive[&day][index].task;
+                    let mut style = if cursor == Some(i) {
                         Style::new().fg(color)
                     } else {
                         Style::new()
                     };
-                    let title = app.archive[&day][index].task.title();
-                    let spans = filtered_title(&title, &app.archive_page.filter, style);
+                    // Like a hidden task in the task list, it needs no more.
+                    if task.canceled {
+                        style = style.dim().crossed_out();
+                    }
+                    let spans = filtered_title(&task.title(), &app.archive_page.filter, style);
                     rows::Kind::Task(spans, when(day).map(Stylize::dim), false)
                 }
             };

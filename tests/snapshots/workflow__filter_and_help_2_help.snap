@@ -16,7 +16,7 @@ expression: app.state()
                       ║  <CR> ········· open task in $EDITOR, or rename section
                       ║  o / O ········ new task below / above
                       ║  N ············ new section
-                      ║  X ············ done: archive, a repeating task hides
+                      ║  x / X ········ done / cancel, a repeating task hides
                       ║  D ············ delete task, or empty section
                       ║  u ············ undo the last change
                       ║

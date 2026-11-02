@@ -332,7 +332,7 @@ impl App {
         // Writing actions see clean names. Not undo: its inverse fits the files as they are.
         if matches!(
             action,
-            Action::MoveDown | Action::MoveUp | Action::Done | Action::Delete
+            Action::MoveDown | Action::MoveUp | Action::Done | Action::Cancel | Action::Delete
         ) {
             self.normalize_before_action();
         }
@@ -367,7 +367,8 @@ impl App {
             Action::Open => self.open(),
             Action::NewBelow | Action::NewAbove => self.new_task(action == Action::NewBelow),
             Action::NewSection => self.new_section(),
-            Action::Done => self.done()?,
+            Action::Done => self.done(false)?,
+            Action::Cancel => self.done(true)?,
             Action::Delete => self.delete()?,
             Action::Undo => self.undo()?,
             Action::Help => {
@@ -476,7 +477,9 @@ impl App {
         }
     }
 
-    fn done(&mut self) -> Result<()> {
+    /// `x`, and `X` with `cancel`. A repeating task is the same either way, it is only there
+    /// to come back.
+    fn done(&mut self, cancel: bool) -> Result<()> {
         let (s, t) = match self.selected() {
             Some(Row::Task(s, t)) => (s, t),
             _ => return Ok(()),
@@ -503,7 +506,8 @@ impl App {
             .map(|done| done.task.stem().to_string())
             .collect();
 
-        let ops = edit::archive(
+        let strike = cancel.then(|| edit::cancel(&self.sections, s, t)).flatten();
+        let archive = edit::archive(
             &self.sections,
             s,
             t,
@@ -512,8 +516,13 @@ impl App {
             &taken,
             &self.state_file,
         );
+        let ops = strike.into_iter().chain(archive).collect();
         self.apply(ops)?;
-        self.status = Some(Status::Info("task archived (u to undo)".to_string()));
+        let message = match cancel {
+            true => "task canceled (u to undo)",
+            false => "task archived (u to undo)",
+        };
+        self.status = Some(Status::Info(message.to_string()));
         Ok(())
     }
 
@@ -709,9 +718,9 @@ impl App {
         }
     }
 
-    /// Tasks archived today, shown in the app header.
-    pub fn done_today(&self) -> usize {
-        self.days.get(&self.today).copied().unwrap_or(0)
+    /// Tasks archived today, counted in the app header.
+    pub fn done_today(&self) -> &[crate::archive::Done] {
+        self.archive.get(&self.today).map_or(&[], Vec::as_slice)
     }
 }
 
@@ -1396,7 +1405,7 @@ pub mod tests {
             app.status,
             Some(Status::Info("task archived (u to undo)".to_string()))
         );
-        assert_eq!(app.done_today(), 2);
+        assert_eq!(app.done_today().len(), 2);
         assert_eq!(listing(&app), ["[work]", "[home]"]);
         assert_eq!(state_file(&dir), "# work\n\n# home\n");
         assert_eq!(
@@ -1408,7 +1417,7 @@ pub mod tests {
 
         app.update(Action::Undo);
         assert_eq!(listing(&app), ["[work]", "[home]", "b.md"]);
-        assert_eq!(app.done_today(), 1);
+        assert_eq!(app.done_today().len(), 1);
         assert!(
             !day.join("home").exists(),
             "the directory it needed is gone"
@@ -1433,7 +1442,44 @@ pub mod tests {
         app.update(Action::Done);
         assert!(day.join("work/a.md").exists());
         assert!(day.join("work/a-2.md").exists());
-        assert_eq!(app.done_today(), 2);
+        assert_eq!(app.done_today().len(), 2);
+    }
+
+    #[test]
+    fn cancel_archives_struck_through() {
+        let (dir, mut app) = app_with_files(&["work/a.md", "work/water.md"]);
+        fs::write(dir.path().join("work/a.md"), "# A\n\nnotes\n").unwrap();
+        fs::write(dir.path().join("work/water.md"), "# Water `* * *`\n").unwrap();
+        app.reload(None).unwrap();
+        let archived = dir
+            .path()
+            .join(".archive")
+            .join(TODAY.to_string())
+            .join("work/a.md");
+
+        app.cursor = 1;
+        app.update(Action::Cancel);
+        assert_eq!(
+            app.status,
+            Some(Status::Info("task canceled (u to undo)".to_string()))
+        );
+        assert_eq!(listing(&app), ["[work]", "water.md"]);
+        assert_eq!(fs::read_to_string(&archived).unwrap(), "# ~~A~~\n\nnotes\n");
+        assert!(app.done_today()[0].task.canceled);
+
+        // A repeating task is the same as done.
+        app.update(Action::Cancel);
+        assert_eq!(listing(&app), ["[work]"]);
+        assert_eq!(state_file(&dir), format!("# work\nwater {TODAY}\n"));
+
+        // One undo step each, the file as it was.
+        app.update(Action::Undo);
+        app.update(Action::Undo);
+        assert_eq!(listing(&app), ["[work]", "a.md", "water.md"]);
+        assert_eq!(app.selected(), Some(Row::Task(0, 0)), "back on it");
+        let content = fs::read_to_string(dir.path().join("work/a.md")).unwrap();
+        assert_eq!(content, "# A\n\nnotes\n");
+        assert!(!archived.exists());
     }
 
     #[test]
@@ -1500,7 +1546,7 @@ pub mod tests {
         let content = fs::read_to_string(dir.path().join("work/water.md")).unwrap();
         assert_eq!(content, water);
         assert!(!dir.path().join(".archive").exists());
-        assert_eq!(app.done_today(), 0, "not in the archive");
+        assert_eq!(app.done_today().len(), 0, "not in the archive");
 
         // Again while `.` shows it: nothing changes, no undo step to take back.
         app.update(Action::ShowHidden);

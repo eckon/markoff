@@ -291,6 +291,41 @@ mod tests {
     }
 
     #[test]
+    fn canceled_task_dimmed_and_struck_through() {
+        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        app.today = TODAY;
+        let done = |content: &str| crate::archive::Done {
+            section: "work".to_string(),
+            task: Task::parse(PathBuf::new(), content),
+        };
+        app.archive = [(TODAY, vec![done("# Done"), done("# ~~Dropped~~")])].into();
+        app.days = crate::heatmap::days(&app.archive);
+        app.update(Action::NextPage);
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| _ = render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let screen: Vec<String> = (buffer.content().chunks(80))
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+            .collect();
+        // Still counted, apart from the done ones.
+        assert!(
+            screen[0].ends_with("─ ✓ 1 done · ✗ 1 canceled"),
+            "{screen:#?}"
+        );
+        let modifier = |text: &str| {
+            let row = screen.iter().position(|line| line.contains(text)).unwrap();
+            let x = screen[row]
+                .chars()
+                .position(|c| c == text.chars().next().unwrap());
+            buffer[(x.unwrap() as u16, row as u16)].modifier
+        };
+        // Without `~~`, the strikethrough shows it.
+        assert!(modifier("Dropped").contains(Modifier::CROSSED_OUT | Modifier::DIM));
+        assert!(!modifier("Done").contains(Modifier::CROSSED_OUT));
+    }
+
+    #[test]
     fn preview_of_done_task_only_while_the_list_has_the_keys() {
         let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
         app.today = TODAY;
@@ -437,9 +472,9 @@ mod tests {
         app.days = [(TODAY, 3), (TODAY - 10.days(), 1), (TODAY - 20.days(), 2)].into();
         app.hide_preview = true;
 
-        // On the tasks page: the list, the footer as a line, today's done in the app header.
+        // On the tasks page: the list, the footer as a line.
         let screen = lines(&draw(&app));
-        assert!(screen[0].ends_with(" 1 open · ✓ 3 done"), "{screen:#?}");
+        assert!(screen[0].ends_with(" 1 open"), "{screen:#?}");
         assert!(!screen.iter().any(|line| line.contains(" Mon")));
         assert_eq!(screen[38].trim(), "", "{screen:#?}");
         assert!(screen[39].starts_with("────"), "{screen:#?}");
@@ -455,8 +490,8 @@ mod tests {
             )),
             "{screen:#?}"
         );
-        // Done in the selected cell, the test has no titles.
-        assert!(screen[0].ends_with("─ ✓ 0 done"), "{screen:#?}");
+        // No count, the test has no tasks in the archive: the line runs to the edge.
+        assert!(screen[0].ends_with("─────"), "{screen:#?}");
         // Two spaces at the sides, a blank line below the heatmap.
         // The first column's month and year, `Oct` would not fit next to it.
         assert_eq!(screen[2].trim_end(), "  Sep 2026", "{screen:#?}");

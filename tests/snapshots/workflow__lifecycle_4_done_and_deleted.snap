@@ -2,12 +2,12 @@
 source: tests/workflow.rs
 expression: app.state()
 ---
-── tasks  archive ── [date] ─┬───────────────────────────── 2 open · ✓ 1 done
+── tasks  archive ── [date] ─┬────────────── 1 open · ✓ 1 done · ✗ 1 canceled
                                 │
-  ──[1]─ house ───────────── 3  │ <empty>
-     • Call mom                 │
+  ──[1]─ house ───────────── 2  │ <empty>
  ▌   • Write report             │
      ⟳ Water plants ···· daily  │
+                                │
                                 │
                                 │
                                 │
@@ -29,19 +29,18 @@ expression: app.state()
 
 --- .archive/[date]/house/
 
+--- .archive/[date]/house/call-mom.md
+# ~~Call mom~~
+
 --- .archive/[date]/house/pay-rent.md
 # Pay rent
 
 --- .markoff
 # house
-call-mom
 write-report
 water-plants [date]
 
 --- house/
-
---- house/call-mom.md
-# Call mom
 
 --- house/water-plants.md
 # Water plants `* * *`

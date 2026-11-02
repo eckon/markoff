@@ -180,7 +180,7 @@ mod tests {
             "j / k ········ down / up, also ↓ / ↑",
             "o / O ········ new task below / above",
             "D ············ delete task, or empty section",
-            "X ············ done: archive, a repeating task hides",
+            "x / X ········ done / cancel, a repeating task hides",
             "q ············ quit, also C-c",
             "── show ──",
             "── global ──",
