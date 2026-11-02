@@ -9,7 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- add canceling action
+- add canceling action: `X` archives a task with its heading struck through (`# ~~Title~~`), shown dimmed and struck through in the archive, counted in the heatmap like a done task
+
+### Changed
+
+- done is now `x` instead of `X`, `X` cancels
+- the app header counts done and canceled tasks today, each only when there are any (no more `✓ 0 done`)
 
 ## [0.6.0](https://github.com/eckon/markoff/compare/v0.5.0...v0.6.0) - 2026-10-24
 
