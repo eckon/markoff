@@ -265,8 +265,8 @@ macro_rules! snapshot {
     };
 }
 
-/// The base functions from an empty root to quit: create, move, edit, rename, done, delete
-/// and undo, on tasks and sections.
+/// The base functions from an empty root to quit: create, move, edit, rename, done, cancel,
+/// delete and undo, on tasks and sections.
 #[test]
 fn lifecycle() {
     let mut app = Markoff::start();
@@ -315,7 +315,8 @@ fn lifecycle() {
     app.wait_for("──[1]─ house");
     snapshot!("lifecycle_3_organized", app.state());
 
-    // The now empty second section is deleted, then a task is done and another deleted.
+    // The now empty second section is deleted, then a task is done, another deleted and one
+    // canceled: archived with its heading struck through.
     app.press("}");
     app.wait_for("▌──[2]─ work");
     app.press("D");
@@ -323,33 +324,37 @@ fn lifecycle() {
     // `1` lands on the first task of the first section.
     app.press("1");
     app.wait_for("▌   • Pay rent");
-    app.press("X");
+    app.press("x");
     app.wait_for("✓ 1 done");
     app.press("D");
     app.wait_for("2 open");
+    app.press("X");
+    app.wait_for("1 open · ✓ 1 done · ✗ 1 canceled");
 
-    // A repeating task: `X` keeps it, only its date goes into `.markoff`, and hides it until
+    // A repeating task: `x` keeps it, only its date goes into `.markoff`, and hides it until
     // it is due again. `.` shows it.
     app.press("G");
     app.wait_for("▌   • Write report");
     app.edit("# Water plants `* * *`\n");
     app.press("o");
-    app.wait_for("3 open");
-    app.press("X");
+    app.wait_for("2 open");
+    app.press("x");
     app.wait_for("done until next time");
     app.press(".");
     app.wait_for("⟳ Water plants");
     snapshot!("lifecycle_4_done_and_deleted", app.state());
 
-    // Undo all five, newest first.
-    app.press("u");
-    app.wait_for("3 open");
+    // Undo all six, newest first.
     app.press("u");
     app.wait_for("2 open");
     app.press("u");
+    app.wait_for("1 open");
+    app.press("u");
+    app.wait_for("2 open · ✓ 1 done");
+    app.press("u");
     app.wait_for("3 open");
     app.press("u");
-    app.wait_for("✓ 0 done");
+    app.wait_for("4 open");
     app.press("u");
     app.wait_for("──[2]─ work");
     snapshot!("lifecycle_5_undone", app.state());
@@ -471,7 +476,7 @@ fn archive() {
             "# Old two\n\nold notes\n",
         ),
     ]);
-    app.wait_for("✓ 0 done");
+    app.wait_for("1 open");
 
     // Recent days one cell each, the cursor on the last day with tasks done and its tasks below,
     // by name.
@@ -522,12 +527,12 @@ fn archive() {
     app.wait_for("• Old one");
 
     // Keys of the tasks page do nothing on it, `<S-Tab>` goes back to the list.
-    app.press("X<S-Tab>");
+    app.press("x<S-Tab>");
     app.wait_for("• Fix bug");
-    app.wait_for("✓ 0 done");
+    app.wait_for("1 open");
 
     // The page stays where it was, the pages wrap around.
-    app.press("jX");
+    app.press("jx");
     app.wait_for("✓ 1 done");
     app.press("<Tab>");
     app.wait_for("• Old two");

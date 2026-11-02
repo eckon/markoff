@@ -74,7 +74,7 @@ The editor is `$VISUAL`, then `$EDITOR`, then `vi`. `?` shows all keys.
 
 - Filenames follow the title. Files added or edited by hand are renamed on start and before the next change.
 - `.markoff` is written by markoff. Add it to `.gitignore` to keep order changes and done dates out of git.
-- Done tasks (`X`) move unchanged to `.archive/YYYY-MM-DD/<section>/`.
+- Done tasks (`x`) move unchanged to `.archive/YYYY-MM-DD/<section>/`. Canceled tasks (`X`) go there too, with the heading struck through: `# ~~Fix login bug~~`.
 
 ## Repeating tasks
 
@@ -94,7 +94,7 @@ The rule is the day part of cron: day of month, month, day of week. Both day fie
 | `1 * *`       | On the 1st of every month |
 | `1 1 *`       | Every year on January 1st |
 
-`X` on a repeating task hides it until the next day of its rule. A missed day stays until it is done. `.` shows hidden tasks.
+`x` or `X` on a repeating task hides it until the next day of its rule. A missed day stays until it is done. `.` shows hidden tasks.
 
 ## Archive
 
@@ -126,7 +126,7 @@ All keys are also in the help, `?` on any page.
 | `<CR>`      | Open task in `$EDITOR`, or rename section   |
 | `o` / `O`   | New task below / above                      |
 | `N`         | New section                                 |
-| `X`         | Done: archived, a repeating task hides      |
+| `x` / `X`   | Done / cancel, a repeating task hides       |
 | `D`         | Delete task, or empty section               |
 | `u`         | Undo                                        |
 

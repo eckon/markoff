@@ -17,14 +17,20 @@ pub const EXTENSION: &str = "md";
 /// Starts the `# Heading` that is the title, of tasks and of the drafts in the editor.
 pub const HEADING: &str = "# ";
 
+/// Around a heading that is struck through, `# ~~Title~~`: the task was canceled.
+const STRIKE: &str = "~~";
+
 /// One task file, e.g. `work/fix-login-bug.md` in the root.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Task {
     pub path: PathBuf,
-    /// Text of the `# Heading` without a [`Repeat`] rule, `None` if the file has none.
+    /// Text of the `# Heading` without a [`Repeat`] rule and strikethrough, `None` if the file
+    /// has none.
     pub heading: Option<String>,
     /// The rule at the end of the heading, if it repeats.
     pub repeat: Option<Repeat>,
+    /// The heading is struck through as a whole, see [`cancel`].
+    pub canceled: bool,
     /// Everything after the heading. The whole file if there is no heading.
     pub body: String,
     /// The file exactly as read. Used when the file is removed or written somewhere else.
@@ -41,10 +47,19 @@ impl Task {
             Some((title, repeat)) => (Some(title.to_string()), repeat),
             None => (None, None),
         };
+        // Only as a whole, like markdown strikes it: `~~a~~ b ~~c~~` and `~~ a ~~` are titles.
+        let struck = heading.as_deref().and_then(|heading| {
+            let inner = heading.strip_prefix(STRIKE)?.strip_suffix(STRIKE)?;
+            let trimmed = inner.trim();
+            (!trimmed.is_empty() && trimmed == inner && !inner.contains(STRIKE))
+                .then(|| inner.to_string())
+        });
+        let canceled = struck.is_some();
         Self {
             path,
-            heading,
+            heading: struck.or(heading),
             repeat,
+            canceled,
             body: body.to_string(),
             content: content.to_string(),
             last_done: None,
@@ -114,6 +129,29 @@ pub fn split_heading(content: &str) -> (Option<String>, &str) {
     (heading, rest.trim_start_matches(['\r', '\n']))
 }
 
+/// `content` with its heading struck through, `# ~~Title~~`, the rest as it was. A file
+/// without heading gets one from `title` on top.
+pub fn cancel(content: &str, title: &str) -> String {
+    let heading = format!("{HEADING}{STRIKE}{title}{STRIKE}");
+    if split_heading(content).0.is_none() {
+        return match content.trim().is_empty() {
+            true => format!("{heading}\n"),
+            false => format!("{heading}\n\n{content}"),
+        };
+    }
+    // The heading is the first non-blank line, see [`split_heading`].
+    let start = content.len() - content.trim_start().len();
+    let end = content[start..]
+        .find('\n')
+        .map_or(content.len(), |end| start + end);
+    let cr = if content[start..end].ends_with('\r') {
+        "\r"
+    } else {
+        ""
+    };
+    format!("{}{heading}{cr}{}", &content[..start], &content[end..])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,6 +177,32 @@ mod tests {
         let t = task("work/run.md", "# Run `cargo test`\n");
         assert_eq!(t.title(), "Run `cargo test`", "no rule");
         assert_eq!(t.repeat, None);
+    }
+
+    #[test]
+    fn struck_heading_is_canceled() {
+        let t = task("work/milk.md", "# ~~Buy milk~~\n");
+        assert_eq!(t.title(), "Buy milk");
+        assert!(t.canceled);
+
+        for heading in ["~~a~~ b ~~c~~", "~~ a ~~", "~~~~", "Buy ~~milk~~"] {
+            let t = task("work/x.md", &format!("# {heading}"));
+            assert_eq!(t.title(), heading, "only struck as a whole");
+            assert!(!t.canceled);
+        }
+    }
+
+    #[test]
+    fn cancel_strikes_the_heading() {
+        assert_eq!(
+            cancel("# Buy milk\n\nbody\n", "Buy milk"),
+            "# ~~Buy milk~~\n\nbody\n"
+        );
+        assert_eq!(cancel("\n# A\r\nbody", "A"), "\n# ~~A~~\r\nbody");
+        assert_eq!(cancel("# A", "A"), "# ~~A~~");
+        // Without heading one goes on top.
+        assert_eq!(cancel("notes\n", "call bob"), "# ~~call bob~~\n\nnotes\n");
+        assert_eq!(cancel("", "call bob"), "# ~~call bob~~\n");
     }
 
     #[test]

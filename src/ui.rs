@@ -64,8 +64,12 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
             let open = (app.sections.iter().flat_map(|section| &section.tasks))
                 .filter(|task| task.due(app.today))
                 .count();
-            let mut count = vec![format!("{open} open · ").dim()];
-            count.extend(done_count(app.done_today()));
+            let mut count = vec![format!("{open} open").dim()];
+            let done = done_count(app.done_today());
+            if !done.is_empty() {
+                count.push(" · ".dim());
+                count.extend(done);
+            }
             render_app_header(app, frame, app_header_area, &today, count);
             let preview;
             (drawn.list_offset, preview) = render_tasks(app, frame, main_area);
@@ -83,9 +87,12 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
             }
             // The tasks done on the selected days.
             let range = archive::range(app);
-            let done = (app.archive_rows().iter())
-                .filter(|row| matches!(row, ArchiveRow::Task(..)))
-                .count();
+            let done: Vec<&crate::archive::Done> = (app.archive_rows().into_iter())
+                .filter_map(|row| match row {
+                    ArchiveRow::Task(_, day, index) => Some(&app.archive[&day][index]),
+                    ArchiveRow::Section(..) => None,
+                })
+                .collect();
             render_app_header(app, frame, app_header_area, &range, done_count(done));
         }
     }
@@ -135,9 +142,23 @@ fn list_with_preview(
     }
 }
 
-/// `✓ 2 done` for the app header.
-fn done_count(done: usize) -> Vec<Span<'static>> {
-    vec!["✓".fg(DONE_COLOR), format!(" {done} done").dim()]
+/// `✓ 2 done · ✗ 1 canceled` for the app header, each only if there are any.
+fn done_count<'a>(tasks: impl IntoIterator<Item = &'a crate::archive::Done>) -> Vec<Span<'static>> {
+    let (canceled, done): (Vec<_>, Vec<_>) = tasks.into_iter().partition(|done| done.task.canceled);
+    let mut spans = Vec::new();
+    if !done.is_empty() {
+        spans.extend(["✓".fg(DONE_COLOR), format!(" {} done", done.len()).dim()]);
+    }
+    if !canceled.is_empty() {
+        if !spans.is_empty() {
+            spans.push(" · ".dim());
+        }
+        spans.extend([
+            "✗".fg(CANCELED_COLOR),
+            format!(" {} canceled", canceled.len()).dim(),
+        ]);
+    }
+    spans
 }
 
 /// Joins the preview divider at column `x` to the line in row `line_y`: `│` in the blank line
@@ -151,7 +172,7 @@ fn join_divider(frame: &mut Frame, x: u16, gap_y: u16, line_y: u16, joint: &str)
     }
 }
 
-/// `── tasks  archive ── Sat 17 Oct ──── 4 open · ✓ 2 done` over the whole width: the pages with
+/// `── tasks  archive ── Sat 17 Oct ──── 4 open · ✓ 2 done · ✗ 1 canceled` over the whole width: the pages with
 /// the current one in [`CURRENT_COLOR`], then the page's `date` and `count`.
 fn render_app_header(
     app: &App,
@@ -307,6 +328,9 @@ const CURRENT_COLOR: Color = Color::Blue;
 /// The check for tasks done today.
 const DONE_COLOR: Color = Color::Green;
 
+/// The cross for tasks canceled today.
+const CANCELED_COLOR: Color = Color::Red;
+
 /// Rules and the preview divider.
 const LINE_COLOR: Color = Color::DarkGray;
 
@@ -349,6 +373,10 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                     let due = task.due(app.today);
                     if !due {
                         style = style.dim().crossed_out();
+                    }
+                    // Struck through by hand, the heading no longer shows the `~~`.
+                    if task.canceled {
+                        style = style.crossed_out();
                     }
                     let spans = filtered_title(&title, &app.filter, style);
                     // Why it is there, where the archive puts the day. Struck through like the
@@ -689,21 +717,22 @@ mod tests {
             sections(&[("home", &["Fix typo"]), ("work", &["Review", "Deploy"])]),
         );
         app.today = TODAY;
-        app.days = [(TODAY, 2)].into();
+        let done = |content: &str| crate::archive::Done {
+            section: "home".to_string(),
+            task: crate::task::Task::parse(PathBuf::new(), content),
+        };
+        app.archive = [(TODAY, vec![done("# A"), done("# B"), done("# ~~C~~")])].into();
         app.hide_preview = true;
         // Wider than the others, the pages take room.
-        let mut terminal = Terminal::new(TestBackend::new(60, 9)).unwrap();
-        terminal
-            .draw(|frame| {
-                render(&app, frame);
-            })
-            .unwrap();
-        let buffer = terminal.backend().buffer();
-        let lines: Vec<String> = buffer
-            .content()
-            .chunks(buffer.area.width as usize)
-            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
-            .collect();
+        let mut terminal = Terminal::new(TestBackend::new(70, 9)).unwrap();
+        let draw = |terminal: &mut Terminal<TestBackend>, app: &App| {
+            terminal.draw(|frame| _ = render(app, frame)).unwrap();
+            let buffer = terminal.backend().buffer();
+            (buffer.content().chunks(buffer.area.width as usize))
+                .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+                .collect::<Vec<String>>()
+        };
+        let lines = draw(&mut terminal, &app);
 
         assert!(
             lines[0].starts_with(&format!(
@@ -712,13 +741,37 @@ mod tests {
             )),
             "{lines:#?}"
         );
-        assert!(lines[0].ends_with("─ 3 open · ✓ 2 done"), "{lines:#?}");
+        assert!(
+            lines[0].ends_with("─ 3 open · ✓ 2 done · ✗ 1 canceled"),
+            "{lines:#?}"
+        );
         let check = lines[0].chars().position(|c| c == '✓').unwrap() as u16;
         assert_eq!(terminal.backend().buffer()[(check, 0)].fg, DONE_COLOR);
+        let cross = lines[0].chars().position(|c| c == '✗').unwrap() as u16;
+        assert_eq!(terminal.backend().buffer()[(cross, 0)].fg, CANCELED_COLOR);
 
         // A blank line, then the sections.
         assert_eq!(lines[1].trim(), "");
         assert!(lines[2].contains("home"), "{lines:#?}");
+
+        // Each count only when there are any.
+        app.archive = [(TODAY, vec![done("# ~~C~~")])].into();
+        assert!(draw(&mut terminal, &app)[0].ends_with("─ 3 open · ✗ 1 canceled"));
+        app.archive.clear();
+        assert!(draw(&mut terminal, &app)[0].ends_with("─ 3 open"));
+    }
+
+    #[test]
+    fn task_struck_through_by_hand_stays_struck_through() {
+        let mut app = App::new(PathBuf::new(), sections(&[("home", &["~~Fix typo~~"])]));
+        app.cursor = 1;
+        app.hide_preview = true;
+        let mut terminal = Terminal::new(TestBackend::new(40, 6)).unwrap();
+        terminal.draw(|frame| _ = render(&app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let line: String = (0..40).map(|x| buffer[(x, 3)].symbol()).collect();
+        assert!(line.starts_with(" ▌   • Fix typo "), "{line:?}");
+        assert!(buffer[(7, 3)].modifier.contains(Modifier::CROSSED_OUT));
     }
 
     #[test]
@@ -748,7 +801,7 @@ mod tests {
         );
         assert!(lines[4].contains("• Fix typo"), "{lines:#?}");
         assert!(lines[2].trim_end().ends_with(" 2"), "{lines:#?}");
-        assert!(lines[0].contains(" 2 open "), "{lines:#?}");
+        assert!(lines[0].ends_with(" 2 open"), "{lines:#?}");
 
         // `.` shows it dimmed, with its rule. Not open, the section counts what it shows.
         app.show_hidden = true;
@@ -765,7 +818,7 @@ mod tests {
         assert!(buffer[(7, 4)].modifier.contains(Modifier::DIM));
         assert!(!buffer[(7, 3)].modifier.contains(Modifier::DIM), "due");
         assert!(lines[2].trim_end().ends_with(" 3"), "{lines:#?}");
-        assert!(lines[0].contains(" 2 open "), "{lines:#?}");
+        assert!(lines[0].ends_with(" 2 open"), "{lines:#?}");
     }
 
     #[test]
