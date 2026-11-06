@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- the command line uses clap: `--help` has a new format, every command has its own `--help`, wrong usage exits with `2` instead of `1`
+- `list` prints a `# Tasks` heading, each task's id after its title (`- Fix the bug (work/fix-the-bug)`), the rule of repeating tasks and canceled tasks struck through
+- `add` prints the new task's id instead of its path
+
 ## [0.7.0](https://github.com/eckon/markoff/compare/v0.6.0...v0.7.0) - 2026-11-02
 
 ### Added

@@ -12,13 +12,16 @@ release_commits = "^(feat|fix)|^[a-z]+(\\(.+\\))?!:"
 pr_labels = ["release"]
 
 [changelog]
-# Without `## [Unreleased]`: release-plz writes changes straight under the new version, so it would always be empty.
+# Ends with `## [Unreleased]`: release-plz puts the new version right below it, so what was written
+# there by hand ends up at the end of the new version, and the heading is empty again.
 header = """# Changelog
 
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
 """
 # In the order they were made, like the history reads.
 sort_commits = "oldest"
