@@ -1085,6 +1085,7 @@ dependencies = [
  "portable-pty",
  "ratatui",
  "serde",
+ "strsim",
  "tempfile",
  "toml",
  "unicode-width",

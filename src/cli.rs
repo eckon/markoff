@@ -31,7 +31,7 @@ pub struct Cli {
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
 pub enum Command {
-    /// Print sections and tasks as markdown, in the order of the TUI
+    /// Print sections and tasks as markdown, in the order of the TUI, with each task's id
     List,
     /// Add a task at the end of an existing section, print its path
     Add {
@@ -50,16 +50,18 @@ pub fn run(command: Command, root: &Path) -> Result<String> {
     }
 }
 
-/// Sections as `## name` with their task titles as list items, in the order of the TUI.
-/// Like the TUI without `.`, repeating tasks only while they are due. Read-only, so no
-/// normalize: that would rename files behind an editor.
+/// Sections as `## name` with their task titles as list items, in the order of the TUI, each
+/// with its id: `<section>/<stem>`, the path below the root. Titles can repeat, the id is
+/// unique, so commands take it. Like the TUI without `.`, repeating tasks only while they are
+/// due. Read-only, so no normalize: that would rename files behind an editor.
 pub fn list(sections: &[Section], today: Date) -> String {
     sections
         .iter()
         .map(|section| {
             let mut text = format!("## {}\n", section.name);
             for task in section.tasks.iter().filter(|task| task.due(today)) {
-                text.push_str(&format!("- {}\n", task.title()));
+                let (title, stem) = (task.title(), task.stem());
+                text.push_str(&format!("- {title} ({}/{stem})\n", section.name));
             }
             text
         })
@@ -76,7 +78,12 @@ fn add(root: &Path, section: &str, title: &str) -> Result<String> {
     }
     let (sections, file) = load::load(root)?;
     let Some(s) = sections.iter().position(|sec| sec.name == section) else {
-        bail!("cannot add to '{section}': no such section");
+        let names: Vec<_> = sections.iter().map(|sec| sec.name.as_str()).collect();
+        match closest(section, &names) {
+            Some(name) => bail!("no section '{section}', did you mean '{name}'?"),
+            None if names.is_empty() => bail!("no section '{section}', there are none yet"),
+            None => bail!("no section '{section}', the sections: {}", names.join(", ")),
+        }
     };
     // Normalize before writing, like every write in the TUI. It keeps the order of sections,
     // so `s` stays valid.
@@ -87,6 +94,17 @@ fn add(root: &Path, section: &str, title: &str) -> Result<String> {
     let (ops, path) = edit::insert(&sections, s, end, title, &content, &file);
     op::apply_all(&ops)?;
     Ok(format!("{}\n", path.display()))
+}
+
+/// The candidate most like `name`, if one is close enough to be a typo. Same measure and
+/// threshold as clap's "a similar subcommand exists".
+fn closest<'a>(name: &str, candidates: &[&'a str]) -> Option<&'a str> {
+    candidates
+        .iter()
+        .map(|candidate| (strsim::jaro(name, candidate), *candidate))
+        .filter(|(similarity, _)| *similarity > 0.7)
+        .max_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, candidate)| candidate)
 }
 
 #[cfg(test)]
@@ -162,7 +180,7 @@ mod tests {
         let dir = root();
         assert_eq!(
             run(Command::List, dir.path()).unwrap(),
-            "## work\n- Fix the bug\n- call bob\n\n## home\n"
+            "## work\n- Fix the bug (work/fix-the-bug)\n- call bob (work/call-bob)\n\n## home\n"
         );
         assert_eq!(list(&[], TODAY), "");
 
@@ -177,7 +195,8 @@ mod tests {
         .unwrap();
         assert_eq!(
             list(&load::load(root).unwrap().0, TODAY),
-            "## work\n- Fix the bug\n- call bob\n\n## home\n- Water\n"
+            "## work\n- Fix the bug (work/fix-the-bug)\n- call bob (work/call-bob)\n\n\
+             ## home\n- Water (home/water)\n"
         );
     }
 
@@ -201,8 +220,9 @@ mod tests {
         add(root, "home", "Water plants").unwrap();
         assert_eq!(
             run(Command::List, root).unwrap(),
-            "## work\n- Fix the bug\n- call bob\n- New thing\n- New thing\n\n\
-             ## home\n- Water plants\n"
+            "## work\n- Fix the bug (work/fix-the-bug)\n- call bob (work/call-bob)\n\
+             - New thing (work/new-thing)\n- New thing (work/new-thing-2)\n\n\
+             ## home\n- Water plants (home/water-plants)\n"
         );
         assert!(root.join("work/new-thing-2.md").exists());
     }
@@ -229,9 +249,29 @@ mod tests {
         let error = |section, title| add(root, section, title).unwrap_err().to_string();
         assert_eq!(
             error("wrok", "New"),
-            "cannot add to 'wrok': no such section"
+            "no section 'wrok', did you mean 'work'?"
+        );
+        assert_eq!(
+            error("errands", "New"),
+            "no section 'errands', the sections: work, home"
         );
         assert_eq!(error("work", "  "), "cannot add: empty title");
         assert!(root.join("work/fix-the-bug.md").exists());
+
+        let empty = TempDir::new().unwrap();
+        assert_eq!(
+            add(empty.path(), "work", "New").unwrap_err().to_string(),
+            "no section 'work', there are none yet"
+        );
+    }
+
+    #[test]
+    fn closest_only_for_typos() {
+        let names = ["work", "home", "errands"];
+        assert_eq!(closest("wrok", &names), Some("work"));
+        assert_eq!(closest("hom", &names), Some("home"));
+        assert_eq!(closest("errand", &names), Some("errands"));
+        assert_eq!(closest("shopping", &names), None);
+        assert_eq!(closest("work", &[]), None);
     }
 }
