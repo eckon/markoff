@@ -77,9 +77,16 @@ impl Repeat {
         let Some(last_done) = last_done else {
             return true;
         };
+        self.next(last_done).is_some_and(|next| next <= today)
+    }
+
+    /// The first day of the rule after `last_done`, when it is due again. `None` for a rule
+    /// without such a day, like `30 2 *`.
+    pub fn next(&self, last_done: Date) -> Option<Date> {
         self.cron
             .find_next_occurrence(&last_done.to_datetime(Time::midnight()), false)
-            .is_ok_and(|next| next.date() <= today)
+            .ok()
+            .map(|next| next.date())
     }
 }
 
@@ -177,6 +184,14 @@ mod tests {
             "weekend"
         );
         assert!(weekdays.due(Some(date("2026-10-23")), date("2026-10-26")));
+    }
+
+    #[test]
+    fn next_day_of_the_rule() {
+        let monday = rule("x `* * mon`");
+        assert_eq!(monday.next(date("2026-10-19")), Some(date("2026-10-26")));
+        assert_eq!(monday.next(date("2026-10-21")), Some(date("2026-10-26")));
+        assert_eq!(rule("x `30 2 *`").next(date("2026-10-19")), None);
     }
 
     #[test]

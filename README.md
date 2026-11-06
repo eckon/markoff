@@ -174,12 +174,14 @@ In the filter, `C-w` deletes the last word. While a filter is set on the tasks p
 
 For scripts:
 
-| Command                 | Action                                                        |
-| ----------------------- | ------------------------------------------------------------- |
-| `list`                  | Print sections and tasks as markdown, in the order of the TUI |
-| `add <section> <title>` | Add a task at the end of an existing section, print its path  |
+| Command                  | Action                                                         |
+| ------------------------ | -------------------------------------------------------------- |
+| `list [<section>...]`    | Print sections and tasks as markdown, in the order of the TUI  |
+| `list --archive`         | Print archived tasks by day, the last 7 days or `--from` `--to` |
+| `show <id>`              | Print a task, also an archived one                             |
+| `add <section> <title>`  | Add a task at the end of an existing section, print its path   |
 
-A task's id is its path in the root without `.md`, `work/fix-login-bug`, shown by `list` after each title.
+A task's id is its path in the root without `.md`, `work/fix-login-bug`, shown by `list` after each title. `list --filter` and `list --hidden` work like `/` and `.` in the TUI.
 
 `markoff --help` shows all arguments, `markoff <command> --help` those of a command.
 

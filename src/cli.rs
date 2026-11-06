@@ -2,18 +2,18 @@
 //! to stdout.
 //!
 //! The TUI stays the main way to use markoff, commands only make it scriptable. Parsed by clap,
-//! which also writes `--help` from the doc comments of [`Cli`] and [`Command`].
+//! which also writes `--help` from the doc comments of [`Cli`] and [`Command`]. Commands name
+//! tasks and sections by their id, see [`id`].
+
+mod id;
+mod read;
+mod write;
 
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
-use color_eyre::{Result, eyre::bail};
+use color_eyre::Result;
 use jiff::civil::Date;
-
-use crate::{
-    edit, load, op,
-    task::{HEADING, Section},
-};
 
 /// A TUI for tasks stored as markdown files.
 ///
@@ -32,7 +32,12 @@ pub struct Cli {
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
 pub enum Command {
     /// Print sections and tasks as markdown, in the order of the TUI, with each task's id
-    List,
+    List(read::ListArgs),
+    /// Print a task as it is, also an archived one
+    Show {
+        /// Id of the task, as `list` prints it: `work/fix-the-bug`
+        id: String,
+    },
     /// Add a task at the end of an existing section, print its path
     Add {
         /// Name of the section
@@ -43,86 +48,29 @@ pub enum Command {
 }
 
 /// Runs `command` on the sections in `root` and returns what to print.
-pub fn run(command: Command, root: &Path) -> Result<String> {
+pub fn run(command: Command, root: &Path, today: Date) -> Result<String> {
     match command {
-        Command::List => Ok(list(&load::load(root)?.0, jiff::Zoned::now().date())),
-        Command::Add { section, title } => add(root, &section, &title),
+        Command::List(args) => read::list(root, &args, today),
+        Command::Show { id } => read::show(root, &id),
+        Command::Add { section, title } => write::add(root, &section, &title),
     }
-}
-
-/// Sections as `## name` with their task titles as list items, in the order of the TUI, each
-/// with its id: `<section>/<stem>`, the path below the root. Titles can repeat, the id is
-/// unique, so commands take it. Like the TUI without `.`, repeating tasks only while they are
-/// due. Read-only, so no normalize: that would rename files behind an editor.
-pub fn list(sections: &[Section], today: Date) -> String {
-    sections
-        .iter()
-        .map(|section| {
-            let mut text = format!("## {}\n", section.name);
-            for task in section.tasks.iter().filter(|task| task.due(today)) {
-                let (title, stem) = (task.title(), task.stem());
-                text.push_str(&format!("- {title} ({}/{stem})\n", section.name));
-            }
-            text
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Writes a task with only the heading at the end of `section`, like `o` on its last task.
-/// Returns the new path. Sections are a TUI decision, so a missing one is an error.
-fn add(root: &Path, section: &str, title: &str) -> Result<String> {
-    let title = title.trim();
-    if title.is_empty() {
-        bail!("cannot add: empty title");
-    }
-    let (sections, file) = load::load(root)?;
-    let Some(s) = sections.iter().position(|sec| sec.name == section) else {
-        let names: Vec<_> = sections.iter().map(|sec| sec.name.as_str()).collect();
-        match closest(section, &names) {
-            Some(name) => bail!("no section '{section}', did you mean '{name}'?"),
-            None if names.is_empty() => bail!("no section '{section}', there are none yet"),
-            None => bail!("no section '{section}', the sections: {}", names.join(", ")),
-        }
-    };
-    // Normalize before writing, like every write in the TUI. It keeps the order of sections,
-    // so `s` stays valid.
-    op::apply_all(&edit::normalize(&sections, &file))?;
-    let (sections, file) = load::load(root)?;
-    let end = sections[s].tasks.len();
-    let content = format!("{HEADING}{title}\n");
-    let (ops, path) = edit::insert(&sections, s, end, title, &content, &file);
-    op::apply_all(&ops)?;
-    Ok(format!("{}\n", path.display()))
-}
-
-/// The candidate most like `name`, if one is close enough to be a typo. Same measure and
-/// threshold as clap's "a similar subcommand exists".
-fn closest<'a>(name: &str, candidates: &[&'a str]) -> Option<&'a str> {
-    candidates
-        .iter()
-        .map(|candidate| (strsim::jaro(name, candidate), *candidate))
-        .filter(|(similarity, _)| *similarity > 0.7)
-        .max_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|(_, candidate)| candidate)
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use std::fs;
 
     use clap::{CommandFactory, error::ErrorKind};
     use tempfile::TempDir;
 
     use super::*;
-    use crate::app::tests::TODAY;
 
     fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
         Cli::try_parse_from([&["markoff"], args].concat())
     }
 
     /// A root with section `work` holding `fix-the-bug` and `call-bob`, and an empty `home`.
-    fn root() -> TempDir {
+    pub fn root() -> TempDir {
         let dir = TempDir::new().unwrap();
         let root = dir.path();
         fs::create_dir_all(root.join("work")).unwrap();
@@ -137,20 +85,15 @@ mod tests {
         dir
     }
 
-    fn add(root: &Path, section: &str, title: &str) -> Result<String> {
-        let command = Command::Add {
-            section: section.to_string(),
-            title: title.to_string(),
-        };
-        run(command, root)
-    }
-
     #[test]
     fn parse_commands() {
         Cli::command().debug_assert();
         let command = |args: &[&str]| parse(args).unwrap().command;
         assert_eq!(command(&[]), None);
-        assert_eq!(command(&["list"]), Some(Command::List));
+        assert_eq!(
+            command(&["list"]),
+            Some(Command::List(read::ListArgs::default()))
+        );
         let add = Some(Command::Add {
             section: "work".to_string(),
             title: "Fix it".to_string(),
@@ -164,7 +107,6 @@ mod tests {
         assert_eq!(command(&["add", "work", "--dir", "/a", "Fix it"]), add);
 
         let error = |args: &[&str]| parse(args).unwrap_err().kind();
-        assert_eq!(error(&["list", "work"]), ErrorKind::UnknownArgument);
         assert_eq!(error(&["add", "work"]), ErrorKind::MissingRequiredArgument);
         assert_eq!(
             error(&["add", "work", "Fix", "it"]),
@@ -173,105 +115,18 @@ mod tests {
         assert_eq!(error(&["nope"]), ErrorKind::InvalidSubcommand);
         assert_eq!(error(&["--dir"]), ErrorKind::InvalidValue);
         assert_eq!(error(&["--nope"]), ErrorKind::UnknownArgument);
-    }
-
-    #[test]
-    fn list_sections_with_tasks() {
-        let dir = root();
+        assert_eq!(error(&["show"]), ErrorKind::MissingRequiredArgument);
         assert_eq!(
-            run(Command::List, dir.path()).unwrap(),
-            "## work\n- Fix the bug (work/fix-the-bug)\n- call bob (work/call-bob)\n\n## home\n"
-        );
-        assert_eq!(list(&[], TODAY), "");
-
-        // Repeating tasks only while due, like the TUI.
-        let root = dir.path();
-        fs::write(root.join("home/water.md"), "# Water `* * *`\n").unwrap();
-        fs::write(root.join("home/dust.md"), "# Dust `* * *`\n").unwrap();
-        fs::write(
-            root.join(".markoff"),
-            format!("# work\nfix-the-bug\ncall-bob\n\n# home\nwater\ndust {TODAY}\n"),
-        )
-        .unwrap();
-        assert_eq!(
-            list(&load::load(root).unwrap().0, TODAY),
-            "## work\n- Fix the bug (work/fix-the-bug)\n- call bob (work/call-bob)\n\n\
-             ## home\n- Water (home/water)\n"
-        );
-    }
-
-    #[test]
-    fn add_at_the_end_of_the_section() {
-        let dir = root();
-        let root = dir.path();
-        let path = root.join("work/new-thing.md");
-        assert_eq!(
-            add(root, "work", " New thing ").unwrap(),
-            format!("{}\n", path.display())
-        );
-        assert_eq!(fs::read_to_string(&path).unwrap(), "# New thing\n");
-        assert_eq!(
-            fs::read_to_string(root.join(".markoff")).unwrap(),
-            "# work\nfix-the-bug\ncall-bob\nnew-thing\n\n# home\n"
-        );
-
-        // A taken name gets a suffix, an empty section works too.
-        add(root, "work", "New thing").unwrap();
-        add(root, "home", "Water plants").unwrap();
-        assert_eq!(
-            run(Command::List, root).unwrap(),
-            "## work\n- Fix the bug (work/fix-the-bug)\n- call bob (work/call-bob)\n\
-             - New thing (work/new-thing)\n- New thing (work/new-thing-2)\n\n\
-             ## home\n- Water plants (home/water-plants)\n"
-        );
-        assert!(root.join("work/new-thing-2.md").exists());
-    }
-
-    #[test]
-    fn add_normalizes_first() {
-        let dir = root();
-        let root = dir.path();
-        fs::write(root.join("work/fix-the-bug.md"), "# Renamed\n").unwrap();
-        add(root, "work", "New").unwrap();
-        assert!(root.join("work/renamed.md").exists());
-        assert_eq!(
-            fs::read_to_string(root.join(".markoff")).unwrap(),
-            "# work\nrenamed\ncall-bob\nnew\n\n# home\n"
-        );
-    }
-
-    #[test]
-    fn add_errors_change_nothing() {
-        let dir = root();
-        let root = dir.path();
-        // Needs normalizing, so a write would show as a rename.
-        fs::write(root.join("work/fix-the-bug.md"), "# Renamed\n").unwrap();
-        let error = |section, title| add(root, section, title).unwrap_err().to_string();
-        assert_eq!(
-            error("wrok", "New"),
-            "no section 'wrok', did you mean 'work'?"
+            error(&["list", "--hidden", "--archive"]),
+            ErrorKind::ArgumentConflict
         );
         assert_eq!(
-            error("errands", "New"),
-            "no section 'errands', the sections: work, home"
+            error(&["list", "--from", "2026-11-01"]),
+            ErrorKind::MissingRequiredArgument
         );
-        assert_eq!(error("work", "  "), "cannot add: empty title");
-        assert!(root.join("work/fix-the-bug.md").exists());
-
-        let empty = TempDir::new().unwrap();
         assert_eq!(
-            add(empty.path(), "work", "New").unwrap_err().to_string(),
-            "no section 'work', there are none yet"
+            error(&["list", "--archive", "--to", "monday"]),
+            ErrorKind::ValueValidation
         );
-    }
-
-    #[test]
-    fn closest_only_for_typos() {
-        let names = ["work", "home", "errands"];
-        assert_eq!(closest("wrok", &names), Some("work"));
-        assert_eq!(closest("hom", &names), Some("home"));
-        assert_eq!(closest("errand", &names), Some("errands"));
-        assert_eq!(closest("shopping", &names), None);
-        assert_eq!(closest("work", &[]), None);
     }
 }
