@@ -186,10 +186,24 @@ For scripts and AI agents, every action of the TUI except undo:
 | `move <id> --to / --before / --after / ...` | Move a task or section                                           |
 | `delete <id>...`                            | Delete tasks, or empty sections                                  |
 | `done <id>...` / `cancel <id>...`           | Like `x` / `X`                                                   |
+| `skill`                                     | Print a guide for AI agents, see below                           |
 
 A task's id is its path in the root without `.md`, `work/fix-login-bug`, shown by `list` after each title. A section's id is its name. Changes print the ids they end with. `-` as text reads it from stdin. `list --filter` and `list --hidden` work like `/` and `.` in the TUI.
 
 `markoff --help` shows all commands, `markoff <command> --help` the options of one.
+
+### AI agents
+
+`markoff skill` prints a short guide to markoff and its commands, for the version installed. To let your AI agent use it, add a skill in the [Agent Skills](https://agentskills.io) format to its skills directory, like `~/.agents/skills/markoff/SKILL.md`:
+
+```markdown
+---
+name: markoff
+description: The user's own task list. Use only when the user asks about their tasks.
+---
+
+Run `markoff skill` and follow it.
+```
 
 ## Development
 

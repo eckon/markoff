@@ -31,6 +31,8 @@ pub struct Cli {
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
 pub enum Command {
+    /// Print a guide for AI agents: what markoff is and how to use these commands
+    Skill,
     /// Print sections and tasks as markdown, in the order of the TUI, with each task's id
     List(read::ListArgs),
     /// Print a task as it is, also an archived one
@@ -64,9 +66,14 @@ pub enum Command {
     },
 }
 
+/// What `skill` prints, for agents. Short, it goes into their context: the details are in the
+/// errors and in `--help`.
+pub const SKILL: &str = include_str!("cli/skill.md");
+
 /// Runs `command` on the sections in `root` and returns what to print.
 pub fn run(command: Command, root: &Path, today: Date) -> Result<String> {
     match command {
+        Command::Skill => unreachable!("run by main, it needs no root"),
         Command::List(args) => read::list(root, &args, today),
         Command::Show { id } => read::show(root, &id),
         Command::Add(mut args) => {
@@ -168,5 +175,18 @@ pub mod tests {
             error(&["list", "--archive", "--to", "monday"]),
             ErrorKind::ValueValidation
         );
+    }
+
+    #[test]
+    fn skill_has_every_command() {
+        for command in Cli::command().get_subcommands() {
+            let name = command.get_name();
+            if !["help", "skill"].contains(&name) {
+                assert!(
+                    SKILL.contains(&format!("markoff {name} ")),
+                    "{name} is missing"
+                );
+            }
+        }
     }
 }

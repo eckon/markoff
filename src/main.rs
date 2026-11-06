@@ -44,6 +44,11 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<()> {
     color_eyre::install()?;
 
+    // Needs no root, an agent may read it before one is set up.
+    if cli.command == Some(cli::Command::Skill) {
+        print!("{}", cli::SKILL);
+        return Ok(());
+    }
     // Load before entering the TUI, so errors print to a normal terminal.
     let root = config::from_env(cli.dir)?;
     if let Some(command) = cli.command {
