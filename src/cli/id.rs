@@ -14,10 +14,19 @@ use crate::{
     task::{EXTENSION, Section, Task},
 };
 
-/// The id of `task`, open or archived.
-pub fn of(root: &Path, task: &Task) -> String {
-    let path = task.path.strip_prefix(root).unwrap_or(&task.path);
+/// The id of the task at `path`, open or archived.
+pub fn of(root: &Path, path: &Path) -> String {
+    let path = path.strip_prefix(root).unwrap_or(path);
     path.with_extension("").display().to_string()
+}
+
+/// What an id names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Found<'a> {
+    Section(usize),
+    /// Task `t` of section `s`, as `(s, t)`.
+    Task(usize, usize),
+    Archived(&'a Task),
 }
 
 /// The index of `name` in the section `names`.
@@ -40,14 +49,14 @@ pub fn names(sections: &[Section]) -> Vec<&str> {
         .collect()
 }
 
-/// The task with `id`, open or archived. Also takes the id with `.md`, or as a path that
-/// starts with the root, as other tools print it.
-pub fn task<'a>(
+/// The section or task with `id`, open or archived. Also takes a task's id with `.md`, or as
+/// a path that starts with the root, as other tools print it.
+pub fn find<'a>(
     id: &str,
     root: &Path,
     sections: &'a [Section],
     archive: &'a Archive,
-) -> Result<&'a Task> {
+) -> Result<Found<'a>> {
     let id = id.trim().trim_end_matches('/');
     let id = id
         .strip_prefix(&format!("{}/", root.display()))
@@ -55,28 +64,29 @@ pub fn task<'a>(
     let id = id.strip_prefix("./").unwrap_or(id);
     let id = id.strip_suffix(&format!(".{EXTENSION}")).unwrap_or(id);
 
-    let open = sections.iter().flat_map(|section| &section.tasks);
-    let archived = archive.values().flatten().map(|done| &done.task);
-    let tasks: Vec<(String, &Task)> = open
-        .chain(archived)
-        .map(|task| (of(root, task), task))
-        .collect();
-    if let Some((_, task)) = tasks.iter().find(|(task_id, _)| task_id == id) {
-        return Ok(task);
+    let mut ids = Vec::new();
+    for (s, section) in sections.iter().enumerate() {
+        ids.push((section.name.clone(), Found::Section(s)));
+        for (t, task) in section.tasks.iter().enumerate() {
+            ids.push((of(root, &task.path), Found::Task(s, t)));
+        }
+    }
+    for done in archive.values().flatten() {
+        ids.push((of(root, &done.task.path), Found::Archived(&done.task)));
+    }
+    if let Some((_, found)) = ids.iter().find(|(other, _)| other == id) {
+        return Ok(*found);
     }
 
-    if sections.iter().any(|section| section.name == id) {
-        bail!("'{id}' is a section, not a task, see 'markoff list {id}'");
-    }
     // No suggestion in the archive: its ids share so much that any would count as close, and
     // the closest is mostly a task of another day.
     if id.starts_with(archive::DIR) {
         bail!("no task '{id}', see 'markoff list --archive'");
     }
-    let ids: Vec<_> = tasks.iter().map(|(task_id, _)| task_id.as_str()).collect();
+    let ids: Vec<_> = ids.iter().map(|(other, _)| other.as_str()).collect();
     match closest(id, &ids) {
-        Some(close) => bail!("no task '{id}', did you mean '{close}'?"),
-        None => bail!("no task '{id}', see 'markoff list'"),
+        Some(close) => bail!("no section or task '{id}', did you mean '{close}'?"),
+        None => bail!("no section or task '{id}', see 'markoff list'"),
     }
 }
 
@@ -99,20 +109,16 @@ mod tests {
     use crate::{cli::tests::root, load};
 
     #[test]
-    fn task_by_id() {
+    fn find_by_id() {
         let dir = root();
         let root = dir.path();
         fs::create_dir_all(root.join(".archive/2026-11-05/work")).unwrap();
         fs::write(root.join(".archive/2026-11-05/work/old.md"), "# Old\n").unwrap();
         let (sections, _) = load::load(root).unwrap();
         let archive = load::archive(root).unwrap();
-        let find = |id: &str| {
-            task(id, root, &sections, &archive)
-                .map(|task| of(root, task))
-                .map_err(|err| err.to_string())
-        };
+        let find = |id: &str| find(id, root, &sections, &archive).map_err(|err| err.to_string());
 
-        let fix = Ok("work/fix-the-bug".to_string());
+        let fix = Ok(Found::Task(0, 0));
         assert_eq!(find("work/fix-the-bug"), fix);
         assert_eq!(find(" work/fix-the-bug.md "), fix);
         assert_eq!(find("./work/fix-the-bug"), fix);
@@ -120,23 +126,25 @@ mod tests {
             find(&root.join("work/fix-the-bug.md").display().to_string()),
             fix
         );
-        assert_eq!(
-            find(".archive/2026-11-05/work/old"),
-            Ok(".archive/2026-11-05/work/old".to_string())
-        );
+        assert_eq!(find("home"), Ok(Found::Section(1)));
+        assert_eq!(find("work/"), Ok(Found::Section(0)));
+        let Ok(Found::Archived(old)) = find(".archive/2026-11-05/work/old") else {
+            panic!("archived task not found")
+        };
+        assert_eq!(old.title(), "Old");
 
         let error = |id| find(id).unwrap_err();
         assert_eq!(
             error("work/fix-teh-bug"),
-            "no task 'work/fix-teh-bug', did you mean 'work/fix-the-bug'?"
+            "no section or task 'work/fix-teh-bug', did you mean 'work/fix-the-bug'?"
         );
         assert_eq!(
-            error("work/"),
-            "'work' is a section, not a task, see 'markoff list work'"
+            error("hom"),
+            "no section or task 'hom', did you mean 'home'?"
         );
         assert_eq!(
             error("shopping/milk"),
-            "no task 'shopping/milk', see 'markoff list'"
+            "no section or task 'shopping/milk', see 'markoff list'"
         );
         assert_eq!(
             error(".archive/x"),

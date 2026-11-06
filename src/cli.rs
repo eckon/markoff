@@ -38,12 +38,29 @@ pub enum Command {
         /// Id of the task, as `list` prints it: `work/fix-the-bug`
         id: String,
     },
-    /// Add a task at the end of an existing section, print its path
-    Add {
-        /// Name of the section
-        section: String,
-        /// Title of the task, the filename is made from it
-        title: String,
+    /// Add a task to a section, or a section with --section, print its id
+    Add(write::AddArgs),
+    /// Change the title or body of a task, or the name of a section, print its id
+    Edit(write::EditArgs),
+    /// Move a task within its section or into another one, or a section, print its id
+    Move(write::MoveArgs),
+    /// Delete tasks, or empty sections
+    Delete {
+        /// Ids of the tasks or sections
+        #[arg(required = true)]
+        ids: Vec<String>,
+    },
+    /// Archive tasks as done, a repeating one is hidden until it is due, print where each went
+    Done {
+        /// Ids of the tasks
+        #[arg(required = true)]
+        ids: Vec<String>,
+    },
+    /// Archive tasks as canceled, their heading struck through, like done for a repeating one
+    Cancel {
+        /// Ids of the tasks
+        #[arg(required = true)]
+        ids: Vec<String>,
     },
 }
 
@@ -52,7 +69,27 @@ pub fn run(command: Command, root: &Path, today: Date) -> Result<String> {
     match command {
         Command::List(args) => read::list(root, &args, today),
         Command::Show { id } => read::show(root, &id),
-        Command::Add { section, title } => write::add(root, &section, &title),
+        Command::Add(mut args) => {
+            args.body = stdin(args.body)?;
+            write::add(root, &args)
+        }
+        Command::Edit(mut args) => {
+            args.body = stdin(args.body)?;
+            args.append = stdin(args.append)?;
+            write::edit(root, &args)
+        }
+        Command::Move(args) => write::move_to(root, &args),
+        Command::Delete { ids } => write::delete(root, &ids),
+        Command::Done { ids } => write::done(root, &ids, false, today),
+        Command::Cancel { ids } => write::done(root, &ids, true, today),
+    }
+}
+
+/// The text of an option, read from stdin for `-`, for text too long or awkward to quote.
+fn stdin(text: Option<String>) -> Result<Option<String>> {
+    match text.as_deref() {
+        Some("-") => Ok(Some(std::io::read_to_string(std::io::stdin())?)),
+        _ => Ok(text),
     }
 }
 
@@ -85,6 +122,12 @@ pub mod tests {
         dir
     }
 
+    /// Runs markoff with `args` on `root`, as on the command line.
+    pub fn markoff(root: &Path, args: &[&str]) -> Result<String> {
+        let command = parse(args)?.command.expect("a command");
+        run(command, root, crate::app::tests::TODAY)
+    }
+
     #[test]
     fn parse_commands() {
         Cli::command().debug_assert();
@@ -94,11 +137,8 @@ pub mod tests {
             command(&["list"]),
             Some(Command::List(read::ListArgs::default()))
         );
-        let add = Some(Command::Add {
-            section: "work".to_string(),
-            title: "Fix it".to_string(),
-        });
-        assert_eq!(command(&["add", "work", "Fix it"]), add);
+        let add = command(&["add", "work", "Fix it"]);
+        assert!(matches!(add, Some(Command::Add(_))));
 
         // Options anywhere, also between the arguments of a command.
         let dir = |args: &[&str]| parse(args).unwrap().dir;

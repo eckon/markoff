@@ -172,18 +172,24 @@ In the filter, `C-w` deletes the last word. While a filter is set on the tasks p
 
 ## CLI
 
-For scripts:
+For scripts and AI agents, every action of the TUI except undo:
 
-| Command                  | Action                                                         |
-| ------------------------ | -------------------------------------------------------------- |
-| `list [<section>...]`    | Print sections and tasks as markdown, in the order of the TUI  |
-| `list --archive`         | Print archived tasks by day, the last 7 days or `--from` `--to` |
-| `show <id>`              | Print a task, also an archived one                             |
-| `add <section> <title>`  | Add a task at the end of an existing section, print its path   |
+| Command                                     | Action                                                           |
+| ------------------------------------------- | ---------------------------------------------------------------- |
+| `list [<section>...]`                       | Print sections and tasks as markdown, in the order of the TUI    |
+| `list --archive`                            | Print archived tasks by day, the last 7 days or `--from` `--to`  |
+| `show <id>`                                 | Print a task, also an archived one                               |
+| `add <section> <title>`                     | Add a task, `--body` below its title, `--before` / `--after` one |
+| `add --section <name>`                      | Add a section                                                    |
+| `edit <id> --title / --body / --append`     | Change a task                                                    |
+| `edit <section> --name <name>`              | Rename a section                                                 |
+| `move <id> --to / --before / --after / ...` | Move a task or section                                           |
+| `delete <id>...`                            | Delete tasks, or empty sections                                  |
+| `done <id>...` / `cancel <id>...`           | Like `x` / `X`                                                   |
 
-A task's id is its path in the root without `.md`, `work/fix-login-bug`, shown by `list` after each title. `list --filter` and `list --hidden` work like `/` and `.` in the TUI.
+A task's id is its path in the root without `.md`, `work/fix-login-bug`, shown by `list` after each title. A section's id is its name. Changes print the ids they end with. `-` as text reads it from stdin. `list --filter` and `list --hidden` work like `/` and `.` in the TUI.
 
-`markoff --help` shows all arguments, `markoff <command> --help` those of a command.
+`markoff --help` shows all commands, `markoff <command> --help` the options of one.
 
 ## Development
 

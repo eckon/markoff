@@ -7,7 +7,7 @@ use clap::Args;
 use color_eyre::{Result, eyre::bail};
 use jiff::{ToSpan, civil::Date};
 
-use super::id;
+use super::id::{self, Found};
 use crate::{load, task::Task};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Args)]
@@ -65,14 +65,12 @@ pub fn list(root: &Path, args: &ListArgs, today: Date) -> Result<String> {
                 .collect();
             (query.is_empty() || !tasks.is_empty())
                 .then(|| format!("## {}\n{}", section.name, tasks.concat()))
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    Ok(text)
+        });
+    Ok(document("Tasks", text))
 }
 
-/// The archived tasks from `--from` to `--to` as `## day`, `### section`, then the tasks, by
-/// name like the archive page. Days without tasks are left out.
+/// The archived tasks from `--from` to `--to` as `## day`, latest first, `### section`, then
+/// the tasks, by name like the archive page. Days without tasks are left out.
 fn list_archive(root: &Path, args: &ListArgs, today: Date) -> Result<String> {
     let to = args.to.unwrap_or(today);
     let from = args.from.unwrap_or(to.saturating_sub(6.days()));
@@ -92,26 +90,31 @@ fn list_archive(root: &Path, args: &ListArgs, today: Date) -> Result<String> {
         id::section(name, &names)?;
     }
     let query = args.filter.as_deref().unwrap_or_default();
-    let text = archive
-        .range(from..=to)
-        .filter_map(|(day, done)| {
-            let mut text = format!("## {day}\n");
-            let mut section = None;
-            for done in done.iter().filter(|done| {
-                (args.sections.is_empty() || args.sections.contains(&done.section))
-                    && done.task.matches(query)
-            }) {
-                if section != Some(&done.section) {
-                    text.push_str(&format!("### {}\n", done.section));
-                    section = Some(&done.section);
-                }
-                text.push_str(&item(root, &done.task, ""));
+    let text = archive.range(from..=to).rev().filter_map(|(day, done)| {
+        let mut text = format!("## {day}\n");
+        let mut section = None;
+        for done in done.iter().filter(|done| {
+            (args.sections.is_empty() || args.sections.contains(&done.section))
+                && done.task.matches(query)
+        }) {
+            if section != Some(&done.section) {
+                text.push_str(&format!("### {}\n", done.section));
+                section = Some(&done.section);
             }
-            section.is_some().then_some(text)
-        })
+            text.push_str(&item(root, &done.task, ""));
+        }
+        section.is_some().then_some(text)
+    });
+    Ok(document(&format!("Archive from {from} to {to}"), text))
+}
+
+/// A markdown document of `title` as `# heading` and `sections`, so the output is a valid
+/// document of its own, and never empty.
+fn document(title: &str, sections: impl Iterator<Item = String>) -> String {
+    std::iter::once(format!("# {title}\n"))
+        .chain(sections)
         .collect::<Vec<_>>()
-        .join("\n");
-    Ok(text)
+        .join("\n")
 }
 
 /// A task as list item: ``- Water plants `* * mon` (home/water-plants)``, the rule as in the
@@ -124,14 +127,18 @@ fn item(root: &Path, task: &Task, extra: &str) -> String {
     let rule = (task.repeat.as_ref())
         .map(|repeat| format!(" `{}`", repeat.rule))
         .unwrap_or_default();
-    format!("- {title}{rule} ({}{extra})\n", id::of(root, task))
+    format!("- {title}{rule} ({}{extra})\n", id::of(root, &task.path))
 }
 
 /// The content of the task with `id`, as it is.
 pub fn show(root: &Path, id: &str) -> Result<String> {
     let (sections, _) = load::load(root)?;
     let archive = load::archive(root)?;
-    let content = &id::task(id, root, &sections, &archive)?.content;
+    let content = match id::find(id, root, &sections, &archive)? {
+        Found::Task(s, t) => &sections[s].tasks[t].content,
+        Found::Archived(task) => &task.content,
+        Found::Section(_) => bail!("'{id}' is a section, not a task, see 'markoff list {id}'"),
+    };
     // Ends the output in a newline, so the next prompt starts on a line of its own.
     match content.ends_with('\n') || content.is_empty() {
         true => Ok(content.clone()),
@@ -167,9 +174,9 @@ mod tests {
         let list = |args: &[&str]| list_with(root, args).unwrap();
         assert_eq!(
             list(&[]),
-            "## work\n- Fix the bug (work/fix-the-bug)\n- call bob (work/call-bob)\n\n## home\n"
+            "# Tasks\n\n## work\n- Fix the bug (work/fix-the-bug)\n- call bob (work/call-bob)\n\n## home\n"
         );
-        assert_eq!(list(&["home"]), "## home\n");
+        assert_eq!(list(&["home"]), "# Tasks\n\n## home\n");
         assert_eq!(
             list_with(root, &["wrok"]).unwrap_err().to_string(),
             "no section 'wrok', did you mean 'work'?"
@@ -186,10 +193,13 @@ mod tests {
             ),
         )
         .unwrap();
-        assert_eq!(list(&["home"]), "## home\n- Water `* * *` (home/water)\n");
+        assert_eq!(
+            list(&["home"]),
+            "# Tasks\n\n## home\n- Water `* * *` (home/water)\n"
+        );
         assert_eq!(
             list(&["home", "--hidden"]),
-            "## home\n- Water `* * *` (home/water)\n\
+            "# Tasks\n\n## home\n- Water `* * *` (home/water)\n\
              - Dust `* * mon` (home/dust, due 2026-10-26)\n\
              - Never `30 2 *` (home/never, never due)\n"
         );
@@ -198,15 +208,15 @@ mod tests {
         fs::write(root.join("home/water.md"), "# Water `* * *`\n\nthe BUG\n").unwrap();
         assert_eq!(
             list(&["--filter", "bug"]),
-            "## work\n- Fix the bug (work/fix-the-bug)\n\n## home\n- Water `* * *` (home/water)\n"
+            "# Tasks\n\n## work\n- Fix the bug (work/fix-the-bug)\n\n## home\n- Water `* * *` (home/water)\n"
         );
-        assert_eq!(list(&["--filter", "nothing"]), "");
+        assert_eq!(list(&["--filter", "nothing"]), "# Tasks\n");
 
         // A canceled one by hand stays struck through.
         fs::write(root.join("work/call-bob.md"), "# ~~Call Bob~~\n").unwrap();
         assert_eq!(
             list(&["work"]),
-            "## work\n- Fix the bug (work/fix-the-bug)\n- ~~Call Bob~~ (work/call-bob)\n"
+            "# Tasks\n\n## work\n- Fix the bug (work/fix-the-bug)\n- ~~Call Bob~~ (work/call-bob)\n"
         );
     }
 
@@ -229,13 +239,14 @@ mod tests {
 
         assert_eq!(
             list(&["--archive"]).unwrap(),
-            "## 2026-10-16\n### gone\n- C (.archive/2026-10-16/gone/c)\n\
-             ### work\n- ~~A~~ (.archive/2026-10-16/work/a)\n- B (.archive/2026-10-16/work/b)\n\
-             \n## 2026-10-22\n### home\n- D (.archive/2026-10-22/home/d)\n"
+            "# Archive from 2026-10-16 to 2026-10-22\n\n\
+             ## 2026-10-22\n### home\n- D (.archive/2026-10-22/home/d)\n\n\
+             ## 2026-10-16\n### gone\n- C (.archive/2026-10-16/gone/c)\n\
+             ### work\n- ~~A~~ (.archive/2026-10-16/work/a)\n- B (.archive/2026-10-16/work/b)\n"
         );
         assert_eq!(
             list(&["--archive", "--from", "2026-10-01", "--to", "2026-10-15"]).unwrap(),
-            "## 2026-10-15\n### work\n- Too old (.archive/2026-10-15/work/too-old)\n"
+            "# Archive from 2026-10-01 to 2026-10-15\n\n## 2026-10-15\n### work\n- Too old (.archive/2026-10-15/work/too-old)\n"
         );
         assert_eq!(
             list(&["--archive", "--to", "2026-10-18"]).unwrap(),
@@ -244,11 +255,13 @@ mod tests {
         // Sections and the filter like the open tasks, also a section gone from the root.
         assert_eq!(
             list(&["--archive", "gone"]).unwrap(),
-            "## 2026-10-16\n### gone\n- C (.archive/2026-10-16/gone/c)\n"
+            "# Archive from 2026-10-16 to 2026-10-22\n\n\
+             ## 2026-10-16\n### gone\n- C (.archive/2026-10-16/gone/c)\n"
         );
         assert_eq!(
             list(&["--archive", "--filter", "bug"]).unwrap(),
-            "## 2026-10-16\n### work\n- B (.archive/2026-10-16/work/b)\n"
+            "# Archive from 2026-10-16 to 2026-10-22\n\n\
+             ## 2026-10-16\n### work\n- B (.archive/2026-10-16/work/b)\n"
         );
         assert_eq!(
             list(&["--archive", "--from", "2026-10-23"]),
@@ -272,7 +285,11 @@ mod tests {
         assert_eq!(show(root, "work/call-bob").unwrap(), "no newline\n");
         assert_eq!(
             show(root, "work/fix").unwrap_err().to_string(),
-            "no task 'work/fix', did you mean 'work/fix-the-bug'?"
+            "no section or task 'work/fix', did you mean 'work/fix-the-bug'?"
+        );
+        assert_eq!(
+            show(root, "work").unwrap_err().to_string(),
+            "'work' is a section, not a task, see 'markoff list work'"
         );
     }
 }

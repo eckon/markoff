@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use jiff::civil::Date;
 
 use crate::{
+    archive::ArchiveDir,
     name::slugify,
     op::Op,
     repeat,
@@ -94,45 +95,41 @@ pub fn repeat_done(
     file.write(&state).into_iter().collect()
 }
 
-/// `X`: strikes the heading of task `t` of section `s` through, see [`task::cancel`], then
-/// [`archive`] moves it. `None` if it is struck through by hand already.
-pub fn cancel(sections: &[Section], s: usize, t: usize) -> Option<Op> {
-    let task = &sections[s].tasks[t];
-    (!task.canceled).then(|| Op::Update {
-        path: task.path.clone(),
-        before: task.content.clone(),
-        after: task::cancel(&task.content, &task.title()),
-    })
-}
-
-/// `x`: moves task `t` of section `s` as it is into `dir`, its section in today's archive.
-///
-/// `missing` are the directories up to `dir` that do not exist yet, outermost first: created
-/// as ops, so undo leaves no empty ones behind. `taken` are the names already in `dir`, a task
-/// done twice a day gets a number.
+/// `x`, and `X` with `cancel`: moves task `t` of section `s` into `to`, its section in today's
+/// archive. As it is, a canceled one with the heading struck through first (see
+/// [`task::cancel`]), unless it is already. Returns the ops and the new path.
 pub fn archive(
     sections: &[Section],
     s: usize,
     t: usize,
-    dir: &Path,
-    missing: &[PathBuf],
-    taken: &[String],
+    cancel: bool,
+    to: &ArchiveDir,
     file: &StateFile,
-) -> Vec<Op> {
+) -> (Vec<Op>, PathBuf) {
     let task = &sections[s].tasks[t];
-    let name = unique_slug(taken, task.stem().to_string());
+    let path = (to
+        .path
+        .join(unique_slug(&to.taken, task.stem().to_string())))
+    .with_extension(EXTENSION);
     let mut state = State::of(sections);
     state.sections[s].tasks.remove(t);
 
-    let mut ops: Vec<Op> = (missing.iter())
+    let mut ops: Vec<Op> = (to.missing.iter())
         .map(|path| Op::CreateDir { path: path.clone() })
         .collect();
+    if cancel && !task.canceled {
+        ops.push(Op::Update {
+            path: task.path.clone(),
+            before: task.content.clone(),
+            after: task::cancel(&task.content, &task.title()),
+        });
+    }
     ops.push(Op::Rename {
         from: task.path.clone(),
-        to: dir.join(name).with_extension(EXTENSION),
+        to: path.clone(),
     });
     ops.extend(file.write(&state));
-    ops
+    (ops, path)
 }
 
 /// A task file, as far as its name is concerned.
@@ -280,24 +277,19 @@ pub fn move_task(
     (ops, path)
 }
 
-/// `J` / `K` on a section header: moves section `s` one place down or up. Returns the ops and
-/// its directory, which stays the same.
-///
-/// `None` at the first or last place.
+/// `J` / `K` on a section header: moves section `s` to position `index`, counted without it.
+/// Only the order changes. Returns the ops and its directory, which stays the same.
 pub fn move_section(
     sections: &[Section],
     s: usize,
-    down: bool,
+    index: usize,
     file: &StateFile,
-) -> Option<(Vec<Op>, PathBuf)> {
-    let other = if down { s + 1 } else { s.checked_sub(1)? };
-    if other >= sections.len() {
-        return None;
-    }
+) -> (Vec<Op>, PathBuf) {
     let mut state = State::of(sections);
-    state.sections.swap(s, other);
+    let section = state.sections.remove(s);
+    state.sections.insert(index, section);
     let ops = file.write(&state).into_iter().collect();
-    Some((ops, sections[s].dir.clone()))
+    (ops, sections[s].dir.clone())
 }
 
 /// The renames that give `tasks` in `dir` their wanted names, and their lines in the state
@@ -517,9 +509,14 @@ mod tests {
         let s = tree(&[("work", &["fix-bug.md", "b.md"])]);
         let dir = Path::new(".archive/2026-10-14/work");
         let file = file_for(&s);
+        let to = |missing: Vec<PathBuf>, taken: &[&str]| ArchiveDir {
+            path: dir.to_path_buf(),
+            missing,
+            taken: taken.iter().map(|name| name.to_string()).collect(),
+        };
 
-        let missing = [dir.parent().unwrap().to_path_buf(), dir.to_path_buf()];
-        let ops = archive(&s, 0, 0, dir, &missing, &[], &file);
+        let missing = vec![dir.parent().unwrap().to_path_buf(), dir.to_path_buf()];
+        let (ops, path) = archive(&s, 0, 0, false, &to(missing, &[]), &file);
         assert_eq!(
             describe(&ops),
             [
@@ -529,21 +526,33 @@ mod tests {
                 "state # work b"
             ]
         );
+        assert_eq!(path, dir.join("fix-bug.md"));
 
-        let ops = archive(&s, 0, 0, dir, &[], &["fix-bug".to_string()], &file);
+        let (ops, path) = archive(&s, 0, 0, false, &to(vec![], &["fix-bug"]), &file);
         assert_eq!(describe(&ops)[0], "rename fix-bug.md -> fix-bug-2.md");
+        assert_eq!(path, dir.join("fix-bug-2.md"));
     }
 
     #[test]
     fn cancel_strikes_the_heading() {
         let s = tree_with(&[("work", &[("a.md", "# A\n\nbody"), ("b.md", "# ~~B~~")])]);
-        let op = cancel(&s, 0, 0).unwrap();
-        assert_eq!(describe(std::slice::from_ref(&op)), ["update a.md"]);
-        let Op::Update { after, .. } = op else {
+        let to = ArchiveDir {
+            path: PathBuf::from(".archive/2026-10-14/work"),
+            missing: vec![],
+            taken: vec![],
+        };
+        let (ops, _) = archive(&s, 0, 0, true, &to, &file_for(&s));
+        assert_eq!(describe(&ops)[..2], ["update a.md", "rename a.md -> a.md"]);
+        let Op::Update { after, .. } = &ops[0] else {
             unreachable!()
         };
         assert_eq!(after, "# ~~A~~\n\nbody");
-        assert_eq!(cancel(&s, 0, 1), None, "struck through already");
+        let (ops, _) = archive(&s, 0, 1, true, &to, &file_for(&s));
+        assert_eq!(
+            describe(&ops)[0],
+            "rename b.md -> b.md",
+            "struck through already"
+        );
     }
 
     #[test]
@@ -700,19 +709,12 @@ mod tests {
     fn move_section_only_writes_the_order() {
         let s = tree(&[("work", &[]), ("home", &[]), ("x", &[])]);
 
-        let (ops, path) = move_section(&s, 0, true, &file_for(&s)).unwrap();
+        let (ops, path) = move_section(&s, 0, 1, &file_for(&s));
         assert_eq!(describe(&ops), ["state # home | # work | # x"]);
         assert_eq!(path, Path::new("root/work"));
 
-        let (ops, _) = move_section(&s, 2, false, &file_for(&s)).unwrap();
-        assert_eq!(describe(&ops), ["state # work | # x | # home"]);
-    }
-
-    #[test]
-    fn move_section_stops_at_edges() {
-        let s = tree(&[("work", &[]), ("home", &[])]);
-        let file = file_for(&s);
-        assert_eq!(move_section(&s, 0, false, &file), None, "already first");
-        assert_eq!(move_section(&s, 1, true, &file), None, "already last");
+        let (ops, _) = move_section(&s, 2, 0, &file_for(&s));
+        assert_eq!(describe(&ops), ["state # x | # work | # home"]);
+        assert_eq!(move_section(&s, 1, 1, &file_for(&s)).0, [], "same place");
     }
 }
