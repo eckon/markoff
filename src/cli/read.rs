@@ -10,7 +10,7 @@ use jiff::{ToSpan, civil::Date};
 use super::id::{self, Found};
 use crate::{load, task::Task};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Args)]
+#[derive(Debug, Args)]
 pub struct ListArgs {
     /// Only these sections
     #[arg(value_name = "SECTION")]
@@ -150,21 +150,15 @@ pub fn show(root: &Path, id: &str) -> Result<String> {
 mod tests {
     use std::fs;
 
-    use clap::Parser;
-
     use super::*;
     use crate::{
         app::tests::TODAY,
-        cli::{Cli, Command, tests::root},
+        cli::tests::{markoff, root},
     };
 
-    /// `list` with `args` as on the command line.
+    /// `list` with `args`, as on the command line.
     fn list_with(root: &Path, args: &[&str]) -> Result<String> {
-        let cli = Cli::try_parse_from([&["markoff", "list"], args].concat())?;
-        let Some(Command::List(args)) = cli.command else {
-            unreachable!()
-        };
-        list(root, &args, TODAY)
+        markoff(root, &[&["list"], args].concat())
     }
 
     #[test]

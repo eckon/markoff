@@ -18,7 +18,7 @@ use crate::{
     task::{HEADING, Section, split_heading},
 };
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Args)]
+#[derive(Debug, Args)]
 pub struct AddArgs {
     /// Section of the new task
     #[arg(
@@ -26,7 +26,7 @@ pub struct AddArgs {
         conflicts_with = "new_section"
     )]
     section: Option<String>,
-    /// Title of the new task, with its rule for a repeating one: "Water plants `* * mon`"
+    /// Title of the new task, with its rule for a repeating one: 'Water plants `* * mon`'
     #[arg(required_unless_present = "new_section")]
     title: Option<String>,
     /// Add a section named NAME instead of a task
@@ -48,7 +48,7 @@ pub struct AddArgs {
     after: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Args)]
+#[derive(Debug, Args)]
 #[command(group(ArgGroup::new("change").required(true).multiple(true)))]
 pub struct EditArgs {
     /// Id of the task or section
@@ -78,7 +78,7 @@ pub struct EditArgs {
     name: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Args)]
+#[derive(Debug, Args)]
 #[command(group(ArgGroup::new("place").required(true).multiple(true)))]
 pub struct MoveArgs {
     /// Id of the task or section
@@ -187,7 +187,6 @@ pub fn edit(root: &Path, args: &EditArgs) -> Result<String> {
             {
                 bail!("cannot edit: empty title");
             }
-            let (sections, _) = normalize(root)?;
             let task = &sections[s].tasks[t];
             let (heading, body) = split_heading(&task.content);
             let title = match &args.title {
@@ -205,8 +204,8 @@ pub fn edit(root: &Path, args: &EditArgs) -> Result<String> {
                 before: task.content.clone(),
                 after: content(&title, &body),
             }])?;
-            // A new title renames the file, now rather than on the next write, so the id
-            // printed is the one that stays.
+            // Normalize after the write, it does the rename of a new title too. Now rather than
+            // on the next write, so the id printed is the one that stays.
             let (sections, _) = normalize(root)?;
             Ok(format!("{}\n", id::of(root, &sections[s].tasks[t].path)))
         }
