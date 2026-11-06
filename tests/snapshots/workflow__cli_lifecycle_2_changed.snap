@@ -1,0 +1,65 @@
+---
+source: tests/workflow.rs
+expression: cli.checkpoint()
+---
+$ markoff show work/fix-login-bug
+# Fix login bug
+
+- [ ] reproduce
+$ markoff edit work/fix-login-bug --append '- [ ] fix'
+work/fix-login-bug
+$ markoff edit work/write-docs --title 'Write the docs'
+work/write-the-docs
+$ markoff edit home --name Private
+private
+$ markoff move work/write-the-docs --top
+work/write-the-docs
+$ markoff move private/call-bob --to work
+work/call-bob
+$ markoff move private --before work
+private
+$ markoff list --filter fix
+# Tasks
+
+## work
+- Fix login bug (work/fix-login-bug)
+$ markoff list
+# Tasks
+
+## private
+- Water plants `* * *` (private/water-plants)
+
+## work
+- Write the docs (work/write-the-docs)
+- Fix login bug (work/fix-login-bug)
+- Call Bob (work/call-bob)
+
+--- .markoff
+# private
+water-plants
+
+# work
+write-the-docs
+fix-login-bug
+call-bob
+
+--- private/
+
+--- private/water-plants.md
+# Water plants `* * *`
+
+--- work/
+
+--- work/call-bob.md
+# Call Bob
+
+--- work/fix-login-bug.md
+# Fix login bug
+
+- [ ] reproduce
+- [ ] fix
+
+--- work/write-the-docs.md
+# Write the docs
+
+Start with the CLI.

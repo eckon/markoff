@@ -1,0 +1,53 @@
+---
+source: tests/workflow.rs
+expression: cli.checkpoint()
+---
+$ markoff done work/fix-login-bug private/water-plants
+.archive/[date]/work/fix-login-bug
+private/water-plants (due [date])
+$ markoff cancel work/call-bob
+.archive/[date]/work/call-bob
+$ markoff list
+# Tasks
+
+## private
+
+## work
+- Write the docs (work/write-the-docs)
+$ markoff list --hidden
+# Tasks
+
+## private
+- Water plants `* * *` (private/water-plants, due [date])
+
+## work
+- Write the docs (work/write-the-docs)
+$ markoff list --archive
+# Archive from [date] to [date]
+
+## [date]
+### work
+- ~~Call Bob~~ (.archive/[date]/work/call-bob)
+- Fix login bug (.archive/[date]/work/fix-login-bug)
+$ markoff show .archive/[date]/work/call-bob
+# ~~Call Bob~~
+$ markoff delete work/write-the-docs work private/water-plants private
+$ markoff list
+# Tasks
+
+--- .archive/
+
+--- .archive/[date]/
+
+--- .archive/[date]/work/
+
+--- .archive/[date]/work/call-bob.md
+# ~~Call Bob~~
+
+--- .archive/[date]/work/fix-login-bug.md
+# Fix login bug
+
+- [ ] reproduce
+- [ ] fix
+
+--- .markoff

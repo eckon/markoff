@@ -1,0 +1,96 @@
+---
+source: tests/workflow.rs
+expression: cli.checkpoint()
+---
+$ markoff list
+# Tasks
+$ markoff add work 'Fix bug'
+markoff: no section 'work', there are none yet
+[exit 1]
+$ markoff add --section work
+work
+$ markoff add work 'Fix bug'
+work/fix-bug
+$ markoff add work 'Call Bob'
+work/call-bob
+$ markoff show work/fix-bgu
+markoff: no section or task 'work/fix-bgu', did you mean 'work/fix-bug'?
+[exit 1]
+$ markoff add wrok Another
+markoff: no section 'wrok', did you mean 'work'?
+[exit 1]
+$ markoff done work
+markoff: 'work' is a section, not a task, see 'markoff list work'
+[exit 1]
+$ markoff edit work --title Job
+markoff: 'work' is a section, only --name changes it
+[exit 1]
+$ markoff move work/call-bob --after work/call-bob
+markoff: 'work/call-bob' is the task to move, it cannot go next to itself
+[exit 1]
+$ markoff delete work/fix-bug work/nope
+markoff: no section or task 'work/nope', see 'markoff list'
+[exit 1]
+$ markoff delete work
+markoff: 'work' is not empty, delete or move its tasks first: work/fix-bug, work/call-bob
+[exit 1]
+$ markoff lsit
+error: unrecognized subcommand 'lsit'
+
+  tip: a similar subcommand exists: 'list'
+
+Usage: markoff [OPTIONS] [COMMAND]
+
+For more information, try '--help'.
+[exit 2]
+$ markoff edit work/fix-bug
+error: the following required arguments were not provided:
+  <--title <TITLE>|--body <TEXT>|--append <TEXT>|--name <NAME>>
+
+Usage: markoff edit <--title <TITLE>|--body <TEXT>|--append <TEXT>|--name <NAME>> <ID>
+
+For more information, try '--help'.
+[exit 2]
+$ markoff list --from [date]
+error: the following required arguments were not provided:
+  --archive
+
+Usage: markoff list --archive --from <YYYY-MM-DD> [SECTION]...
+
+For more information, try '--help'.
+[exit 2]
+$ markoff list
+# Tasks
+
+## work
+- Fix the bug (work/fix-bug)
+- Call Bob (work/call-bob)
+$ markoff done work/fix-bug
+.archive/[date]/work/fix-the-bug
+$ markoff edit .archive/[date]/work/fix-the-bug --append late
+markoff: '.archive/[date]/work/fix-the-bug' is archived, archived tasks are read-only
+[exit 1]
+$ markoff list --archive --filter fix
+# Archive from [date] to [date]
+
+## [date]
+### work
+- Fix the bug (.archive/[date]/work/fix-the-bug)
+
+--- .archive/
+
+--- .archive/[date]/
+
+--- .archive/[date]/work/
+
+--- .archive/[date]/work/fix-the-bug.md
+# Fix the bug
+
+--- .markoff
+# work
+call-bob
+
+--- work/
+
+--- work/call-bob.md
+# Call Bob

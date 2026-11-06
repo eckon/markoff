@@ -83,8 +83,23 @@ pub fn find<'a>(
     if id.starts_with(archive::DIR) {
         bail!("no task '{id}', see 'markoff list --archive'");
     }
-    let ids: Vec<_> = ids.iter().map(|(other, _)| other.as_str()).collect();
-    match closest(id, &ids) {
+    // Compared with its own kind, a task within its section if that exists: the shared start
+    // would make `work/nope` close to any task in `work`.
+    let (section, stem) = id.split_once('/').unwrap_or_default();
+    let close = match sections.iter().find(|other| other.name == section) {
+        Some(section) => {
+            let stems: Vec<_> = section.tasks.iter().map(|task| task.stem()).collect();
+            closest(stem, &stems).map(|stem| format!("{}/{stem}", section.name))
+        }
+        None => {
+            let ids: Vec<_> = (ids.iter())
+                .filter(|(_, found)| matches!(found, Found::Task(..)) == id.contains('/'))
+                .map(|(other, _)| other.as_str())
+                .collect();
+            closest(id, &ids).map(str::to_string)
+        }
+    };
+    match close {
         Some(close) => bail!("no section or task '{id}', did you mean '{close}'?"),
         None => bail!("no section or task '{id}', see 'markoff list'"),
     }
@@ -141,6 +156,10 @@ mod tests {
         assert_eq!(
             error("hom"),
             "no section or task 'hom', did you mean 'home'?"
+        );
+        assert_eq!(
+            error("work/nope"),
+            "no section or task 'work/nope', see 'markoff list'"
         );
         assert_eq!(
             error("shopping/milk"),

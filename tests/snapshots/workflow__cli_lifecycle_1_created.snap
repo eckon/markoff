@@ -1,0 +1,55 @@
+---
+source: tests/workflow.rs
+expression: cli.checkpoint()
+---
+$ markoff add --section Work
+work
+$ markoff add --section home
+home
+$ markoff add work 'Fix login bug' --body '- [ ] reproduce'
+work/fix-login-bug
+$ echo "Start with the CLI.\n" | markoff add work 'Write docs' --body -
+work/write-docs
+$ markoff add home 'Water plants `* * *`'
+home/water-plants
+$ markoff add home 'Call Bob' --before home/water-plants
+home/call-bob
+$ markoff list
+# Tasks
+
+## work
+- Fix login bug (work/fix-login-bug)
+- Write docs (work/write-docs)
+
+## home
+- Call Bob (home/call-bob)
+- Water plants `* * *` (home/water-plants)
+
+--- .markoff
+# work
+fix-login-bug
+write-docs
+
+# home
+call-bob
+water-plants
+
+--- home/
+
+--- home/call-bob.md
+# Call Bob
+
+--- home/water-plants.md
+# Water plants `* * *`
+
+--- work/
+
+--- work/fix-login-bug.md
+# Fix login bug
+
+- [ ] reproduce
+
+--- work/write-docs.md
+# Write docs
+
+Start with the CLI.
