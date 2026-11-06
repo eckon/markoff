@@ -69,6 +69,31 @@ pub fn read_if_exists(path: &Path) -> Result<Option<String>> {
     }
 }
 
+/// Where a task of `section` done on `date` goes in the archive of `root`, with what is
+/// there already.
+pub fn archive_dir(
+    root: &Path,
+    date: Date,
+    section: &str,
+    archive: &archive::Archive,
+) -> archive::ArchiveDir {
+    let path = root.join(archive::DIR).join(date.to_string()).join(section);
+    let mut missing: Vec<PathBuf> = (path.ancestors())
+        .take_while(|dir| !dir.exists())
+        .map(Path::to_path_buf)
+        .collect();
+    missing.reverse();
+    let taken = (archive.get(&date).into_iter().flatten())
+        .filter(|done| done.section == section)
+        .map(|done| done.task.stem().to_string())
+        .collect();
+    archive::ArchiveDir {
+        path,
+        missing,
+        taken,
+    }
+}
+
 /// The done tasks per day from the archive in `root`, each day read like the root without a
 /// state file: sections and tasks by name. Entries whose name is no date are skipped. No
 /// `.archive/` yet means nothing was done.

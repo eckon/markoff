@@ -1,12 +1,10 @@
 //! The changes of the `change` group that need no editor: done and cancel, move, delete and
 //! undo. Each one is a list of ops from [`edit`], applied as one undo step.
 
-use std::path::{Path, PathBuf};
-
 use color_eyre::{Result, eyre::eyre};
 
 use super::{App, Row, Status};
-use crate::{edit, op};
+use crate::{edit, load, op};
 
 impl App {
     /// `x`, and `X` with `cancel`. A repeating task is the same either way, it is only there
@@ -24,31 +22,8 @@ impl App {
             }
             return Ok(());
         }
-        let section = &self.sections[s].name;
-        let dir = (self.root.join(crate::archive::DIR))
-            .join(date.to_string())
-            .join(section);
-        let mut missing: Vec<PathBuf> = (dir.ancestors())
-            .take_while(|dir| !dir.exists())
-            .map(Path::to_path_buf)
-            .collect();
-        missing.reverse();
-        let taken: Vec<String> = (self.archive.get(&date).into_iter().flatten())
-            .filter(|done| &done.section == section)
-            .map(|done| done.task.stem().to_string())
-            .collect();
-
-        let strike = cancel.then(|| edit::cancel(&self.sections, s, t)).flatten();
-        let archive = edit::archive(
-            &self.sections,
-            s,
-            t,
-            &dir,
-            &missing,
-            &taken,
-            &self.state_file,
-        );
-        let ops = strike.into_iter().chain(archive).collect();
+        let to = load::archive_dir(&self.root, date, &self.sections[s].name, &self.archive);
+        let (ops, _) = edit::archive(&self.sections, s, t, cancel, &to, &self.state_file);
         self.apply(ops)?;
         let message = match cancel {
             true => "task canceled (u to undo)",
@@ -69,10 +44,16 @@ impl App {
                 };
                 edit::move_task(&self.sections, s, t, to, index, file)
             }
-            Some(Row::Section(s)) => match edit::move_section(&self.sections, s, down, file) {
-                Some(result) => result,
-                None => return Ok(()),
-            },
+            Some(Row::Section(s)) => {
+                let index = match down {
+                    true => s + 1,
+                    false => s.wrapping_sub(1),
+                };
+                if index >= self.sections.len() {
+                    return Ok(());
+                }
+                edit::move_section(&self.sections, s, index, file)
+            }
             None => return Ok(()),
         };
         self.apply(ops)?;
