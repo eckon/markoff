@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/eckon/markoff/compare/v0.7.0...v0.8.0) - 2026-11-06
+
+### Added
+
+- *(cli)* add task ids
+- *(cli)* enhance list and show functionality
+- *(cli)* add modifying actions
+- *(cli)* add skill setup for ai agents
+
 ### Changed
 
 - the command line uses clap: `--help` has a new format, every command has its own `--help`, wrong usage exits with `2` instead of `1`
