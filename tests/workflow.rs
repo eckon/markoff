@@ -1,4 +1,5 @@
-//! End to end: the real binary in a pseudo terminal, driven by keys like a user would.
+//! End to end: the real binary in a pseudo terminal, driven by keys like a user would. And
+//! its commands, run like a script or an agent would ([`Cli`]).
 //!
 //! Few long workflows instead of many small cases, the unit tests cover the details. Each one
 //! snapshots the screen and the files on disk at a few checkpoints (`cargo insta review`).
@@ -198,18 +199,9 @@ impl Markoff {
         rows.join("\n")
     }
 
-    /// The screen, then everything in the root: directories as `name/`, files with content.
+    /// The screen, then everything in the root.
     fn state(&self) -> String {
-        let mut out = format!("{}\n", self.screen().trim_end());
-        for path in entries(self.root.path()) {
-            let name = path.strip_prefix(self.root.path()).unwrap().display();
-            if path.is_dir() {
-                out += &format!("\n--- {name}/\n");
-            } else {
-                out += &format!("\n--- {name}\n{}", fs::read_to_string(&path).unwrap());
-            }
-        }
-        out
+        format!("{}\n{}", self.screen().trim_end(), files(self.root.path()))
     }
 
     #[track_caller]
@@ -232,9 +224,94 @@ impl Markoff {
     }
 }
 
+/// The commands on their own root and config, run one after another like a script would.
+/// Keeps a transcript of what ran and what it printed, for the snapshots.
+struct Cli {
+    root: TempDir,
+    home: TempDir,
+    transcript: String,
+}
+
+impl Cli {
+    fn new() -> Self {
+        Self {
+            root: TempDir::new().unwrap(),
+            home: TempDir::new().unwrap(),
+            transcript: String::new(),
+        }
+    }
+
+    /// Runs `markoff <args>`, the output goes into the transcript.
+    fn run(&mut self, args: &[&str]) {
+        self.run_with_stdin(args, "");
+    }
+
+    /// Runs `markoff <args>` with `stdin`, as `echo <stdin> | markoff <args>` in the transcript.
+    fn run_with_stdin(&mut self, args: &[&str], stdin: &str) {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_markoff"))
+            .args(args)
+            .env_clear()
+            .env("MARKOFF_DIR", self.root.path())
+            .env("HOME", self.home.path())
+            .env("XDG_CONFIG_HOME", self.home.path())
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(stdin.as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+
+        let quoted: Vec<String> = (args.iter())
+            .map(
+                |arg| match arg.contains([' ', '`', '\n']) || arg.is_empty() {
+                    true => format!("'{arg}'"),
+                    false => arg.to_string(),
+                },
+            )
+            .collect();
+        if !stdin.is_empty() {
+            self.transcript += &format!("$ echo {stdin:?} |");
+        } else {
+            self.transcript += "$";
+        }
+        self.transcript += &format!(" markoff {}\n", quoted.join(" "));
+        self.transcript += &String::from_utf8(output.stdout).unwrap();
+        self.transcript += &String::from_utf8(output.stderr).unwrap();
+        if !output.status.success() {
+            self.transcript += &format!("[exit {}]\n", output.status.code().unwrap());
+        }
+    }
+
+    /// What ran since the last checkpoint, then everything in the root.
+    fn checkpoint(&mut self) -> String {
+        let transcript = std::mem::take(&mut self.transcript);
+        format!("{transcript}{}", files(self.root.path()))
+    }
+}
+
 fn write(path: &Path, content: &str) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, content).unwrap();
+}
+
+/// Everything in `root`: directories as `name/`, files with content.
+fn files(root: &Path) -> String {
+    let mut out = String::new();
+    for path in entries(root) {
+        let name = path.strip_prefix(root).unwrap().display();
+        if path.is_dir() {
+            out += &format!("\n--- {name}/\n");
+        } else {
+            out += &format!("\n--- {name}\n{}", fs::read_to_string(&path).unwrap());
+        }
+    }
+    out
 }
 
 /// Everything below `dir`, sorted, hidden entries included (`.markoff`, `.archive`).
@@ -540,4 +617,93 @@ fn archive() {
     app.wait_for("──[1]─ work");
 
     app.quit();
+}
+
+/// The commands from an empty root to an empty root again, as an agent would use them:
+/// create, view, change, move, finish and clean up.
+#[test]
+fn cli_lifecycle() {
+    let mut cli = Cli::new();
+
+    // Sections first, a task always lives in one. The body can come from stdin.
+    cli.run(&["add", "--section", "Work"]);
+    cli.run(&["add", "--section", "home"]);
+    cli.run(&["add", "work", "Fix login bug", "--body", "- [ ] reproduce"]);
+    cli.run_with_stdin(
+        &["add", "work", "Write docs", "--body", "-"],
+        "Start with the CLI.\n",
+    );
+    cli.run(&["add", "home", "Water plants `* * *`"]);
+    cli.run(&["add", "home", "Call Bob", "--before", "home/water-plants"]);
+    cli.run(&["list"]);
+    snapshot!("cli_lifecycle_1_created", cli.checkpoint());
+
+    // Viewing and changing: a title renames the file, the new id is printed.
+    cli.run(&["show", "work/fix-login-bug"]);
+    cli.run(&["edit", "work/fix-login-bug", "--append", "- [ ] fix"]);
+    cli.run(&["edit", "work/write-docs", "--title", "Write the docs"]);
+    cli.run(&["edit", "home", "--name", "Private"]);
+    cli.run(&["move", "work/write-the-docs", "--top"]);
+    cli.run(&["move", "private/call-bob", "--to", "work"]);
+    cli.run(&["move", "private", "--before", "work"]);
+    cli.run(&["list", "--filter", "fix"]);
+    cli.run(&["list"]);
+    snapshot!("cli_lifecycle_2_changed", cli.checkpoint());
+
+    // Finishing: archived as done or canceled, a repeating task hides until it is due.
+    cli.run(&["done", "work/fix-login-bug", "private/water-plants"]);
+    cli.run(&["cancel", "work/call-bob"]);
+    cli.run(&["list"]);
+    cli.run(&["list", "--hidden"]);
+    cli.run(&["list", "--archive"]);
+    cli.run(&[
+        "show",
+        &format!(".archive/{}/work/call-bob", jiff::Zoned::now().date()),
+    ]);
+
+    // Cleaning up: a section goes with its last tasks.
+    cli.run(&[
+        "delete",
+        "work/write-the-docs",
+        "work",
+        "private/water-plants",
+        "private",
+    ]);
+    cli.run(&["list"]);
+    snapshot!("cli_lifecycle_3_finished", cli.checkpoint());
+}
+
+/// What goes wrong for an agent, and how the errors lead it to the right call. A refused call
+/// changes nothing.
+#[test]
+fn cli_mistakes() {
+    let mut cli = Cli::new();
+    cli.run(&["list"]);
+    cli.run(&["add", "work", "Fix bug"]);
+    cli.run(&["add", "--section", "work"]);
+    cli.run(&["add", "work", "Fix bug"]);
+    cli.run(&["add", "work", "Call Bob"]);
+
+    // Typos get a suggestion, a section where a task belongs says so.
+    cli.run(&["show", "work/fix-bgu"]);
+    cli.run(&["add", "wrok", "Another"]);
+    cli.run(&["done", "work"]);
+    cli.run(&["edit", "work", "--title", "Job"]);
+    cli.run(&["move", "work/call-bob", "--after", "work/call-bob"]);
+    cli.run(&["delete", "work/fix-bug", "work/nope"]);
+    cli.run(&["delete", "work"]);
+
+    // Wrong usage is clap's, with exit code 2.
+    cli.run(&["lsit"]);
+    cli.run(&["edit", "work/fix-bug"]);
+    cli.run(&["list", "--from", "2026-01-01"]);
+
+    // A title changed by hand: the old id still works once, the new one is printed.
+    write(&cli.root.path().join("work/fix-bug.md"), "# Fix the bug\n");
+    cli.run(&["list"]);
+    cli.run(&["done", "work/fix-bug"]);
+    let archived = format!(".archive/{}/work/fix-the-bug", jiff::Zoned::now().date());
+    cli.run(&["edit", &archived, "--append", "late"]);
+    cli.run(&["list", "--archive", "--filter", "fix"]);
+    snapshot!("cli_mistakes", cli.checkpoint());
 }
