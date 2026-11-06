@@ -1,7 +1,7 @@
 //! The command line: options and commands for scripting, run instead of the TUI and printing
 //! to stdout.
 //!
-//! The TUI stays the main way to use markoff, commands only make it scriptable. Parsed by clap,
+//! A command for every action of the TUI but undo, for scripts and agents. Parsed by clap,
 //! which also writes `--help` from the doc comments of [`Cli`] and [`Command`]. Commands name
 //! tasks and sections by their id, see [`id`].
 
@@ -29,7 +29,7 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
+#[derive(Debug, Subcommand)]
 pub enum Command {
     /// Print a guide for AI agents: what markoff is and how to use these commands
     Skill,
@@ -139,19 +139,19 @@ pub mod tests {
     fn parse_commands() {
         Cli::command().debug_assert();
         let command = |args: &[&str]| parse(args).unwrap().command;
-        assert_eq!(command(&[]), None);
-        assert_eq!(
-            command(&["list"]),
-            Some(Command::List(read::ListArgs::default()))
-        );
-        let add = command(&["add", "work", "Fix it"]);
-        assert!(matches!(add, Some(Command::Add(_))));
+        assert!(command(&[]).is_none());
+        assert!(matches!(command(&["list"]), Some(Command::List(_))));
+        let add = format!("{:?}", command(&["add", "work", "Fix it"]));
+        assert!(add.starts_with("Some(Add("), "{add}");
 
         // Options anywhere, also between the arguments of a command.
         let dir = |args: &[&str]| parse(args).unwrap().dir;
         assert_eq!(dir(&["--dir", "/a", "list"]), Some(PathBuf::from("/a")));
         assert_eq!(dir(&["list", "--dir=/a"]), Some(PathBuf::from("/a")));
-        assert_eq!(command(&["add", "work", "--dir", "/a", "Fix it"]), add);
+        assert_eq!(
+            format!("{:?}", command(&["add", "work", "--dir", "/a", "Fix it"])),
+            add
+        );
 
         let error = |args: &[&str]| parse(args).unwrap_err().kind();
         assert_eq!(error(&["add", "work"]), ErrorKind::MissingRequiredArgument);

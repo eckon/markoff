@@ -45,7 +45,7 @@ fn run(cli: Cli) -> Result<()> {
     color_eyre::install()?;
 
     // Needs no root, an agent may read it before one is set up.
-    if cli.command == Some(cli::Command::Skill) {
+    if matches!(cli.command, Some(cli::Command::Skill)) {
         print!("{}", cli::SKILL);
         return Ok(());
     }
