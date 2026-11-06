@@ -179,6 +179,8 @@ For scripts:
 | `list`                  | Print sections and tasks as markdown, in the order of the TUI |
 | `add <section> <title>` | Add a task at the end of an existing section, print its path  |
 
+A task's id is its path in the root without `.md`, `work/fix-login-bug`, shown by `list` after each title.
+
 `markoff --help` shows all arguments, `markoff <command> --help` those of a command.
 
 ## Development
