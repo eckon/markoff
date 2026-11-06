@@ -97,3 +97,4 @@ For TUI changes also run the real app in tmux against a scratch root dir (or a c
 
 - Keep this file to the bare minimum. Details belong in the code and its doc comments.
 - When a rule here changes, update it in the same change as the code. Same for README.md (keys, data layout).
+- The changelog is made from the `feat` and `fix` commit subjects. What they do not say goes under `## [Unreleased]` in CHANGELOG.md, in the same change: always breaking changes (keys, CLI output, config, file layout) under `### Changed`. release-plz moves it into the next version.
