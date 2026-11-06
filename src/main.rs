@@ -47,7 +47,7 @@ fn run(cli: Cli) -> Result<()> {
     // Load before entering the TUI, so errors print to a normal terminal.
     let root = config::from_env(cli.dir)?;
     if let Some(command) = cli.command {
-        print!("{}", cli::run(command, &root)?);
+        print!("{}", cli::run(command, &root, jiff::Zoned::now().date())?);
         return Ok(());
     }
     let app = App::load(root)?;
