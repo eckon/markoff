@@ -22,16 +22,17 @@ mod watch;
 use std::process::ExitCode;
 
 use app::App;
+use clap::Parser;
+use cli::Cli;
 use color_eyre::Result;
 
 fn main() -> ExitCode {
-    if let Some(text) = config::info(std::env::args().skip(1)) {
-        print!("{text}");
-        return ExitCode::SUCCESS;
-    }
+    // Wrong args, `--help` and `--version` exit here, before the config is read, so they work
+    // with a broken config.
+    let cli = Cli::parse();
     // Errors here are expected (no dir, broken config), so one plain line instead of
     // color-eyre's report with location and backtrace hints, that stays for panics.
-    match run() {
+    match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("markoff: {err:#}");
@@ -40,12 +41,12 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<()> {
+fn run(cli: Cli) -> Result<()> {
     color_eyre::install()?;
 
     // Load before entering the TUI, so errors print to a normal terminal.
-    let (root, command) = config::from_env()?;
-    if let Some(command) = command {
+    let root = config::from_env(cli.dir)?;
+    if let Some(command) = cli.command {
         print!("{}", cli::run(command, &root)?);
         return Ok(());
     }

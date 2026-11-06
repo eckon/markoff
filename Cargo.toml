@@ -7,6 +7,7 @@ license = "GPL-3.0-or-later"
 repository = "https://github.com/eckon/markoff"
 
 [dependencies]
+clap = { version = "4.6.7", features = ["derive", "env"] }
 color-eyre = "0.6.5"
 croner = { version = "4.0.2", default-features = false, features = ["jiff"] }
 deunicode = "1.6.2"

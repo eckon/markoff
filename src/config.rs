@@ -11,13 +11,13 @@
 use std::path::{Path, PathBuf};
 
 use color_eyre::{
-    Report, Result,
-    eyre::{WrapErr, bail, eyre},
+    Result,
+    eyre::{WrapErr, bail},
 };
 
 use serde::Deserialize;
 
-use crate::{cli::Command, load};
+use crate::load;
 
 /// Env var with the root directory, used when no `--dir` is given.
 const DIR_ENV: &str = "MARKOFF_DIR";
@@ -41,84 +41,29 @@ pub struct General {
     pub dir: Option<PathBuf>,
 }
 
-/// The text for `--help` / `--version`, if one is anywhere in the args. Checked before the
-/// config is read, so both still work with a broken config.
-pub fn info(mut args: impl Iterator<Item = String>) -> Option<String> {
-    args.find_map(|arg| match arg.as_str() {
-        "-h" | "--help" => Some(format!(
-            "markoff: a TUI for tasks stored as markdown files\n\
-             \n\
-             Usage: markoff [--dir <path>] [<command>]\n\
-             \n\
-             Commands, without one the TUI starts:\n\
-             \x20 list                   Print sections and tasks as markdown\n\
-             \x20 add <section> <title>  Add a task at the end of a section, print its path\n\
-             \n\
-             Options:\n\
-             \x20 --dir <path>   Root directory, else ${DIR_ENV}, else `general.dir` in ~/.config/{CONFIG_FILE}\n\
-             \x20 -h, --help     Show this help\n\
-             \x20 -V, --version  Show the version\n"
-        )),
-        "-V" | "--version" => Some(format!("markoff {}\n", env!("CARGO_PKG_VERSION"))),
-        _ => None,
-    })
-}
-
-/// A wrong argument, with the pointer to `--help` on a second line like coreutils.
-pub fn usage_error(message: &str) -> Report {
-    eyre!("{message}\nTry 'markoff --help' for more information.")
-}
-
-/// Resolves the root directory, the one with the sections, and the command if one is given.
-///
-/// Options may stand anywhere, everything else is left to [`Command::parse`], so commands never
-/// see options. Root order: `--dir <path>` / `--dir=<path>`, then [`DIR_ENV`], then
-/// `general.dir` of the config file. Args, env and config are parameters so this can be tested
-/// without the real process.
-pub fn parse_args(
-    mut args: impl Iterator<Item = String>,
-    env: Option<String>,
-    config_dir: Option<PathBuf>,
-) -> Result<(PathBuf, Option<Command>)> {
-    let mut dir = None;
-    let mut positionals = Vec::new();
-    while let Some(arg) = args.next() {
-        if arg == "--dir" {
-            let Some(value) = args.next() else {
-                return Err(usage_error("--dir needs a path"));
-            };
-            dir = Some(value);
-        } else if let Some(value) = arg.strip_prefix("--dir=") {
-            dir = Some(value.to_string());
-        } else if arg.starts_with('-') {
-            return Err(usage_error(&format!("unrecognized option '{arg}'")));
-        } else {
-            positionals.push(arg);
-        }
-    }
-    // Before the root, so a wrong command is reported even without a directory.
-    let command = Command::parse(&positionals)?;
-
-    let root = match (dir.or(env), config_dir) {
-        (Some(dir), _) => PathBuf::from(dir),
-        (None, Some(dir)) => dir,
-        (None, None) => bail!(
+/// The root directory, the one with the sections: `--dir`, then [`DIR_ENV`], then
+/// `general.dir` of the config file. Env and config are parameters so this can be tested
+/// without the real process. Not clap's `env`, it would take an empty var as a value.
+fn root(dir: Option<PathBuf>, env: Option<String>, config_dir: Option<PathBuf>) -> Result<PathBuf> {
+    match dir.or(env.map(PathBuf::from)).or(config_dir) {
+        Some(dir) => Ok(dir),
+        None => bail!(
             "no directory given, use --dir <path>, set {DIR_ENV}, \
              or set `general.dir` in ~/.config/{CONFIG_FILE}"
         ),
-    };
-    Ok((root, command))
+    }
 }
 
-/// Reads the real process args, env and config file. Returns the root and the command.
-pub fn from_env() -> Result<(PathBuf, Option<Command>)> {
+/// Reads the config file with the real env, and returns the root for `dir` from the args.
+/// The config is read even with `dir`, so a broken one always shows.
+pub fn from_env(dir: Option<PathBuf>) -> Result<PathBuf> {
     let var = |name| std::env::var(name).ok().filter(|v: &String| !v.is_empty());
     let home = var("HOME");
     let config = match config_path(var("XDG_CONFIG_HOME"), home.clone()) {
         Some(path) => read_config(&path, home.as_deref())?,
         None => Config::default(),
     };
-    parse_args(std::env::args().skip(1), var(DIR_ENV), config.general.dir)
+    root(dir, var(DIR_ENV), config.general.dir)
 }
 
 /// `$XDG_CONFIG_HOME/markoff/config.toml`, falling back to `~/.config/markoff/config.toml`.
@@ -167,87 +112,22 @@ mod tests {
 
     use super::*;
 
-    fn args(list: &[&str]) -> impl Iterator<Item = String> {
-        list.iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>()
-            .into_iter()
-    }
-
-    /// The root of [`parse_args`], for the tests without a command.
-    fn root_dir(
-        args: impl Iterator<Item = String>,
-        env: Option<String>,
-        config_dir: Option<PathBuf>,
-    ) -> Result<PathBuf> {
-        parse_args(args, env, config_dir).map(|(root, _)| root)
-    }
-
     #[test]
-    fn command_between_options() {
-        let parse = |list: &[&str]| parse_args(args(list), None, None).unwrap();
-        let expected = (PathBuf::from("/a"), Some(Command::List));
-        assert_eq!(parse(&["list", "--dir", "/a"]), expected);
-        assert_eq!(parse(&["--dir", "/a", "list"]), expected);
-        assert_eq!(parse(&["--dir", "/a"]), (PathBuf::from("/a"), None));
-        let add = (
-            PathBuf::from("/a"),
-            Some(Command::Add {
-                section: "work".to_string(),
-                title: "Fix it".to_string(),
-            }),
-        );
-        assert_eq!(parse(&["add", "work", "--dir", "/a", "Fix it"]), add);
-    }
-
-    #[test]
-    fn flag_wins_over_env() {
-        let dir = root_dir(args(&["--dir", "/a"]), Some("/b".into()), None).unwrap();
-        assert_eq!(dir, PathBuf::from("/a"));
-        let dir = root_dir(args(&["--dir=/a"]), Some("/b".into()), None).unwrap();
-        assert_eq!(dir, PathBuf::from("/a"));
-    }
-
-    #[test]
-    fn env_fallback() {
-        let dir = root_dir(args(&[]), Some("/b".into()), None).unwrap();
-        assert_eq!(dir, PathBuf::from("/b"));
-    }
-
-    #[test]
-    fn config_fallback() {
-        let config = Some(PathBuf::from("/c"));
+    fn root_order() {
+        let (a, c) = (PathBuf::from("/a"), PathBuf::from("/c"));
+        let env = || Some("/b".to_string());
+        assert_eq!(root(Some(a.clone()), env(), Some(c.clone())).unwrap(), a);
         assert_eq!(
-            root_dir(args(&[]), None, config.clone()).unwrap(),
-            PathBuf::from("/c")
+            root(None, env(), Some(c.clone())).unwrap(),
+            PathBuf::from("/b")
         );
-        let dir = root_dir(args(&["--dir", "/a"]), None, config).unwrap();
-        assert_eq!(dir, PathBuf::from("/a"));
-    }
-
-    #[test]
-    fn errors() {
-        assert!(root_dir(args(&[]), None, None).is_err());
-        assert!(root_dir(args(&["--dir"]), None, None).is_err());
-        assert_eq!(
-            root_dir(args(&["--nope"]), None, None)
+        assert_eq!(root(None, None, Some(c.clone())).unwrap(), c);
+        assert!(
+            root(None, None, None)
                 .unwrap_err()
-                .to_string(),
-            "unrecognized option '--nope'\nTry 'markoff --help' for more information."
+                .to_string()
+                .starts_with("no directory given")
         );
-    }
-
-    #[test]
-    fn info_help_and_version() {
-        let help = info(args(&["--help"])).unwrap();
-        assert!(help.starts_with("markoff: a TUI"));
-        assert!(help.contains("Usage: markoff [--dir <path>] [<command>]"));
-        assert_eq!(info(args(&["--dir", "/a", "-h"])), Some(help));
-        let version = format!("markoff {}\n", env!("CARGO_PKG_VERSION"));
-        assert_eq!(info(args(&["--version"])), Some(version.clone()));
-        assert_eq!(info(args(&["-V"])), Some(version));
-        assert_eq!(info(args(&["--dir", "/a"])), None);
-        assert_eq!(info(args(&["--nope"])), None, "left to parse_args");
     }
 
     #[test]

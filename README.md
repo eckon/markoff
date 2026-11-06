@@ -179,7 +179,7 @@ For scripts:
 | `list`                  | Print sections and tasks as markdown, in the order of the TUI |
 | `add <section> <title>` | Add a task at the end of an existing section, print its path  |
 
-`markoff --help` shows all arguments.
+`markoff --help` shows all arguments, `markoff <command> --help` those of a command.
 
 ## Development
 

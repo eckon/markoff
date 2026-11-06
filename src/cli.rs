@@ -1,47 +1,45 @@
-//! Commands for scripting, run instead of the TUI and printing to stdout.
+//! The command line: options and commands for scripting, run instead of the TUI and printing
+//! to stdout.
 //!
-//! The TUI stays the main way to use markoff, commands only make it scriptable. Options like
-//! `--dir` are parsed in [`crate::config`], so a command only sees its own arguments.
+//! The TUI stays the main way to use markoff, commands only make it scriptable. Parsed by clap,
+//! which also writes `--help` from the doc comments of [`Cli`] and [`Command`].
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use clap::{Parser, Subcommand};
 use color_eyre::{Result, eyre::bail};
 use jiff::civil::Date;
 
 use crate::{
-    config::usage_error,
     edit, load, op,
     task::{HEADING, Section},
 };
 
-/// A command given as argument, without one markoff starts the TUI.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Command {
-    /// `list`: sections and tasks as markdown, see [`list`].
-    List,
-    /// `add <section> <title>`: a task at the end of the section, see [`add`].
-    Add { section: String, title: String },
+/// A TUI for tasks stored as markdown files.
+///
+/// Without a command the TUI starts, commands make it scriptable.
+#[derive(Debug, Parser)]
+#[command(version)]
+pub struct Cli {
+    /// Root directory, else $MARKOFF_DIR, else `general.dir` in ~/.config/markoff/config.toml
+    #[arg(long, global = true, value_name = "PATH")]
+    pub dir: Option<PathBuf>,
+
+    #[command(subcommand)]
+    pub command: Option<Command>,
 }
 
-impl Command {
-    /// The command from the args that are not options, `None` without any. Each command
-    /// takes an exact number of args, so more can be added later without ambiguity.
-    pub fn parse(args: &[String]) -> Result<Option<Self>> {
-        let [name, rest @ ..] = args else {
-            return Ok(None);
-        };
-        let command = match (name.as_str(), rest) {
-            ("list", []) => Self::List,
-            ("list", _) => return Err(usage_error("list takes no arguments")),
-            ("add", [section, title]) => Self::Add {
-                section: section.clone(),
-                title: title.clone(),
-            },
-            ("add", _) => return Err(usage_error("add needs <section> <title>")),
-            _ => return Err(usage_error(&format!("unknown command '{name}'"))),
-        };
-        Ok(Some(command))
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
+pub enum Command {
+    /// Print sections and tasks as markdown, in the order of the TUI
+    List,
+    /// Add a task at the end of an existing section, print its path
+    Add {
+        /// Name of the section
+        section: String,
+        /// Title of the task, the filename is made from it
+        title: String,
+    },
 }
 
 /// Runs `command` on the sections in `root` and returns what to print.
@@ -95,13 +93,14 @@ fn add(root: &Path, section: &str, title: &str) -> Result<String> {
 mod tests {
     use std::fs;
 
+    use clap::{CommandFactory, error::ErrorKind};
     use tempfile::TempDir;
 
     use super::*;
     use crate::app::tests::TODAY;
 
-    fn parse(args: &[&str]) -> Result<Option<Command>> {
-        Command::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from([&["markoff"], args].concat())
     }
 
     /// A root with section `work` holding `fix-the-bug` and `call-bob`, and an empty `home`.
@@ -130,28 +129,32 @@ mod tests {
 
     #[test]
     fn parse_commands() {
-        assert_eq!(parse(&[]).unwrap(), None);
-        assert_eq!(parse(&["list"]).unwrap(), Some(Command::List));
-        assert_eq!(
-            parse(&["add", "work", "Fix it"]).unwrap(),
-            Some(Command::Add {
-                section: "work".to_string(),
-                title: "Fix it".to_string(),
-            })
-        );
-        let error = |args: &[&str]| {
-            let error = parse(args).unwrap_err().to_string();
-            let (message, help) = error.split_once('\n').unwrap();
-            assert_eq!(help, "Try 'markoff --help' for more information.");
-            message.to_string()
-        };
-        assert_eq!(error(&["list", "work"]), "list takes no arguments");
-        assert_eq!(error(&["add", "work"]), "add needs <section> <title>");
+        Cli::command().debug_assert();
+        let command = |args: &[&str]| parse(args).unwrap().command;
+        assert_eq!(command(&[]), None);
+        assert_eq!(command(&["list"]), Some(Command::List));
+        let add = Some(Command::Add {
+            section: "work".to_string(),
+            title: "Fix it".to_string(),
+        });
+        assert_eq!(command(&["add", "work", "Fix it"]), add);
+
+        // Options anywhere, also between the arguments of a command.
+        let dir = |args: &[&str]| parse(args).unwrap().dir;
+        assert_eq!(dir(&["--dir", "/a", "list"]), Some(PathBuf::from("/a")));
+        assert_eq!(dir(&["list", "--dir=/a"]), Some(PathBuf::from("/a")));
+        assert_eq!(command(&["add", "work", "--dir", "/a", "Fix it"]), add);
+
+        let error = |args: &[&str]| parse(args).unwrap_err().kind();
+        assert_eq!(error(&["list", "work"]), ErrorKind::UnknownArgument);
+        assert_eq!(error(&["add", "work"]), ErrorKind::MissingRequiredArgument);
         assert_eq!(
             error(&["add", "work", "Fix", "it"]),
-            "add needs <section> <title>"
+            ErrorKind::UnknownArgument
         );
-        assert_eq!(error(&["nope"]), "unknown command 'nope'");
+        assert_eq!(error(&["nope"]), ErrorKind::InvalidSubcommand);
+        assert_eq!(error(&["--dir"]), ErrorKind::InvalidValue);
+        assert_eq!(error(&["--nope"]), ErrorKind::UnknownArgument);
     }
 
     #[test]
