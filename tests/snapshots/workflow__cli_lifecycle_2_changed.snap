@@ -45,10 +45,14 @@ call-bob
 
 --- private/
 
+--- private/.gitkeep
+
 --- private/water-plants.md
 # Water plants `* * *`
 
 --- work/
+
+--- work/.gitkeep
 
 --- work/call-bob.md
 # Call Bob

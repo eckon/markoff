@@ -6,3 +6,9 @@
 # `~/` is the home directory, a relative path starts at the config file's directory.
 # No default.
 # dir = "~/notes/tasks"
+
+[sections]
+# Keeps an empty `.gitkeep` in every section, so git keeps a section without tasks: git only
+# tracks files, a directory without any is gone on the next checkout. markoff adds it to
+# sections without one, and removes it with the section either way.
+gitkeep = true

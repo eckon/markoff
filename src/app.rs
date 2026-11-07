@@ -22,6 +22,7 @@ use archive::ArchivePage;
 use editor::EditorRequest;
 
 use crate::{
+    config::Config,
     cursor, edit, heatmap,
     keymap::{Action, Context, Keymap},
     load,
@@ -90,6 +91,7 @@ pub struct App {
     pub sections: Vec<Section>,
     /// `.markoff` as read with `sections`, the base for the order an action writes.
     state_file: StateFile,
+    config: Config,
     /// Index into [`App::rows`].
     pub cursor: usize,
     pub keymap: Keymap,
@@ -128,7 +130,7 @@ pub struct App {
 
 impl App {
     /// Without a state file, [`App::load`] reads the real one.
-    pub fn new(root: PathBuf, sections: Vec<Section>) -> Self {
+    pub fn new(root: PathBuf, sections: Vec<Section>, config: Config) -> Self {
         let state_file = StateFile {
             path: root.join(state::FILE),
             content: None,
@@ -138,6 +140,7 @@ impl App {
             root,
             sections,
             state_file,
+            config,
             cursor: 0,
             keymap: Keymap::default(),
             undo: Vec::new(),
@@ -160,8 +163,8 @@ impl App {
     }
 
     /// Loads `root` and normalizes it, renames are mentioned in the status.
-    pub fn load(root: PathBuf) -> Result<Self> {
-        let mut app = Self::new(root, Vec::new());
+    pub fn load(root: PathBuf, config: Config) -> Result<Self> {
+        let mut app = Self::new(root, Vec::new(), config);
         app.reload(None)?;
         app.normalize_before_action();
         Ok(app)
@@ -442,7 +445,7 @@ impl App {
     /// Not added to undo: undoing it would only be redone by the next action. The cursor
     /// follows a renamed task.
     fn normalize(&mut self) -> Result<Vec<(PathBuf, PathBuf)>> {
-        let ops = edit::normalize(&self.sections, &self.state_file);
+        let ops = edit::normalize(&self.sections, &self.state_file, &self.config);
         if ops.is_empty() {
             return Ok(Vec::new());
         }
@@ -622,6 +625,7 @@ pub mod tests {
             .map(|(name, tasks)| Section {
                 name: name.to_string(),
                 dir: PathBuf::new(),
+                gitkeep: None,
                 tasks: tasks
                     .iter()
                     .map(|title| Task::parse(PathBuf::new(), &format!("# {title}")))
@@ -660,7 +664,7 @@ pub mod tests {
             });
         }
         fs::write(root.join(state::FILE), state.format()).unwrap();
-        let mut app = App::load(root.to_path_buf()).unwrap();
+        let mut app = App::load(root.to_path_buf(), crate::config::defaults()).unwrap();
         app.today = TODAY;
         (dir, app)
     }
@@ -688,6 +692,7 @@ pub mod tests {
         let app = App::new(
             PathBuf::new(),
             sections(&[("work", &["a"]), ("home", &[]), ("x", &["b", "c"])]),
+            crate::config::defaults(),
         );
         assert_eq!(
             app.rows(),
@@ -704,7 +709,11 @@ pub mod tests {
 
     #[test]
     fn cursor_stays_in_bounds() {
-        let mut app = App::new(PathBuf::new(), sections(&[("work", &["a"])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("work", &["a"])]),
+            crate::config::defaults(),
+        );
         app.update(Action::Up);
         assert_eq!(app.cursor, 0);
         app.update(Action::Down);
@@ -869,7 +878,7 @@ pub mod tests {
 
     #[test]
     fn quit_stops_running() {
-        let mut app = App::new(PathBuf::new(), sections(&[]));
+        let mut app = App::new(PathBuf::new(), sections(&[]), crate::config::defaults());
         app.update(Action::Quit);
         assert!(!app.running);
     }
@@ -1008,7 +1017,7 @@ pub mod tests {
         fs::write(work.join("02-b.md"), "# b").unwrap();
         fs::write(work.join("01-a.md"), "# a").unwrap();
         fs::write(dir.path().join("01-home/old.md"), "# Old task").unwrap();
-        let app = App::load(dir.path().to_path_buf()).unwrap();
+        let app = App::load(dir.path().to_path_buf(), crate::config::defaults()).unwrap();
 
         assert_eq!(
             listing(&app),
@@ -1033,7 +1042,7 @@ pub mod tests {
         .unwrap();
 
         // Not listed: to the end, by name. Listed but gone: dropped. No rename, no message.
-        let app = App::load(dir.path().to_path_buf()).unwrap();
+        let app = App::load(dir.path().to_path_buf(), crate::config::defaults()).unwrap();
         assert_eq!(listing(&app), ["[x]", "[work]", "b.md", "a.md", "[home]"]);
         assert_eq!(state_file(&dir), "# x\n\n# work\nb\na\n\n# home\n");
         assert_eq!(app.status, None);
@@ -1074,6 +1083,7 @@ pub mod tests {
         let mut app = App::new(
             PathBuf::new(),
             sections(&[("work", &["a"]), ("home", &["b", "c"]), ("x", &["d"])]),
+            crate::config::defaults(),
         );
         // Rows: work, a, home, b, c, x, d
         app.update(Action::Bottom);
@@ -1097,6 +1107,7 @@ pub mod tests {
         let mut app = App::new(
             PathBuf::new(),
             sections(&[("work", &["a"]), ("home", &[]), ("x", &["b", "c"])]),
+            crate::config::defaults(),
         );
         // Rows: work, a, home, x, b, c
         app.update(Action::JumpSection(2));

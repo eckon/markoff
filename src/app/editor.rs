@@ -126,8 +126,14 @@ impl App {
         self.ensure_no_section(&slug)?;
         // Normalizing keeps the order of sections, so `index` stays valid.
         self.normalize_before_action();
-        let (ops, created) =
-            edit::insert_section(&self.sections, &self.root, index, &slug, &self.state_file);
+        let (ops, created) = edit::insert_section(
+            &self.sections,
+            &self.root,
+            index,
+            &slug,
+            &self.state_file,
+            &self.config,
+        );
         self.apply(ops)?;
         self.select_path(&created);
         if more {
@@ -335,6 +341,10 @@ mod tests {
             .unwrap();
         assert_eq!(listing(&app), ["[work]"]);
         assert_eq!(state_file(&dir), "# work\n");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("work/.gitkeep")).unwrap(),
+            ""
+        );
         assert_eq!(app.cursor, 0);
     }
 

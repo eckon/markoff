@@ -50,12 +50,15 @@ fn run(cli: Cli) -> Result<()> {
         return Ok(());
     }
     // Load before entering the TUI, so errors print to a normal terminal.
-    let root = config::from_env(cli.dir)?;
+    let (root, config) = config::from_env(cli.dir)?;
     if let Some(command) = cli.command {
-        print!("{}", cli::run(command, &root, jiff::Zoned::now().date())?);
+        print!(
+            "{}",
+            cli::run(command, &root, &config, jiff::Zoned::now().date())?
+        );
         return Ok(());
     }
-    let app = App::load(root)?;
+    let app = App::load(root, config)?;
 
     // `ratatui::run` sets up the terminal, restores it on exit and installs a panic hook.
     ratatui::run(|terminal| app.run(terminal))

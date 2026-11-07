@@ -437,7 +437,11 @@ mod tests {
 
     #[test]
     fn preview_shows_task_body() {
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("home", &["Fix typo"])]),
+            crate::config::defaults(),
+        );
         app.sections[0].tasks[0].body = "line one\n## Notes\nline two".to_string();
         app.update(Action::Down);
 
@@ -460,6 +464,7 @@ mod tests {
         let mut app = App::new(
             PathBuf::new(),
             sections(&[("home", &["Fix typo", "Empty"])]),
+            crate::config::defaults(),
         );
         app.sections[0].tasks[0].body = "line one".to_string();
         let column = |line: &str, c: char| line.chars().position(|x| x == c);
@@ -489,7 +494,11 @@ mod tests {
 
     #[test]
     fn status_line_shows_errors() {
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("home", &[])]),
+            crate::config::defaults(),
+        );
         app.update(Action::Undo);
         let screen = screen(&app);
         assert!(
@@ -503,6 +512,7 @@ mod tests {
         let mut app = App::new(
             PathBuf::new(),
             sections(&[("home", &["Fix typo"]), ("work", &["Review"])]),
+            crate::config::defaults(),
         );
         app.update(Action::Filter);
         for c in "rev".chars() {
@@ -530,7 +540,11 @@ mod tests {
 
     #[test]
     fn status_hints_give_way_to_messages() {
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("home", &[])]),
+            crate::config::defaults(),
+        );
         assert!(
             screen(&app)
                 .lines()
@@ -553,6 +567,7 @@ mod tests {
         let mut app = App::new(
             PathBuf::new(),
             sections(&[("home", &["Fix typo"]), ("work", &["Review", "Deploy"])]),
+            crate::config::defaults(),
         );
         app.today = TODAY;
         let done = |content: &str| crate::archive::Done {
@@ -615,7 +630,11 @@ mod tests {
 
     #[test]
     fn preview_without_a_body_says_so() {
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("home", &["Fix typo"])]),
+            crate::config::defaults(),
+        );
         app.sections[0].tasks[0].body = "\n  \n".to_string();
 
         // On the section header, then on the task with a blank body.
@@ -626,7 +645,7 @@ mod tests {
         }
 
         // Without rows the note gets all the width.
-        let app = App::new(PathBuf::new(), sections(&[]));
+        let app = App::new(PathBuf::new(), sections(&[]), crate::config::defaults());
         assert!(!screen(&app).contains('│'));
     }
 }

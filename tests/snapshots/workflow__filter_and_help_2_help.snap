@@ -33,6 +33,8 @@ review-pr
 
 --- home/
 
+--- home/.gitkeep
+
 --- home/buy-milk.md
 # Buy milk
 
@@ -42,6 +44,8 @@ review-pr
 Ask about the milk frother.
 
 --- work/
+
+--- work/.gitkeep
 
 --- work/review-pr.md
 # Review PR

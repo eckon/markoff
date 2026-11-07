@@ -31,6 +31,7 @@ const DEFAULTS: &str = include_str!("config.toml");
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub general: General,
+    pub sections: Sections,
 }
 
 /// `[general]`: what is not part of a feature.
@@ -39,6 +40,14 @@ pub struct Config {
 pub struct General {
     /// The root directory, used when neither `--dir` nor [`DIR_ENV`] is given.
     pub dir: Option<PathBuf>,
+}
+
+/// `[sections]`: the section directories.
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Sections {
+    /// Keep a `.gitkeep` in every section, see [`crate::task::GITKEEP`].
+    pub gitkeep: bool,
 }
 
 /// The root directory, the one with the sections: `--dir`, then [`DIR_ENV`], then
@@ -54,16 +63,17 @@ fn root(dir: Option<PathBuf>, env: Option<String>, config_dir: Option<PathBuf>) 
     }
 }
 
-/// Reads the config file with the real env, and returns the root for `dir` from the args.
-/// The config is read even with `dir`, so a broken one always shows.
-pub fn from_env(dir: Option<PathBuf>) -> Result<PathBuf> {
+/// Reads the config file with the real env, and returns the root for `dir` from the args and
+/// the config. The config is read even with `dir`, so a broken one always shows.
+pub fn from_env(dir: Option<PathBuf>) -> Result<(PathBuf, Config)> {
     let var = |name| std::env::var(name).ok().filter(|v: &String| !v.is_empty());
     let home = var("HOME");
     let config = match config_path(var("XDG_CONFIG_HOME"), home.clone()) {
         Some(path) => read_config(&path, home.as_deref())?,
         None => merged(toml::Table::new())?,
     };
-    root(dir, var(DIR_ENV), config.general.dir)
+    let root = root(dir, var(DIR_ENV), config.general.dir.clone())?;
+    Ok((root, config))
 }
 
 /// `$XDG_CONFIG_HOME/markoff/config.toml`, falling back to `~/.config/markoff/config.toml`.
@@ -94,6 +104,12 @@ fn merged(user: toml::Table) -> Result<Config, toml::de::Error> {
     let mut table: toml::Table = DEFAULTS.parse().expect("the defaults are valid TOML");
     merge(&mut table, user);
     toml::Value::Table(table).try_into()
+}
+
+/// The defaults alone, for tests that need a config.
+#[cfg(test)]
+pub fn defaults() -> Config {
+    merged(toml::Table::new()).unwrap()
 }
 
 /// Puts the keys of `over` into `base`, into tables that both have, so a table in the user's
@@ -182,10 +198,20 @@ mod tests {
         assert_eq!(dir_of("\"~/notes\""), Some(PathBuf::from("/home/me/notes")));
         assert_eq!(dir_of("\"notes\""), Some(dir.path().join("notes")));
         // The defaults parse, so a missing or empty file is them.
-        let defaults = merged(toml::Table::new()).unwrap();
+        let defaults = defaults();
         assert_eq!(read("").unwrap(), defaults);
         assert_eq!(read("[general]").unwrap(), defaults);
         assert!(read("[general]\ndir = 1").is_err());
+
+        // A key set in the user's file wins, the other keys keep their defaults.
+        assert!(defaults.sections.gitkeep);
+        assert!(
+            !read("[sections]\ngitkeep = false")
+                .unwrap()
+                .sections
+                .gitkeep
+        );
+        assert!(read("[general]\ndir = \"/a\"").unwrap().sections.gitkeep);
         assert!(
             read("dir = ")
                 .unwrap_err()

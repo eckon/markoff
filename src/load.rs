@@ -53,6 +53,7 @@ fn sections(dir: &Path, state: &State) -> Result<Vec<Section>> {
             .collect();
         sections.push(Section {
             tasks: load_tasks(task_paths, state, &name)?,
+            gitkeep: read_if_exists(&dir.join(task::GITKEEP))?,
             name,
             dir,
         });

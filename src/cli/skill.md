@@ -2,7 +2,7 @@
 
 These are the user's tasks, kept for the user. Read or change them only when the user asks. Never use markoff for your own plans, todos or notes, use your own tools for that.
 
-The tasks are markdown files in a root directory. A section is a directory, a task is a `.md` file in it: the `# Heading` is its title, the rest its body (notes, checklists, links). Change them only with these commands, never the files: order and dates live in `.markoff`, done tasks move to `.archive`, filenames follow the title.
+The tasks are markdown files in a root directory. A section is a directory, a task is a `.md` file in it: the `# Heading` is its title, the rest its body (notes, checklists, links). Change them only with these commands, never the files: order and dates live in `.markoff`, done tasks move to `.archive`, filenames follow the title, `.gitkeep` keeps empty sections in git.
 
 ## Ids
 

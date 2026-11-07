@@ -143,7 +143,11 @@ mod tests {
 
     #[test]
     fn one_cursor_and_the_selected_cell_in_the_current_color() {
-        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("work", &[])]),
+            crate::config::defaults(),
+        );
         app.today = TODAY;
         let done = crate::archive::Done {
             section: "work".to_string(),
@@ -206,7 +210,11 @@ mod tests {
 
     #[test]
     fn range_in_the_current_color_with_its_anchor_and_a_hint() {
-        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("work", &[])]),
+            crate::config::defaults(),
+        );
         app.today = TODAY;
         app.days = [(TODAY - 3.days(), 1), (TODAY, 1)].into();
         app.update(Action::NextPage);
@@ -244,7 +252,11 @@ mod tests {
 
     #[test]
     fn filter_grays_cells_without_matches() {
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("home", &[])]),
+            crate::config::defaults(),
+        );
         app.today = TODAY;
         let done = |content: &str| crate::archive::Done {
             section: "home".to_string(),
@@ -292,7 +304,11 @@ mod tests {
 
     #[test]
     fn canceled_task_dimmed_and_struck_through() {
-        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("work", &[])]),
+            crate::config::defaults(),
+        );
         app.today = TODAY;
         let done = |content: &str| crate::archive::Done {
             section: "work".to_string(),
@@ -327,7 +343,11 @@ mod tests {
 
     #[test]
     fn preview_of_done_task_only_while_the_list_has_the_keys() {
-        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("work", &[])]),
+            crate::config::defaults(),
+        );
         app.today = TODAY;
         let done = |content: &str| crate::archive::Done {
             section: "work".to_string(),
@@ -392,7 +412,11 @@ mod tests {
 
     #[test]
     fn heatmap_scrolls_and_counts_what_is_out_of_view() {
-        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("work", &[])]),
+            crate::config::defaults(),
+        );
         app.today = TODAY;
         // Far more weeks than fit, a Wednesday 400 days back.
         app.days = [(TODAY - 400.days(), 2), (TODAY, 1)].into();
@@ -414,7 +438,11 @@ mod tests {
 
     #[test]
     fn small_screens_still_show_the_heatmap() {
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("home", &["Fix typo"])]),
+            crate::config::defaults(),
+        );
         app.today = TODAY;
         app.days = [(TODAY, 3)].into();
         app.update(Action::NextPage);
@@ -432,7 +460,11 @@ mod tests {
 
     #[test]
     fn cursor_in_the_first_column_puts_its_bracket_in_the_padding() {
-        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("work", &[])]),
+            crate::config::defaults(),
+        );
         app.today = TODAY;
         let first = TODAY - 30.days();
         app.days = [(first, 1)].into();
@@ -450,7 +482,11 @@ mod tests {
 
     #[test]
     fn archive_page() {
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("home", &["Fix typo"])]),
+            crate::config::defaults(),
+        );
         app.today = TODAY;
         let draw = |app: &App| {
             let mut terminal = Terminal::new(TestBackend::new(80, 40)).unwrap();

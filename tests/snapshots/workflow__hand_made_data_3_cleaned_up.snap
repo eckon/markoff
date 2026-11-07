@@ -33,6 +33,8 @@ review-pr-42
 
 --- home/
 
+--- home/.gitkeep
+
 --- home/buy-bread.md
 # Buy bread
 
@@ -40,6 +42,8 @@ review-pr-42
 # Not a task, files in the root are ignored
 
 --- work/
+
+--- work/.gitkeep
 
 --- work/.scratch.md
 # Hidden, ignored

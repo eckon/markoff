@@ -11,6 +11,7 @@ use jiff::civil::Date;
 
 use super::id::{self, Found};
 use crate::{
+    config::Config,
     edit, load,
     name::slugify,
     op::{self, Op},
@@ -103,7 +104,7 @@ pub struct MoveArgs {
 /// `o` at the end of a section, or before or after a task in it, with the body below the
 /// heading. With `--section` a new section instead, like `N`, at the end or before or after
 /// another one.
-pub fn add(root: &Path, args: &AddArgs) -> Result<String> {
+pub fn add(root: &Path, args: &AddArgs, config: &Config) -> Result<String> {
     let (sections, _) = load::load(root)?;
     let archive = load::archive(root)?;
     let find = |id: &str| id::find(id, root, &sections, &archive);
@@ -121,8 +122,8 @@ pub fn add(root: &Path, args: &AddArgs) -> Result<String> {
             (_, Some(id)) => section(id, find(id)?)? + 1,
             _ => sections.len(),
         };
-        let (sections, file) = normalize(root)?;
-        let (ops, _) = edit::insert_section(&sections, root, index, &slug, &file);
+        let (sections, file) = normalize(root, config)?;
+        let (ops, _) = edit::insert_section(&sections, root, index, &slug, &file, config);
         op::apply_all(&ops)?;
         return Ok(format!("{slug}\n"));
     }
@@ -141,7 +142,7 @@ pub fn add(root: &Path, args: &AddArgs) -> Result<String> {
         _ => sections[s].tasks.len(),
     };
     let content = content(title, args.body.as_deref().unwrap_or_default());
-    let (sections, file) = normalize(root)?;
+    let (sections, file) = normalize(root, config)?;
     let (ops, path) = edit::insert(&sections, s, index, title, &content, &file);
     op::apply_all(&ops)?;
     Ok(format!("{}\n", id::of(root, &path)))
@@ -149,7 +150,7 @@ pub fn add(root: &Path, args: &AddArgs) -> Result<String> {
 
 /// What `$EDITOR` does in the TUI: a new title or body for a task, or a new name for a
 /// section, like `<CR>` on it.
-pub fn edit(root: &Path, args: &EditArgs) -> Result<String> {
+pub fn edit(root: &Path, args: &EditArgs, config: &Config) -> Result<String> {
     let (sections, _) = load::load(root)?;
     let archive = load::archive(root)?;
     let id = &args.id;
@@ -171,7 +172,7 @@ pub fn edit(root: &Path, args: &EditArgs) -> Result<String> {
             if sections.iter().any(|section| section.name == slug) {
                 bail!("a section named '{slug}' already exists");
             }
-            let (sections, file) = normalize(root)?;
+            let (sections, file) = normalize(root, config)?;
             let (ops, _) = edit::rename_section(&sections, s, &slug, &file);
             op::apply_all(&ops)?;
             Ok(format!("{slug}\n"))
@@ -206,7 +207,7 @@ pub fn edit(root: &Path, args: &EditArgs) -> Result<String> {
             }])?;
             // Normalize after the write, it does the rename of a new title too. Now rather than
             // on the next write, so the id printed is the one that stays.
-            let (sections, _) = normalize(root)?;
+            let (sections, _) = normalize(root, config)?;
             Ok(format!("{}\n", id::of(root, &sections[s].tasks[t].path)))
         }
     }
@@ -214,7 +215,7 @@ pub fn edit(root: &Path, args: &EditArgs) -> Result<String> {
 
 /// `J` / `K`, by more than one place: a task within its section or into another one, a
 /// section among the others.
-pub fn move_to(root: &Path, args: &MoveArgs) -> Result<String> {
+pub fn move_to(root: &Path, args: &MoveArgs, config: &Config) -> Result<String> {
     let (sections, _) = load::load(root)?;
     let archive = load::archive(root)?;
     let find = |id: &str| id::find(id, root, &sections, &archive);
@@ -238,7 +239,7 @@ pub fn move_to(root: &Path, args: &MoveArgs) -> Result<String> {
                 _ if args.top => 0,
                 _ => sections.len() - 1,
             };
-            let (sections, file) = normalize(root)?;
+            let (sections, file) = normalize(root, config)?;
             let (ops, _) = edit::move_section(&sections, s, index, &file);
             op::apply_all(&ops)?;
             Ok(format!("{}\n", sections[s].name))
@@ -268,7 +269,7 @@ pub fn move_to(root: &Path, args: &MoveArgs) -> Result<String> {
                 _ if args.top => (to, 0),
                 _ => (to, sections[to].tasks.len() - usize::from(to == s)),
             };
-            let (sections, file) = normalize(root)?;
+            let (sections, file) = normalize(root, config)?;
             let (ops, path) = edit::move_task(&sections, s, t, to, index, &file);
             op::apply_all(&ops)?;
             Ok(format!("{}\n", id::of(root, &path)))
@@ -277,8 +278,8 @@ pub fn move_to(root: &Path, args: &MoveArgs) -> Result<String> {
 }
 
 /// `D` on each id: tasks, and sections that are empty once the tasks are deleted.
-pub fn delete(root: &Path, ids: &[String]) -> Result<String> {
-    let mut paths = paths(root, ids, true)?;
+pub fn delete(root: &Path, ids: &[String], config: &Config) -> Result<String> {
+    let mut paths = paths(root, ids, true, config)?;
     // All checks before the first change, so a refused delete changes nothing.
     let (sections, _) = load::load(root)?;
     for section in sections
@@ -313,9 +314,15 @@ pub fn delete(root: &Path, ids: &[String]) -> Result<String> {
 
 /// `x` on each task in turn, `X` with `cancel`. Prints where each went: its id in the archive,
 /// or for a repeating one its id and when it is due again.
-pub fn done(root: &Path, ids: &[String], cancel: bool, today: Date) -> Result<String> {
+pub fn done(
+    root: &Path,
+    ids: &[String],
+    cancel: bool,
+    today: Date,
+    config: &Config,
+) -> Result<String> {
     let mut text = String::new();
-    for path in paths(root, ids, false)? {
+    for path in paths(root, ids, false, config)? {
         let (sections, file) = load::load(root)?;
         let Found::Task(s, t) = position(&sections, &path) else {
             unreachable!("paths only has tasks")
@@ -342,7 +349,7 @@ pub fn done(root: &Path, ids: &[String], cancel: bool, today: Date) -> Result<St
 
 /// The paths of `ids` after normalizing, so commands with several ids can find each one again
 /// after the changes of the ones before. Only tasks, or sections too with `sections`.
-fn paths(root: &Path, ids: &[String], sections: bool) -> Result<Vec<PathBuf>> {
+fn paths(root: &Path, ids: &[String], sections: bool, config: &Config) -> Result<Vec<PathBuf>> {
     let (found, archive) = (load::load(root)?.0, load::archive(root)?);
     let mut targets = Vec::new();
     for id in ids {
@@ -357,7 +364,7 @@ fn paths(root: &Path, ids: &[String], sections: bool) -> Result<Vec<PathBuf>> {
             targets.push(target);
         }
     }
-    let (normalized, _) = normalize(root)?;
+    let (normalized, _) = normalize(root, config)?;
     Ok(targets
         .into_iter()
         .map(|target| match target {
@@ -382,9 +389,9 @@ fn position(sections: &[Section], path: &Path) -> Found<'static> {
 }
 
 /// Normalizes the root and loads it again.
-fn normalize(root: &Path) -> Result<(Vec<Section>, StateFile)> {
+fn normalize(root: &Path, config: &Config) -> Result<(Vec<Section>, StateFile)> {
     let (sections, file) = load::load(root)?;
-    op::apply_all(&edit::normalize(&sections, &file))?;
+    op::apply_all(&edit::normalize(&sections, &file, config))?;
     load::load(root)
 }
 

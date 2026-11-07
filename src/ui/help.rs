@@ -159,7 +159,11 @@ mod tests {
 
     #[test]
     fn help_lists_bindings() {
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("home", &[])]),
+            crate::config::defaults(),
+        );
         app.update(Action::Help);
         let mut terminal = Terminal::new(TestBackend::new(80, 30)).unwrap();
         terminal
@@ -205,7 +209,11 @@ mod tests {
 
     #[test]
     fn help_scrolls_and_counts_keys_out_of_view() {
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("home", &[])]),
+            crate::config::defaults(),
+        );
         app.update(Action::Help);
         let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
         let mut draw = |app: &mut App| {
@@ -231,7 +239,11 @@ mod tests {
 
     #[test]
     fn help_filters_keys_and_texts() {
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &[])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("home", &[])]),
+            crate::config::defaults(),
+        );
         app.update(Action::Help);
         let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
         let mut draw = |app: &App| {

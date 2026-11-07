@@ -129,7 +129,11 @@ mod tests {
     fn list_scrolls_only_when_the_cursor_leaves_the_screen() {
         let titles: Vec<String> = (1..=20).map(|i| format!("Task {i}")).collect();
         let titles: Vec<&str> = titles.iter().map(String::as_str).collect();
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &titles)]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("home", &titles)]),
+            crate::config::defaults(),
+        );
 
         app.update(Action::Bottom);
         let lines = draw(&mut app);
@@ -147,7 +151,11 @@ mod tests {
     #[test]
     fn long_titles_wrap_with_and_without_the_cursor() {
         let long = "Write the long report about every open question";
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &[long, long])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("home", &[long, long])]),
+            crate::config::defaults(),
+        );
         app.hide_preview = true;
 
         app.update(Action::Down);
@@ -170,6 +178,7 @@ mod tests {
         let app = App::new(
             PathBuf::new(),
             sections(&[("home", &["Fix typo"]), ("work", &["Review PR"])]),
+            crate::config::defaults(),
         );
         let screen = screen(&app);
         for text in ["──[1]─ home", "• Fix typo", "──[2]─ work", "• Review PR"] {
@@ -181,7 +190,7 @@ mod tests {
     fn sections_past_nine_have_no_key() {
         let names: Vec<String> = (1..=10).map(|i| format!("s{i}")).collect();
         let spec: Vec<(&str, &[&str])> = names.iter().map(|n| (n.as_str(), &[][..])).collect();
-        let mut app = App::new(PathBuf::new(), sections(&spec));
+        let mut app = App::new(PathBuf::new(), sections(&spec), crate::config::defaults());
         app.update(Action::Bottom);
         let screen = screen(&app);
         // Same length as `──[9]─ `, so the names stay aligned.
@@ -191,7 +200,11 @@ mod tests {
 
     #[test]
     fn task_struck_through_by_hand_stays_struck_through() {
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &["~~Fix typo~~"])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("home", &["~~Fix typo~~"])]),
+            crate::config::defaults(),
+        );
         app.cursor = 1;
         app.hide_preview = true;
         let mut terminal = Terminal::new(TestBackend::new(40, 6)).unwrap();
@@ -207,6 +220,7 @@ mod tests {
         let mut app = App::new(
             PathBuf::new(),
             sections(&[("home", &["Water `* * mon-fri`", "Dust `* * *`", "Fix typo"])]),
+            crate::config::defaults(),
         );
         app.today = TODAY;
         app.sections[0].tasks[1].last_done = Some(TODAY);
@@ -251,7 +265,11 @@ mod tests {
 
     #[test]
     fn filter_without_matches_says_so() {
-        let mut app = App::new(PathBuf::new(), sections(&[("home", &["Fix typo"])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("home", &["Fix typo"])]),
+            crate::config::defaults(),
+        );
         assert!(!screen(&app).contains("no matches"), "not without a filter");
 
         app.update(Action::Filter);
@@ -262,7 +280,7 @@ mod tests {
 
     #[test]
     fn hint_without_sections() {
-        let mut app = App::new(PathBuf::new(), sections(&[]));
+        let mut app = App::new(PathBuf::new(), sections(&[]), crate::config::defaults());
         assert!(screen(&app).contains("no sections yet, N creates one"));
 
         app.sections = sections(&[("work", &[])]);
@@ -274,6 +292,7 @@ mod tests {
         let mut app = App::new(
             PathBuf::new(),
             sections(&[("home", &["Fix typo", "Buy milk"]), ("work", &["Review"])]),
+            crate::config::defaults(),
         );
         app.sections[1].tasks[0].body = "fix it".to_string();
         app.hide_preview = true;

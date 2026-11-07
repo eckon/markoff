@@ -91,6 +91,10 @@ impl Task {
     }
 }
 
+/// Kept in every section with `sections.gitkeep`: git only tracks files, so without it a
+/// section without tasks is gone after the next checkout. Hidden, so never a task.
+pub const GITKEEP: &str = ".gitkeep";
+
 /// A directory of tasks in the root.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section {
@@ -98,6 +102,8 @@ pub struct Section {
     pub name: String,
     pub dir: PathBuf,
     pub tasks: Vec<Task>,
+    /// The content of its [`GITKEEP`], `None` without one.
+    pub gitkeep: Option<String>,
 }
 
 /// The filename without `.md`, `None` if it is no valid UTF-8.
