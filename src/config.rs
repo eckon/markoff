@@ -1,12 +1,9 @@
 //! Where markoff finds its data, and the config file.
 //!
-//! ```toml
-//! [general]
-//! dir = "~/notes/tasks"
-//! ```
-//!
-//! [`Config`] mirrors the file. Unknown keys are an error, so a typo or a key in the wrong
-//! table is caught instead of silently ignored.
+//! The defaults are a config file of their own, [`DEFAULTS`], with every key and its comment,
+//! so the docs and the code cannot drift apart. The user's file is merged over it key by key.
+//! [`Config`] mirrors the merged file. Unknown keys are an error, so a typo or a key in the
+//! wrong table is caught instead of silently ignored.
 
 use std::path::{Path, PathBuf};
 
@@ -25,16 +22,19 @@ const DIR_ENV: &str = "MARKOFF_DIR";
 /// The config file in the config directory, `~/.config` by default.
 const CONFIG_FILE: &str = "markoff/config.toml";
 
-/// What the config file sets, everything is optional.
-#[derive(Debug, Default, PartialEq, Eq, Deserialize)]
+/// Every key with its default and its comment, the base the user's file is merged over.
+const DEFAULTS: &str = include_str!("config.toml");
+
+/// The config, [`DEFAULTS`] with the user's file over it. Only keys without a default are
+/// optional, the others come from [`DEFAULTS`].
+#[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    #[serde(default)]
     pub general: General,
 }
 
 /// `[general]`: what is not part of a feature.
-#[derive(Debug, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct General {
     /// The root directory, used when neither `--dir` nor [`DIR_ENV`] is given.
@@ -61,7 +61,7 @@ pub fn from_env(dir: Option<PathBuf>) -> Result<PathBuf> {
     let home = var("HOME");
     let config = match config_path(var("XDG_CONFIG_HOME"), home.clone()) {
         Some(path) => read_config(&path, home.as_deref())?,
-        None => Config::default(),
+        None => merged(toml::Table::new())?,
     };
     root(dir, var(DIR_ENV), config.general.dir)
 }
@@ -75,18 +75,38 @@ fn config_path(xdg_config_home: Option<String>, home: Option<String>) -> Option<
     Some(base.join(CONFIG_FILE))
 }
 
-/// Reads the config file. A missing file is an empty config.
+/// Reads the config file over the defaults. A missing file is the defaults.
 fn read_config(path: &Path, home: Option<&str>) -> Result<Config> {
-    let Some(content) = load::read_if_exists(path)? else {
-        return Ok(Config::default());
-    };
-    let mut config: Config =
-        toml::from_str(&content).wrap_err_with(|| format!("invalid config {}", path.display()))?;
+    let content = load::read_if_exists(path)?.unwrap_or_default();
+    let invalid = || format!("invalid config {}", path.display());
+    let mut config = merged(content.parse().wrap_err_with(invalid)?).wrap_err_with(invalid)?;
     let config_dir = path.parent().unwrap_or(Path::new("."));
     if let Some(dir) = &config.general.dir {
         config.general.dir = Some(resolve(dir, config_dir, home)?);
     }
     Ok(config)
+}
+
+/// [`DEFAULTS`] with `user` merged over it. The merged table has no lines of the user's file,
+/// so these errors name the key but no line: the user's file is parsed alone before, a syntax
+/// error still has one.
+fn merged(user: toml::Table) -> Result<Config, toml::de::Error> {
+    let mut table: toml::Table = DEFAULTS.parse().expect("the defaults are valid TOML");
+    merge(&mut table, user);
+    toml::Value::Table(table).try_into()
+}
+
+/// Puts the keys of `over` into `base`, into tables that both have, so a table in the user's
+/// file keeps the defaults it does not set.
+fn merge(base: &mut toml::Table, over: toml::Table) {
+    for (key, value) in over {
+        match (base.get_mut(&key), value) {
+            (Some(toml::Value::Table(base)), toml::Value::Table(over)) => merge(base, over),
+            (_, value) => {
+                base.insert(key, value);
+            }
+        }
+    }
 }
 
 /// Expands a leading `~/`, and resolves relative paths against the config file's directory
@@ -161,8 +181,10 @@ mod tests {
         assert_eq!(dir_of("\"/abs\""), Some(PathBuf::from("/abs")));
         assert_eq!(dir_of("\"~/notes\""), Some(PathBuf::from("/home/me/notes")));
         assert_eq!(dir_of("\"notes\""), Some(dir.path().join("notes")));
-        assert_eq!(read("").unwrap(), Config::default());
-        assert_eq!(read("[general]").unwrap(), Config::default());
+        // The defaults parse, so a missing or empty file is them.
+        let defaults = merged(toml::Table::new()).unwrap();
+        assert_eq!(read("").unwrap(), defaults);
+        assert_eq!(read("[general]").unwrap(), defaults);
         assert!(read("[general]\ndir = 1").is_err());
         assert!(
             read("dir = ")
@@ -180,7 +202,7 @@ mod tests {
 
         assert_eq!(
             read_config(&dir.path().join("missing.toml"), None).unwrap(),
-            Config::default()
+            defaults
         );
     }
 }
