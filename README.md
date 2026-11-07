@@ -45,11 +45,7 @@ markoff --dir ~/notes/tasks
 MARKOFF_DIR=~/notes/tasks markoff
 ```
 
-```toml
-# ~/.config/markoff/config.toml
-[general]
-dir = "~/notes/tasks"
-```
+Or set `dir` in `~/.config/markoff/config.toml`, see [`src/config.toml`](src/config.toml) for all keys.
 
 In an empty directory, press `N` for a section, then `o` for a task.
 Both open your editor: write the title after `# `, save and quit.

@@ -1,0 +1,8 @@
+# markoff's config with every key at its default. markoff reads this file first, then
+# ~/.config/markoff/config.toml over it: set only the keys you want to change there.
+
+[general]
+# The root directory with the sections, used when neither `--dir` nor $MARKOFF_DIR is given.
+# `~/` is the home directory, a relative path starts at the config file's directory.
+# No default.
+# dir = "~/notes/tasks"

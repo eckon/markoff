@@ -42,10 +42,10 @@ Use these words in code, docs and UI, not their synonyms (in brackets).
 
 ## Config
 
-`~/.config/markoff/config.toml`, parsed with serde into `Config` (`config.rs`), which mirrors the file. Its names are a public API, kept apart from code names. Keep new keys in line:
+`~/.config/markoff/config.toml`, merged over the defaults in `src/config.toml` and parsed with serde into `Config` (`config.rs`), which mirrors the file. Its names are a public API, kept apart from code names. Keep new keys in line:
 
 - `snake_case`. Global keys in `[general]`, everything else in a table per feature (`[archive]`), unfinished features in `[experimental]`.
-- Every key is optional, with its default in the README.
+- Every key is optional for the user. Its default and comment live in `src/config.toml`, the only place for defaults (no `#[serde(default)]`). A key without a default stays commented out there and is an `Option`.
 - Unknown keys are an error, so typos and keys in the wrong table show.
 - Types that can grow: a string over a bool when a third state is plausible, a table over a value that may get fields, units in the name or the value, lists always arrays.
 
