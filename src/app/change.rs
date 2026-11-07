@@ -197,6 +197,10 @@ mod tests {
     fn delete_section_only_if_empty() {
         let (dir, mut app) = app_with_files(&["work/a.md", "home/", "x/b.md"]);
         let before = listing(&app);
+        // Loading added it, its content has to come back with undo.
+        let gitkeep = dir.path().join("home/.gitkeep");
+        fs::write(&gitkeep, "kept").unwrap();
+        app.reload(None).unwrap();
 
         app.update(Action::Delete);
         assert_eq!(
@@ -220,6 +224,7 @@ mod tests {
         app.update(Action::Undo);
         assert_eq!(listing(&app), before);
         assert_eq!(app.cursor, 2, "back on `home`");
+        assert_eq!(fs::read_to_string(&gitkeep).unwrap(), "kept");
     }
 
     #[test]

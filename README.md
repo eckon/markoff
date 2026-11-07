@@ -64,12 +64,14 @@ The editor is `$VISUAL`, then `$EDITOR`, then `vi`. `?` shows all keys.
         old-task.md
   notes.md             <- ignored, files in the root are not tasks
   work/                <- section "work"
+    .gitkeep           <- keeps the section in git when it has no tasks
     fix-login-bug.md   <- task "# Fix login bug"
     review-pr.md
 ```
 
 - Filenames follow the title. Files added or edited by hand are renamed on start and before the next change.
 - `.markoff` is written by markoff. Add it to `.gitignore` to keep order changes and done dates out of git.
+- `.gitkeep` is added to every section, git does not keep empty directories. Turn it off with `sections.gitkeep` in the config.
 - Done tasks (`x`) move unchanged to `.archive/YYYY-MM-DD/<section>/`. Canceled tasks (`X`) go there too, with the heading struck through: `# ~~Fix login bug~~`.
 
 ## Repeating tasks

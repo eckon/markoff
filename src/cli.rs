@@ -15,6 +15,8 @@ use clap::{Parser, Subcommand};
 use color_eyre::Result;
 use jiff::civil::Date;
 
+use crate::config::Config;
+
 /// A TUI for tasks stored as markdown files.
 ///
 /// Without a command the TUI starts, commands make it scriptable.
@@ -71,24 +73,24 @@ pub enum Command {
 pub const SKILL: &str = include_str!("cli/skill.md");
 
 /// Runs `command` on the sections in `root` and returns what to print.
-pub fn run(command: Command, root: &Path, today: Date) -> Result<String> {
+pub fn run(command: Command, root: &Path, config: &Config, today: Date) -> Result<String> {
     match command {
         Command::Skill => unreachable!("run by main, it needs no root"),
         Command::List(args) => read::list(root, &args, today),
         Command::Show { id } => read::show(root, &id),
         Command::Add(mut args) => {
             args.body = stdin(args.body)?;
-            write::add(root, &args)
+            write::add(root, &args, config)
         }
         Command::Edit(mut args) => {
             args.body = stdin(args.body)?;
             args.append = stdin(args.append)?;
-            write::edit(root, &args)
+            write::edit(root, &args, config)
         }
-        Command::Move(args) => write::move_to(root, &args),
-        Command::Delete { ids } => write::delete(root, &ids),
-        Command::Done { ids } => write::done(root, &ids, false, today),
-        Command::Cancel { ids } => write::done(root, &ids, true, today),
+        Command::Move(args) => write::move_to(root, &args, config),
+        Command::Delete { ids } => write::delete(root, &ids, config),
+        Command::Done { ids } => write::done(root, &ids, false, today, config),
+        Command::Cancel { ids } => write::done(root, &ids, true, today, config),
     }
 }
 
@@ -132,7 +134,12 @@ pub mod tests {
     /// Runs markoff with `args` on `root`, as on the command line.
     pub fn markoff(root: &Path, args: &[&str]) -> Result<String> {
         let command = parse(args)?.command.expect("a command");
-        run(command, root, crate::app::tests::TODAY)
+        run(
+            command,
+            root,
+            &crate::config::defaults(),
+            crate::app::tests::TODAY,
+        )
     }
 
     #[test]

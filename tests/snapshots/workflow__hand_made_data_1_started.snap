@@ -33,6 +33,8 @@ fix-login-bug
 
 --- home/
 
+--- home/.gitkeep
+
 --- home/water-plants.md
 # Water plants
 
@@ -40,6 +42,8 @@ fix-login-bug
 # Not a task, files in the root are ignored
 
 --- work/
+
+--- work/.gitkeep
 
 --- work/.scratch.md
 # Hidden, ignored

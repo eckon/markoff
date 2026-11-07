@@ -34,6 +34,8 @@ write-report
 
 --- house/
 
+--- house/.gitkeep
+
 --- house/buy-oat-milk.md
 # Buy oat milk
 
@@ -49,3 +51,5 @@ The 1l one.
 # Write report
 
 --- work/
+
+--- work/.gitkeep

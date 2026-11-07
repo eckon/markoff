@@ -270,7 +270,11 @@ mod tests {
 
     #[test]
     fn first_open_skips_empty_days() {
-        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("work", &[])]),
+            crate::config::defaults(),
+        );
         app.today = TODAY;
         // The newest day has a directory without tasks.
         let day = TODAY - 400.days();
@@ -300,7 +304,11 @@ mod tests {
     fn heatmap_moves_by_day_and_skips_empty_ones() {
         // A Wednesday three weeks back, so up and down stay in its column.
         let day = jiff::civil::date(2026, 9, 30);
-        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("work", &[])]),
+            crate::config::defaults(),
+        );
         let today = jiff::civil::date(2026, 10, 21);
         app.today = today;
         app.archive = [day - 28.days(), day, day + 2.days(), day + 14.days()]
@@ -341,7 +349,11 @@ mod tests {
 
     #[test]
     fn v_selects_a_range_until_v_or_esc() {
-        let mut app = App::new(PathBuf::new(), sections(&[("work", &[])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("work", &[])]),
+            crate::config::defaults(),
+        );
         app.today = TODAY;
         app.archive = (0..3)
             .map(|back| (TODAY - back.days(), vec![done("work")]))
@@ -380,7 +392,11 @@ mod tests {
 
     #[test]
     fn filter_keeps_matches_and_skips_to_them() {
-        let mut app = App::new(PathBuf::new(), sections(&[("work", &[]), ("home", &[])]));
+        let mut app = App::new(
+            PathBuf::new(),
+            sections(&[("work", &[]), ("home", &[])]),
+            crate::config::defaults(),
+        );
         app.today = TODAY;
         let done = |section: &str, content: &str| Done {
             section: section.to_string(),
@@ -434,6 +450,7 @@ mod tests {
         let mut app = App::new(
             PathBuf::new(),
             sections(&[("work", &[]), ("home", &[]), ("misc", &[])]),
+            crate::config::defaults(),
         );
         app.today = TODAY;
         app.archive = [(TODAY, vec![done("work"), done("misc"), done("misc")])].into();

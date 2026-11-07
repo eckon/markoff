@@ -10,11 +10,12 @@ use jiff::civil::Date;
 
 use crate::{
     archive::ArchiveDir,
+    config::Config,
     name::slugify,
     op::Op,
     repeat,
     state::{self, State, StateFile},
-    task::{self, EXTENSION, HEADING, Section, Task, split_heading},
+    task::{self, EXTENSION, GITKEEP, HEADING, Section, Task, split_heading},
 };
 
 /// `D`: removes task `t` of section `s`.
@@ -31,15 +32,23 @@ pub fn delete(sections: &[Section], s: usize, t: usize, file: &StateFile) -> Vec
     ops
 }
 
-/// `D` on a section header: removes the directory of section `s`. Only for an empty section,
-/// the caller checks.
+/// `D` on a section header: removes the directory of section `s`, with its [`GITKEEP`] even
+/// when `sections.gitkeep` is off, it is no reason to keep the section. Only for an empty
+/// section, the caller checks.
 pub fn delete_section(sections: &[Section], s: usize, file: &StateFile) -> Vec<Op> {
+    let section = &sections[s];
     let mut state = State::of(sections);
     state.sections.remove(s);
 
-    let mut ops = vec![Op::RemoveDir {
-        path: sections[s].dir.clone(),
-    }];
+    let mut ops: Vec<Op> = (section.gitkeep.iter())
+        .map(|content| Op::Remove {
+            path: section.dir.join(GITKEEP),
+            content: content.clone(),
+        })
+        .collect();
+    ops.push(Op::RemoveDir {
+        path: section.dir.clone(),
+    });
     ops.extend(file.write(&state));
     ops
 }
@@ -165,12 +174,18 @@ fn task_names(section: &Section) -> Vec<TaskName> {
 }
 
 /// Renames tasks whose filename does not match their heading, and writes the state file so
-/// it lists exactly what is on disk. Tasks without heading keep their name. Returns no ops
-/// if everything already matches.
-pub fn normalize(sections: &[Section], file: &StateFile) -> Vec<Op> {
+/// it lists exactly what is on disk. Tasks without heading keep their name. With
+/// `sections.gitkeep` it also adds a missing [`GITKEEP`]. Returns no ops if everything already matches.
+pub fn normalize(sections: &[Section], file: &StateFile, config: &Config) -> Vec<Op> {
     let mut state = State::of(sections);
     let mut ops = Vec::new();
     for (s, section) in sections.iter().enumerate() {
+        if config.sections.gitkeep && section.gitkeep.is_none() {
+            ops.push(Op::Create {
+                path: section.dir.join(GITKEEP),
+                content: String::new(),
+            });
+        }
         let (renames, lines) = renames(&task_names(section), &section.dir);
         ops.extend(renames);
         state.sections[s].tasks = lines;
@@ -214,14 +229,15 @@ pub fn insert(
     (ops, path)
 }
 
-/// `N`: creates section `slug` in `root` at position `index`. Returns the ops and the new
-/// directory.
+/// `N`: creates section `slug` in `root` at position `index`, with a [`GITKEEP`] with
+/// `sections.gitkeep`. Returns the ops and the new directory.
 pub fn insert_section(
     sections: &[Section],
     root: &Path,
     index: usize,
     slug: &str,
     file: &StateFile,
+    config: &Config,
 ) -> (Vec<Op>, PathBuf) {
     let path = root.join(slug);
     let mut state = State::of(sections);
@@ -234,6 +250,12 @@ pub fn insert_section(
     );
 
     let mut ops = vec![Op::CreateDir { path: path.clone() }];
+    if config.sections.gitkeep {
+        ops.push(Op::Create {
+            path: path.join(GITKEEP),
+            content: String::new(),
+        });
+    }
     ops.extend(file.write(&state));
     (ops, path)
 }
@@ -385,6 +407,7 @@ mod tests {
                         .map(|(file, content)| Task::parse(path.join(file), content))
                         .collect(),
                     dir: path,
+                    gitkeep: None,
                 }
             })
             .collect()
@@ -401,6 +424,13 @@ mod tests {
             .map(|(dir, files)| (*dir, files.as_slice()))
             .collect();
         tree_with(&spec)
+    }
+
+    /// The defaults with `sections.gitkeep` set to `gitkeep`.
+    fn config(gitkeep: bool) -> Config {
+        let mut config = crate::config::defaults();
+        config.sections.gitkeep = gitkeep;
+        config
     }
 
     /// The state file holding exactly the order of `sections`, as after a normalize.
@@ -454,6 +484,22 @@ mod tests {
             describe(&delete_section(&s, 1, &file_for(&s))),
             ["rmdir b", "state # a | # c"]
         );
+
+        // Its .gitkeep goes first, with the content for undo.
+        let mut s = s;
+        s[1].gitkeep = Some("note".to_string());
+        let ops = delete_section(&s, 1, &file_for(&s));
+        assert_eq!(
+            describe(&ops),
+            ["remove .gitkeep", "rmdir b", "state # a | # c"]
+        );
+        assert_eq!(
+            ops[0],
+            Op::Remove {
+                path: "root/b/.gitkeep".into(),
+                content: "note".to_string(),
+            }
+        );
     }
 
     #[test]
@@ -477,11 +523,24 @@ mod tests {
     fn insert_section_at_the_given_place() {
         let s = tree(&[("a", &[]), ("b", &[])]);
         let root = Path::new("root");
-        let (ops, path) = insert_section(&s, root, 1, "new", &file_for(&s));
+        let (ops, path) = insert_section(&s, root, 1, "new", &file_for(&s), &config(false));
         assert_eq!(describe(&ops), ["mkdir new", "state # a | # new | # b"]);
         assert_eq!(path, Path::new("root/new"));
 
-        let (ops, _) = insert_section(&s, root, 0, "new", &file_for(&s));
+        let (ops, _) = insert_section(&s, root, 0, "new", &file_for(&s), &config(true));
+        assert_eq!(
+            describe(&ops),
+            ["mkdir new", "create .gitkeep", "state # new | # a | # b"]
+        );
+        assert_eq!(
+            ops[1],
+            Op::Create {
+                path: "root/new/.gitkeep".into(),
+                content: String::new(),
+            }
+        );
+
+        let (ops, _) = insert_section(&s, root, 0, "new", &file_for(&s), &config(false));
         assert_eq!(describe(&ops), ["mkdir new", "state # new | # a | # b"]);
 
         // The very first section creates the state file.
@@ -489,7 +548,7 @@ mod tests {
             path: PathBuf::from("root/.markoff"),
             content: None,
         };
-        let (ops, _) = insert_section(&[], root, 0, "new", &none);
+        let (ops, _) = insert_section(&[], root, 0, "new", &none, &config(false));
         assert_eq!(describe(&ops), ["mkdir new", "state # new"]);
     }
 
@@ -558,7 +617,23 @@ mod tests {
     #[test]
     fn normalize_leaves_clean_tree_alone() {
         let s = tree_with(&[("work", &[("a.md", "# A"), ("notes.md", "no heading")])]);
-        assert_eq!(normalize(&s, &file_for(&s)), []);
+        assert_eq!(normalize(&s, &file_for(&s), &config(false)), []);
+        let s = [Section {
+            gitkeep: Some(String::new()),
+            ..s[0].clone()
+        }];
+        assert_eq!(normalize(&s, &file_for(&s), &config(true)), []);
+    }
+
+    #[test]
+    fn normalize_adds_a_missing_gitkeep() {
+        let mut s = tree(&[("work", &["a.md"]), ("home", &[])]);
+        s[0].gitkeep = Some("kept as it is".to_string());
+        assert_eq!(
+            describe(&normalize(&s, &file_for(&s), &config(true))),
+            ["create .gitkeep"]
+        );
+        assert_eq!(normalize(&s, &file_for(&s), &config(false)), []);
     }
 
     #[test]
@@ -571,7 +646,7 @@ mod tests {
             ),
         ]);
         assert_eq!(
-            describe(&normalize(&s, &file_for(&s))),
+            describe(&normalize(&s, &file_for(&s), &config(false))),
             [
                 "rename 01-a.md -> a.md",
                 "rename old.md -> new-title.md",
@@ -590,7 +665,7 @@ mod tests {
                 path: PathBuf::from("root/.markoff"),
                 content: content.map(str::to_string),
             };
-            describe(&normalize(&s, &file))
+            describe(&normalize(&s, &file, &config(false)))
         };
         assert_eq!(ops(None), ["state # work a | # home"]);
         assert_eq!(
@@ -607,7 +682,7 @@ mod tests {
             &[("x-2.md", "# X"), ("x.md", "# X"), ("old.md", "# X")],
         )]);
         assert_eq!(
-            describe(&normalize(&s, &file_for(&s))),
+            describe(&normalize(&s, &file_for(&s), &config(false))),
             ["rename old.md -> x-3.md", "state # work x-2 x x-3"]
         );
     }
@@ -617,7 +692,7 @@ mod tests {
         // `b` is renamed to `c`, so `a` can take `b` only after that.
         let s = tree_with(&[("work", &[("a.md", "# B"), ("b.md", "# C")])]);
         assert_eq!(
-            describe(&normalize(&s, &file_for(&s))),
+            describe(&normalize(&s, &file_for(&s), &config(false))),
             [
                 "rename b.md -> c.md",
                 "rename a.md -> b.md",

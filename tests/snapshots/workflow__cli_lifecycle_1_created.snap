@@ -36,6 +36,8 @@ water-plants
 
 --- home/
 
+--- home/.gitkeep
+
 --- home/call-bob.md
 # Call Bob
 
@@ -43,6 +45,8 @@ water-plants
 # Water plants `* * *`
 
 --- work/
+
+--- work/.gitkeep
 
 --- work/fix-login-bug.md
 # Fix login bug
