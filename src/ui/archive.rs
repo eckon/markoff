@@ -532,7 +532,7 @@ mod tests {
         };
         // Today the busiest, older days so it is not in the first column.
         app.days = [(TODAY, 3), (TODAY - 10.days(), 1), (TODAY - 20.days(), 2)].into();
-        app.hide_preview = true;
+        app.tasks_page.hide_preview = true;
 
         // On the tasks page: the list, the footer as a line.
         let screen = lines(&draw(&app));

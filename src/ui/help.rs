@@ -217,7 +217,9 @@ mod tests {
         app.update(Action::Help);
         let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
         let mut draw = |app: &mut App| {
-            let drawn = terminal.draw(|frame| app.help_offset = render(app, frame).help_offset);
+            let drawn = terminal.draw(|frame| {
+                app.help.as_mut().unwrap().offset = render(app, frame).help_offset.unwrap()
+            });
             let screen: String = (drawn.unwrap().buffer.content().iter())
                 .map(|c| c.symbol())
                 .collect();
@@ -231,7 +233,7 @@ mod tests {
         // Past the end is cut back to the last line at the bottom.
         app.update(Action::Bottom);
         let screen = draw(&mut app);
-        assert_eq!(app.help_offset, 15);
+        assert_eq!(app.help.as_ref().unwrap().offset, 15);
         assert!(screen.contains("↑ 10 more"), "{screen}");
         assert!(screen.contains("? ············ close help, also Esc"));
         assert_eq!(screen.matches("more").count(), 1, "nothing below");
@@ -255,7 +257,7 @@ mod tests {
             (screen, buffer)
         };
         // By key, the group without a match drops out.
-        app.help_filter = "C-c".to_string();
+        app.help.as_mut().unwrap().filter = "C-c".to_string();
         let (screen, buffer) = draw(&app);
         assert!(screen.contains("q ············ quit, also C-c"), "{screen}");
         assert!(!screen.contains("── move"));
@@ -267,13 +269,13 @@ mod tests {
         );
 
         // By text.
-        app.help_filter = "SECTION".to_string();
+        app.help.as_mut().unwrap().filter = "SECTION".to_string();
         let (screen, _) = draw(&app);
         assert!(screen.contains("{ / } ········ previous / next section"));
         assert!(screen.contains("N ············ new section"));
         assert!(!screen.contains("quit"));
 
-        app.help_filter = "zz".to_string();
+        app.help.as_mut().unwrap().filter = "zz".to_string();
         let (screen, _) = draw(&app);
         assert!(screen.contains("no matches"));
     }

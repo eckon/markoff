@@ -85,7 +85,7 @@ fn hints(app: &App) -> Vec<(String, &'static str)> {
     if app.page == Page::Archive
         && app.archive_page.anchor.is_some()
         && app.archive_page.focus == Focus::Heatmap
-        && !app.show_help
+        && app.help.is_none()
     {
         hints.extend(key(Action::Visual).map(|key| (format!("{key} / Esc"), "end range")));
     }
@@ -99,12 +99,18 @@ fn status_text(app: &App) -> Vec<Span<'_>> {
         (Some(Status::Error(message)), _) => vec![message.as_str().red().bold()],
         (Some(Status::Info(message)), _) => vec![message.as_str().into()],
         (None, Some(key)) => vec![key.to_string().into()],
-        (None, None) if app.show_help && !app.help_filter.is_empty() => {
-            let count = help::bindings(app.page, &app.help_filter).len();
+        (None, None)
+            if app
+                .help
+                .as_ref()
+                .is_some_and(|help| !help.filter.is_empty()) =>
+        {
+            let filter = app.active_filter();
+            let count = help::bindings(app.page, filter).len();
             let keys = if count == 1 { "key" } else { "keys" };
             vec![
                 "filter: ".dim(),
-                app.help_filter.as_str().into(),
+                filter.into(),
                 format!(" · {count} {keys}").dim(),
             ]
         }

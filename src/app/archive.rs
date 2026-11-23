@@ -42,7 +42,7 @@ pub struct ArchivePage {
     pub heatmap_offset: usize,
     /// Index into [`App::archive_rows`].
     pub cursor: usize,
-    /// First list line on screen, like [`App::list_offset`].
+    /// First list line on screen, like [`crate::app::TasksPage::offset`].
     pub offset: usize,
     pub focus: Focus,
     /// `p` hid the preview next to the list, its own and not the task list's.
@@ -417,7 +417,7 @@ mod tests {
 
         // Behind markoff's back: a day nobody reports as changed stays as it was read.
         fs::write(old_dir.join("d.md"), "# d").unwrap();
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.update(Action::Done);
         assert_eq!(app.archive[&TODAY].len(), 1);
         assert_eq!(app.archive[&old].len(), 1, "not read again");
@@ -445,7 +445,7 @@ mod tests {
 
         app.update(Action::NextPage);
         app.update(Action::PrevPage);
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.update(Action::Done);
         assert!(matches!(app.archive_load, ArchiveLoad::Loading(_)));
         wait_for_archive(&mut app);
@@ -612,7 +612,7 @@ mod tests {
             [ArchiveRow::Section(1, 0), ArchiveRow::Task(1, TODAY, 1)]
         );
         assert_eq!(app.archive_page.cursor, 1);
-        assert_eq!(app.filter, "");
+        assert_eq!(app.tasks_page.filter, "");
         assert_eq!(
             app.archive_matches(),
             Some([(TODAY - 2.days(), 1), (TODAY, 1)].into())

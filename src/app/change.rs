@@ -148,7 +148,7 @@ mod tests {
         app.reload(None).unwrap();
 
         // Into the next section: the line moves along.
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.update(Action::MoveDown);
         app.update(Action::MoveDown);
         assert_eq!(
@@ -173,12 +173,12 @@ mod tests {
     #[test]
     fn delete_and_undo() {
         let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
 
         app.update(Action::Delete);
         assert_eq!(listing(&app), ["[work]", "b.md"]);
         assert_eq!(state_file(&dir), "# work\nb\n");
-        assert_eq!(app.cursor, 1, "cursor moves onto the next task");
+        assert_eq!(app.tasks_page.cursor, 1, "cursor moves onto the next task");
         assert_eq!(
             app.status,
             Some(Status::Info("task deleted (u to undo)".to_string()))
@@ -187,7 +187,7 @@ mod tests {
         app.update(Action::Undo);
         assert_eq!(listing(&app), ["[work]", "a.md", "b.md"]);
         assert_eq!(state_file(&dir), "# work\na\nb\n");
-        assert_eq!(app.cursor, 1, "cursor is on the restored task");
+        assert_eq!(app.tasks_page.cursor, 1, "cursor is on the restored task");
 
         app.update(Action::Undo);
         assert_eq!(
@@ -213,7 +213,7 @@ mod tests {
         assert_eq!(listing(&app), before);
 
         // The empty `home` goes, `x` moves up into its place, under the cursor.
-        app.cursor = 2;
+        app.tasks_page.cursor = 2;
         app.update(Action::Delete);
         assert_eq!(listing(&app), ["[work]", "a.md", "[x]", "b.md"]);
         assert!(!dir.path().join("home").exists());
@@ -226,40 +226,40 @@ mod tests {
 
         app.update(Action::Undo);
         assert_eq!(listing(&app), before);
-        assert_eq!(app.cursor, 2, "back on `home`");
+        assert_eq!(app.tasks_page.cursor, 2, "back on `home`");
         assert_eq!(fs::read_to_string(&gitkeep).unwrap(), "kept");
     }
 
     #[test]
     fn move_task_within_and_across_sections() {
         let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md", "home/c.md"]);
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
 
         app.update(Action::MoveDown);
         assert_eq!(listing(&app), ["[work]", "b.md", "a.md", "[home]", "c.md"]);
         assert_eq!(state_file(&dir), "# work\nb\na\n\n# home\nc\n");
-        assert_eq!(app.cursor, 2, "cursor follows the task");
+        assert_eq!(app.tasks_page.cursor, 2, "cursor follows the task");
 
         app.update(Action::MoveDown);
         assert_eq!(listing(&app), ["[work]", "b.md", "[home]", "a.md", "c.md"]);
         assert!(dir.path().join("home/a.md").exists());
-        assert_eq!(app.cursor, 3);
+        assert_eq!(app.tasks_page.cursor, 3);
 
         // One undo per move, the cursor goes back with the task.
         app.update(Action::Undo);
         assert_eq!(listing(&app), ["[work]", "b.md", "a.md", "[home]", "c.md"]);
-        assert_eq!(app.cursor, 2);
+        assert_eq!(app.tasks_page.cursor, 2);
         app.update(Action::Undo);
-        assert_eq!(app.cursor, 1);
+        assert_eq!(app.tasks_page.cursor, 1);
         assert_eq!(listing(&app)[1], "a.md");
     }
 
     #[test]
     fn move_task_stops_at_the_ends() {
         let (_dir, mut app) = app_with_files(&["work/a.md", "home/b.md"]);
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.update(Action::MoveUp);
-        app.cursor = 3;
+        app.tasks_page.cursor = 3;
         app.update(Action::MoveDown);
         assert_eq!(listing(&app), ["[work]", "a.md", "[home]", "b.md"]);
         assert_eq!(app.status, None);
@@ -271,12 +271,15 @@ mod tests {
 
         app.update(Action::MoveDown);
         assert_eq!(listing(&app), ["[home]", "b.md", "[work]", "a.md", "[x]"]);
-        assert_eq!(app.cursor, 2, "cursor follows the section");
+        assert_eq!(app.tasks_page.cursor, 2, "cursor follows the section");
         assert_eq!(state_file(&dir), "# home\nb\n\n# work\na\n\n# x\n");
 
         app.update(Action::Undo);
         assert_eq!(app.sections[0].name, "work");
-        assert_eq!(app.cursor, 0, "cursor goes back with the section");
+        assert_eq!(
+            app.tasks_page.cursor, 0,
+            "cursor goes back with the section"
+        );
 
         // Nothing above the first one.
         app.update(Action::MoveUp);
@@ -291,9 +294,9 @@ mod tests {
         let archive = dir.path().join(".archive");
         let day = archive.join(TODAY.to_string());
 
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.update(Action::Done);
-        app.cursor = 2;
+        app.tasks_page.cursor = 2;
         app.update(Action::Done);
         assert_eq!(
             app.status,
@@ -326,13 +329,13 @@ mod tests {
     fn done_twice_a_day_gets_a_number() {
         let (dir, mut app) = app_with_files(&["work/a.md"]);
         let day = dir.path().join(".archive").join(TODAY.to_string());
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.update(Action::Done);
         // The same task again, written outside markoff.
         fs::write(dir.path().join("work/a.md"), "").unwrap();
         app.reload(None).unwrap();
 
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.update(Action::Done);
         assert!(day.join("work/a.md").exists());
         assert!(day.join("work/a-2.md").exists());
@@ -351,7 +354,7 @@ mod tests {
             .join(TODAY.to_string())
             .join("work/a.md");
 
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.update(Action::Cancel);
         assert_eq!(
             app.status,
@@ -384,7 +387,7 @@ mod tests {
         app.reload(None).unwrap();
 
         // Never done: due.
-        app.cursor = 2;
+        app.tasks_page.cursor = 2;
         app.update(Action::Done);
         assert_eq!(
             app.status,
@@ -400,7 +403,7 @@ mod tests {
 
         // Again while `.` shows it: nothing changes, no undo step to take back.
         app.update(Action::ShowHidden);
-        app.cursor = 2;
+        app.tasks_page.cursor = 2;
         let steps = app.undo.len();
         app.update(Action::Done);
         assert_eq!(app.undo.len(), steps);

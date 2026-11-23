@@ -84,6 +84,32 @@ struct UndoStep {
     cursor: Option<PathBuf>,
 }
 
+/// Where the task list is, kept while switching pages, like [`ArchivePage`].
+#[derive(Debug, Default)]
+pub struct TasksPage {
+    /// Index into [`App::rows`].
+    pub cursor: usize,
+    /// First list line on screen. Kept between frames so the view only scrolls when the
+    /// cursor would leave it, see [`ui::render`].
+    pub offset: usize,
+    /// `/` filter, empty for none. Applied in [`App::rows`], so everything that works on rows
+    /// sees only what matches.
+    pub filter: String,
+    /// `p` hid the preview next to the list.
+    pub hide_preview: bool,
+    /// `.` shows the tasks that are not due, see [`Task::due`].
+    pub show_hidden: bool,
+}
+
+/// The open help overlay. It is temporary: it opens at the top, without a filter.
+#[derive(Debug, Default)]
+pub struct Help {
+    /// First line on screen, kept within the lines by [`ui::render`].
+    pub offset: usize,
+    /// `/` filter of the help, empty for none.
+    pub filter: String,
+}
+
 /// Application state.
 #[derive(Debug)]
 pub struct App {
@@ -94,36 +120,21 @@ pub struct App {
     /// `.markoff` as read with `sections`, the base for the order an action writes.
     state_file: StateFile,
     config: Config,
-    /// Index into [`App::rows`].
-    pub cursor: usize,
     pub keymap: Keymap,
     /// Applied actions, newest last. Undo applies the inverse of the last one.
     undo: Vec<UndoStep>,
     pub status: Option<Status>,
-    /// Help overlay is open.
-    pub show_help: bool,
-    /// `p` hid the preview next to the list.
-    pub hide_preview: bool,
-    /// `.` shows the tasks that are not due, see [`Task::due`].
-    pub show_hidden: bool,
+    /// The help overlay, while it is open.
+    pub help: Option<Help>,
     /// The local date, read from the clock once per loop so a frame never mixes two days, and
     /// tests can set it. A placeholder until the first loop.
     pub today: Date,
     pub page: Page,
+    pub tasks_page: TasksPage,
     pub archive_page: ArchivePage,
     editor_request: Option<EditorRequest>,
-    /// `/` filter, empty for none. Applied in [`App::rows`], so everything that works on rows
-    /// sees only what matches.
-    pub filter: String,
     /// The filter input at the bottom is open and takes the keys.
     pub filter_input: bool,
-    /// First list line on screen. Kept between frames so the view only scrolls when the
-    /// cursor would leave it, see [`ui::render`].
-    pub list_offset: usize,
-    /// First help line on screen, kept within the lines by [`ui::render`].
-    pub help_offset: usize,
-    /// `/` filter of the help, empty for none. The help is temporary: it opens without one.
-    pub help_filter: String,
     /// The archived tasks, done or canceled. Only today until the page needs all, see
     /// [`ArchiveLoad`].
     pub archive: crate::archive::Archive,
@@ -148,22 +159,16 @@ impl App {
             sections,
             state_file,
             config,
-            cursor: 0,
             keymap: Keymap::default(),
             undo: Vec::new(),
             status: None,
-            show_help: false,
-            hide_preview: false,
-            show_hidden: false,
+            help: None,
             today: Date::ZERO,
             page: Page::Tasks,
+            tasks_page: TasksPage::default(),
             archive_page: ArchivePage::default(),
             editor_request: None,
-            filter: String::new(),
             filter_input: false,
-            list_offset: 0,
-            help_offset: 0,
-            help_filter: String::new(),
             archive: crate::archive::Archive::new(),
             // Made in memory, its archive is all there is.
             archive_load: ArchiveLoad::Loaded,
@@ -211,8 +216,10 @@ impl App {
                 let mut drawn = None;
                 terminal.draw(|frame| drawn = Some(ui::render(&self, frame)))?;
                 if let Some(drawn) = drawn {
-                    self.list_offset = drawn.list_offset;
-                    self.help_offset = drawn.help_offset;
+                    self.tasks_page.offset = drawn.list_offset;
+                    if let (Some(help), Some(offset)) = (&mut self.help, drawn.help_offset) {
+                        help.offset = offset;
+                    }
                     self.archive_page.heatmap_offset = drawn.heatmap_offset;
                     self.archive_page.offset = drawn.archive_offset;
                 }
@@ -294,12 +301,12 @@ impl App {
     /// section, its row number stays.
     fn neighbor_in_section(&self) -> Option<PathBuf> {
         let rows = self.rows();
-        let Some(&Row::Task(s, _)) = rows.get(self.cursor) else {
+        let Some(&Row::Task(s, _)) = rows.get(self.tasks_page.cursor) else {
             return None;
         };
-        let neighbor = match rows.get(self.cursor + 1) {
+        let neighbor = match rows.get(self.tasks_page.cursor + 1) {
             Some(&Row::Task(next, t)) if next == s => Row::Task(next, t),
-            _ => rows[self.cursor - 1],
+            _ => rows[self.tasks_page.cursor - 1],
         };
         Some(self.row_path(neighbor))
     }
@@ -329,7 +336,7 @@ impl App {
     pub fn context(&self) -> Context {
         if self.filter_input {
             Context::Filter
-        } else if self.show_help {
+        } else if self.help.is_some() {
             Context::Help
         } else {
             Context::Page(self.page)
@@ -351,16 +358,16 @@ impl App {
     fn try_update(&mut self, action: Action) -> Result<()> {
         // The help scrolls, the page behind it keeps its cursor. Past the end is cut back when
         // drawn.
-        if self.show_help
+        if let Some(help) = &mut self.help
             && let Some(offset) = match action {
-                Action::Down => Some(self.help_offset.saturating_add(1)),
-                Action::Up => Some(self.help_offset.saturating_sub(1)),
+                Action::Down => Some(help.offset.saturating_add(1)),
+                Action::Up => Some(help.offset.saturating_sub(1)),
                 Action::Top => Some(0),
                 Action::Bottom => Some(usize::MAX),
                 _ => None,
             }
         {
-            self.help_offset = offset;
+            help.offset = offset;
             return Ok(());
         }
         if self.page == Page::Archive && self.update_archive(action) {
@@ -368,7 +375,7 @@ impl App {
         }
         // Where a task goes is unclear while tasks in between are hidden, and a new task or
         // section would mostly be hidden right away.
-        if !self.filter.is_empty()
+        if !self.tasks_page.filter.is_empty()
             && matches!(
                 action,
                 Action::MoveDown
@@ -413,7 +420,7 @@ impl App {
                         Row::Task(..) => cursor::Line::Task,
                     })
                     .collect();
-                self.cursor = cursor::moved(&lines, self.cursor, action);
+                self.tasks_page.cursor = cursor::moved(&lines, self.tasks_page.cursor, action);
             }
             Action::MoveDown | Action::MoveUp => self.move_selected(action == Action::MoveDown)?,
             Action::Open => self.open(),
@@ -424,11 +431,12 @@ impl App {
             Action::Delete => self.delete()?,
             Action::Undo => self.undo()?,
             Action::Help => {
-                self.show_help = !self.show_help;
-                self.help_offset = 0;
-                self.help_filter.clear();
+                self.help = match self.help {
+                    Some(_) => None,
+                    None => Some(Help::default()),
+                };
             }
-            Action::Preview => self.hide_preview = !self.hide_preview,
+            Action::Preview => self.tasks_page.hide_preview = !self.tasks_page.hide_preview,
             Action::ShowHidden => self.toggle_hidden(),
             Action::PrevPage | Action::NextPage => {
                 let count = Page::ALL.len();
@@ -468,9 +476,9 @@ impl App {
     /// Changes the filter. The cursor stays on its task or section if that still matches,
     /// otherwise it goes to the first row.
     fn set_filter(&mut self, change: impl FnOnce(&mut String)) {
-        if self.show_help {
-            change(&mut self.help_filter);
-            self.help_offset = 0;
+        if let Some(help) = &mut self.help {
+            change(&mut help.filter);
+            help.offset = 0;
             return;
         }
         if self.page == Page::Archive {
@@ -479,8 +487,8 @@ impl App {
             return;
         }
         let selected = self.selected().map(|row| self.row_path(row));
-        change(&mut self.filter);
-        self.cursor = 0;
+        change(&mut self.tasks_page.filter);
+        self.tasks_page.cursor = 0;
         if let Some(path) = selected {
             self.select_path(&path);
         }
@@ -531,12 +539,12 @@ impl App {
 
     /// `.`: says what changed, the list alone does not show it when nothing is hidden.
     fn toggle_hidden(&mut self) {
-        self.show_hidden = !self.show_hidden;
+        self.tasks_page.show_hidden = !self.tasks_page.show_hidden;
         let date = self.today;
         let hidden = (self.sections.iter().flat_map(|section| &section.tasks))
             .filter(|task| !task.due(date))
             .count();
-        let message = match (hidden, self.show_hidden) {
+        let message = match (hidden, self.tasks_page.show_hidden) {
             (0, _) => "no hidden tasks".to_string(),
             (_, true) => format!("hidden tasks shown ({hidden})"),
             (_, false) => "hidden tasks hidden".to_string(),
@@ -546,7 +554,7 @@ impl App {
 
     /// Whether `task` is in the list: when it is due, or `.` shows the hidden ones.
     fn shown(&self, task: &Task) -> bool {
-        self.show_hidden || task.due(self.today)
+        self.tasks_page.show_hidden || task.due(self.today)
     }
 
     /// Applies ops, records them for undo together with the cursor position, and reloads,
@@ -583,7 +591,10 @@ impl App {
         (self.sections, self.state_file) = load::load(&self.root)?;
         self.reread_day(self.today)?;
         self.update_days();
-        self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
+        self.tasks_page.cursor = self
+            .tasks_page
+            .cursor
+            .min(self.rows().len().saturating_sub(1));
         if let Some(path) = path {
             self.select_path(path);
         }
@@ -598,7 +609,7 @@ impl App {
             .into_iter()
             .position(|row| self.row_path(row) == path);
         if let Some(index) = found {
-            self.cursor = index;
+            self.tasks_page.cursor = index;
         }
         found.is_some()
     }
@@ -612,11 +623,11 @@ impl App {
             let tasks: Vec<Row> = (0..section.tasks.len())
                 .filter(|&t| {
                     let task = &section.tasks[t];
-                    self.shown(task) && task.matches(&self.filter)
+                    self.shown(task) && task.matches(&self.tasks_page.filter)
                 })
                 .map(|t| Row::Task(s, t))
                 .collect();
-            if self.filter.is_empty() || !tasks.is_empty() {
+            if self.tasks_page.filter.is_empty() || !tasks.is_empty() {
                 rows.push(Row::Section(s));
                 rows.extend(tasks);
             }
@@ -626,21 +637,21 @@ impl App {
 
     /// The row under the cursor, `None` only if there are no rows at all.
     pub fn selected(&self) -> Option<Row> {
-        self.rows().get(self.cursor).copied()
+        self.rows().get(self.tasks_page.cursor).copied()
     }
 
     /// The filter of the help while it is open, else of the page.
     pub fn active_filter(&self) -> &str {
-        match self.show_help {
-            true => &self.help_filter,
-            false => self.page_filter(),
+        match &self.help {
+            Some(help) => &help.filter,
+            None => self.page_filter(),
         }
     }
 
     /// The filter of the current page, each page has its own.
     pub fn page_filter(&self) -> &str {
         match self.page {
-            Page::Tasks => &self.filter,
+            Page::Tasks => &self.tasks_page.filter,
             Page::Archive => &self.archive_page.filter,
         }
     }
@@ -781,27 +792,27 @@ pub mod tests {
             crate::config::defaults(),
         );
         app.update(Action::Up);
-        assert_eq!(app.cursor, 0);
+        assert_eq!(app.tasks_page.cursor, 0);
         app.update(Action::Down);
         app.update(Action::Down);
-        assert_eq!(app.cursor, 1);
+        assert_eq!(app.tasks_page.cursor, 1);
     }
 
     #[test]
     fn only_help_and_esc_close_help() {
         let (_dir, mut app) = app_with_files(&["work/a.md"]);
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.update(Action::Help);
-        assert!(app.show_help);
+        assert!(app.help.is_some());
 
         app.handle_event(Event::Key(KeyCode::Char('X').into()));
-        assert!(app.show_help, "other keys keep the help open");
+        assert!(app.help.is_some(), "other keys keep the help open");
         assert_eq!(listing(&app), ["[work]", "a.md"], "X did not archive");
 
         for code in [KeyCode::Char('?'), KeyCode::Esc] {
-            app.show_help = true;
+            app.help = Some(Help::default());
             app.handle_event(Event::Key(code.into()));
-            assert!(!app.show_help, "{code:?} closes the help");
+            assert!(app.help.is_none(), "{code:?} closes the help");
             assert!(app.running, "{code:?} does not quit");
         }
     }
@@ -809,23 +820,27 @@ pub mod tests {
     #[test]
     fn help_scrolls_and_keeps_the_cursor() {
         let (_dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.update(Action::Help);
         app.update(Action::Down);
         app.update(Action::Down);
         app.update(Action::Up);
-        assert_eq!(app.help_offset, 1);
-        assert_eq!(app.cursor, 1, "the list behind it stays");
+        assert_eq!(app.help.as_ref().unwrap().offset, 1);
+        assert_eq!(app.tasks_page.cursor, 1, "the list behind it stays");
         app.update(Action::Bottom);
         app.update(Action::Down);
-        assert_eq!(app.help_offset, usize::MAX, "cut back when drawn");
+        assert_eq!(
+            app.help.as_ref().unwrap().offset,
+            usize::MAX,
+            "cut back when drawn"
+        );
         app.update(Action::Top);
-        assert_eq!(app.help_offset, 0);
+        assert_eq!(app.help.as_ref().unwrap().offset, 0);
 
         app.update(Action::Down);
         app.update(Action::Help);
         app.update(Action::Help);
-        assert_eq!(app.help_offset, 0, "opens at the top");
+        assert_eq!(app.help.as_ref().unwrap().offset, 0, "opens at the top");
     }
 
     #[test]
@@ -838,22 +853,22 @@ pub mod tests {
         app.update(Action::Down);
         app.update(Action::Filter);
         app.update(Action::FilterType('q'));
-        assert_eq!(app.help_filter, "q");
-        assert_eq!(app.help_offset, 0, "back to the top");
-        assert_eq!(app.filter, "a", "the page's stays");
+        assert_eq!(app.help.as_ref().unwrap().filter, "q");
+        assert_eq!(app.help.as_ref().unwrap().offset, 0, "back to the top");
+        assert_eq!(app.tasks_page.filter, "a", "the page's stays");
         app.update(Action::FilterAccept);
         assert_eq!(app.context(), Context::Help);
 
         app.update(Action::Help);
         app.update(Action::Help);
-        assert_eq!(app.help_filter, "", "opens without");
-        assert_eq!(app.filter, "a");
+        assert_eq!(app.help.as_ref().unwrap().filter, "", "opens without");
+        assert_eq!(app.tasks_page.filter, "a");
     }
 
     #[test]
     fn pages_wrap_around_and_keep_task_keys_to_the_list() {
         let (_dir, mut app) = app_with_files(&["work/a.md"]);
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.handle_event(Event::Key(KeyCode::Tab.into()));
         assert_eq!(app.page, Page::Archive);
 
@@ -870,9 +885,9 @@ pub mod tests {
     fn preview_toggles_on_each_page_of_its_own() {
         let (_dir, mut app) = app_with_files(&["work/a.md"]);
         app.update(Action::Preview);
-        assert!(app.hide_preview);
+        assert!(app.tasks_page.hide_preview);
         app.update(Action::Preview);
-        assert!(!app.hide_preview);
+        assert!(!app.tasks_page.hide_preview);
         app.update(Action::Preview);
 
         // On the archive page only in the list, and not the task list's.
@@ -883,7 +898,7 @@ pub mod tests {
         app.update(Action::FocusList);
         app.update(Action::Preview);
         assert!(app.archive_page.hide_preview);
-        assert!(app.hide_preview, "the task list's stays");
+        assert!(app.tasks_page.hide_preview, "the task list's stays");
     }
 
     #[test]
@@ -912,7 +927,7 @@ pub mod tests {
     #[test]
     fn reload_keeps_cursor_on_the_same_task() {
         let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
-        app.cursor = 2;
+        app.tasks_page.cursor = 2;
 
         // Changes from outside (a git pull): tasks appear above, one disappears.
         let work = dir.path().join("work");
@@ -923,21 +938,21 @@ pub mod tests {
         app.reload_keep_selection().unwrap();
 
         assert_eq!(listing(&app), ["[work]", "y.md", "z.md", "b.md"]);
-        assert_eq!(app.cursor, 3, "still on b.md");
+        assert_eq!(app.tasks_page.cursor, 3, "still on b.md");
     }
 
     #[test]
     fn cursor_stays_in_its_section_when_its_task_goes() {
         let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md", "home/c.md"]);
         // The last task of `work`: the one before, not `home`.
-        app.cursor = 2;
+        app.tasks_page.cursor = 2;
         app.update(Action::Delete);
         assert_eq!(app.selected(), Some(Row::Task(0, 0)), "{:?}", listing(&app));
         // Its only task: onto the section header.
         app.update(Action::Done);
         assert_eq!(app.selected(), Some(Row::Section(0)), "{:?}", listing(&app));
         // Gone from outside too.
-        app.cursor = 2;
+        app.tasks_page.cursor = 2;
         fs::remove_file(dir.path().join("home/c.md")).unwrap();
         app.reload_keep_selection().unwrap();
         assert_eq!(app.selected(), Some(Row::Section(1)));
@@ -992,21 +1007,21 @@ pub mod tests {
     #[test]
     fn filter_keeps_cursor_on_a_matching_task() {
         let (_dir, mut app) = app_with_files(&["work/a-fix.md", "work/b.md", "work/c-fix.md"]);
-        app.cursor = 3;
+        app.tasks_page.cursor = 3;
         type_filter(&mut app, "fix");
         assert_eq!(app.selected(), Some(Row::Task(0, 2)), "still on `c-fix`");
 
         // The task under the cursor no longer matches: first row.
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.update(Action::FilterBackspace);
         type_filter(&mut app, "xa");
-        assert_eq!(app.cursor, 0);
+        assert_eq!(app.tasks_page.cursor, 0);
         assert_eq!(listing(&app), Vec::<String>::new(), "no match, no rows");
 
         // Clearing keeps the cursor on its task, now at its full position.
         app.update(Action::FilterClear);
         type_filter(&mut app, "c-");
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.update(Action::FilterClear);
         assert_eq!(app.selected(), Some(Row::Task(0, 2)));
     }
@@ -1016,11 +1031,11 @@ pub mod tests {
         let (_dir, mut app) = app_with_files(&["work/a.md"]);
         type_filter(&mut app, "a-fix bug ");
         app.update(Action::FilterDeleteWord);
-        assert_eq!(app.filter, "a-fix ");
+        assert_eq!(app.tasks_page.filter, "a-fix ");
         app.update(Action::FilterDeleteWord);
-        assert_eq!(app.filter, "");
+        assert_eq!(app.tasks_page.filter, "");
         app.update(Action::FilterDeleteWord);
-        assert_eq!(app.filter, "");
+        assert_eq!(app.tasks_page.filter, "");
     }
 
     #[test]
@@ -1032,20 +1047,20 @@ pub mod tests {
 
         // `j` is text here, not cursor down.
         app.handle_event(key(KeyCode::Char('j')));
-        assert_eq!(app.filter, "j");
+        assert_eq!(app.tasks_page.filter, "j");
         app.handle_event(key(KeyCode::Backspace));
         app.handle_event(key(KeyCode::Char('b')));
         app.handle_event(key(KeyCode::Enter));
         assert!(!app.filter_input);
-        assert_eq!(app.filter, "b", "accepting keeps the filter");
+        assert_eq!(app.tasks_page.filter, "b", "accepting keeps the filter");
 
         // Back to normal keys, `Esc` does nothing, `/` and `Esc` clear.
         app.handle_event(key(KeyCode::Char('j')));
         app.handle_event(key(KeyCode::Esc));
-        assert_eq!(app.filter, "b");
+        assert_eq!(app.tasks_page.filter, "b");
         app.handle_event(key(KeyCode::Char('/')));
         app.handle_event(key(KeyCode::Esc));
-        assert_eq!(app.filter, "");
+        assert_eq!(app.tasks_page.filter, "");
     }
 
     #[test]
@@ -1053,7 +1068,7 @@ pub mod tests {
         let (_dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
         type_filter(&mut app, "a");
         app.update(Action::FilterAccept);
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         for action in [
             Action::MoveDown,
             Action::MoveUp,
@@ -1129,7 +1144,7 @@ pub mod tests {
         let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
         fs::write(dir.path().join("work/draft.md"), "# New").unwrap();
         app.reload_keep_selection().unwrap();
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
 
         app.update(Action::MoveDown);
         assert_eq!(listing(&app), ["[work]", "b.md", "a.md", "new.md"]);
@@ -1154,19 +1169,19 @@ pub mod tests {
         );
         // Rows: work, a, home, b, c, x, d
         app.update(Action::Bottom);
-        assert_eq!(app.cursor, 6);
+        assert_eq!(app.tasks_page.cursor, 6);
         app.update(Action::PrevSection);
-        assert_eq!(app.cursor, 5, "from a task to its own section");
+        assert_eq!(app.tasks_page.cursor, 5, "from a task to its own section");
         app.update(Action::PrevSection);
-        assert_eq!(app.cursor, 2);
+        assert_eq!(app.tasks_page.cursor, 2);
         app.update(Action::NextSection);
-        assert_eq!(app.cursor, 5);
+        assert_eq!(app.tasks_page.cursor, 5);
         app.update(Action::NextSection);
-        assert_eq!(app.cursor, 5, "no next section: stays");
+        assert_eq!(app.tasks_page.cursor, 5, "no next section: stays");
         app.update(Action::Top);
-        assert_eq!(app.cursor, 0);
+        assert_eq!(app.tasks_page.cursor, 0);
         app.update(Action::PrevSection);
-        assert_eq!(app.cursor, 0, "nothing above the top");
+        assert_eq!(app.tasks_page.cursor, 0, "nothing above the top");
     }
 
     #[test]
@@ -1178,15 +1193,15 @@ pub mod tests {
         );
         // Rows: work, a, home, x, b, c
         app.update(Action::JumpSection(2));
-        assert_eq!(app.cursor, 4, "on the first task");
+        assert_eq!(app.tasks_page.cursor, 4, "on the first task");
         app.update(Action::JumpSection(1));
-        assert_eq!(app.cursor, 2, "empty section: on its header");
+        assert_eq!(app.tasks_page.cursor, 2, "empty section: on its header");
         app.update(Action::JumpSection(3));
-        assert_eq!(app.cursor, 2, "no such section: stays");
+        assert_eq!(app.tasks_page.cursor, 2, "no such section: stays");
 
         // The filter hides work and home, x keeps its number and only `c` shows.
-        app.filter = "c".to_string();
-        app.cursor = 0;
+        app.tasks_page.filter = "c".to_string();
+        app.tasks_page.cursor = 0;
         app.update(Action::JumpSection(0));
         assert_eq!(
             app.selected(),
@@ -1217,7 +1232,7 @@ pub mod tests {
         assert_eq!(empty.status, info("no hidden tasks"));
 
         // `J` / `K` step over it, so the task visibly moves.
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.update(Action::MoveDown);
         assert_eq!(state_file(&dir), format!("# work\nwater {TODAY}\nb\na\n"));
         app.update(Action::MoveUp);
@@ -1234,7 +1249,7 @@ pub mod tests {
         assert_eq!(listing(&app), ["[work]", "a.md", "water.md", "b.md"]);
 
         // While shown, `J` / `K` take it like any task.
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.update(Action::MoveDown);
         assert_eq!(state_file(&dir), format!("# work\nwater {TODAY}\na\nb\n"));
         app.update(Action::ShowHidden);

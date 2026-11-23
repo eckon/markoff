@@ -24,10 +24,10 @@ use crate::{
 
 /// What a frame leaves for the next one, the caller keeps it in the app.
 pub struct Drawn {
-    /// See [`App::list_offset`].
+    /// See [`crate::app::TasksPage::offset`].
     pub list_offset: usize,
-    /// See [`App::help_offset`].
-    pub help_offset: usize,
+    /// See [`crate::app::Help::offset`], `None` without the help.
+    pub help_offset: Option<usize>,
     /// See [`crate::app::archive::ArchivePage::heatmap_offset`].
     pub heatmap_offset: usize,
     /// See [`crate::app::archive::ArchivePage::offset`].
@@ -50,8 +50,8 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
     // Before the preview, so its divider can join it.
     footer::render(app, frame, footer_area);
     let mut drawn = Drawn {
-        list_offset: app.list_offset,
-        help_offset: app.help_offset,
+        list_offset: app.tasks_page.offset,
+        help_offset: None,
         heatmap_offset: app.archive_page.heatmap_offset,
         archive_offset: app.archive_page.offset,
     };
@@ -75,8 +75,8 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
             render_app_header(app, frame, app_header_area, archive::app_header(app));
         }
     }
-    if app.show_help {
-        drawn.help_offset = help::render(frame, app.page, &app.help_filter, app.help_offset);
+    if let Some(help) = &app.help {
+        drawn.help_offset = Some(help::render(frame, app.page, &help.filter, help.offset));
     }
     drawn
 }
@@ -265,7 +265,7 @@ mod tests {
             task: crate::task::Task::parse(PathBuf::new(), content),
         };
         app.archive = [(TODAY, vec![done("# A"), done("# B"), done("# ~~C~~")])].into();
-        app.hide_preview = true;
+        app.tasks_page.hide_preview = true;
         // Wider than the others, the pages take room.
         let mut terminal = Terminal::new(TestBackend::new(70, 9)).unwrap();
         let draw = |terminal: &mut Terminal<TestBackend>, app: &App| {
