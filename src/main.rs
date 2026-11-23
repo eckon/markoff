@@ -54,7 +54,7 @@ fn run(cli: Cli) -> Result<()> {
     if let Some(command) = cli.command {
         print!(
             "{}",
-            cli::run(command, &root, &config, jiff::Zoned::now().date())?
+            cli::run(command, &root, &config, jiff::ZonedDateTime::now().date())?
         );
         return Ok(());
     }

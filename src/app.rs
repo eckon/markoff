@@ -200,7 +200,7 @@ impl App {
 
         while self.running {
             // At midnight the app header, the due tasks and the archive's today move on.
-            let today = jiff::Zoned::now().date();
+            let today = jiff::ZonedDateTime::now().date();
             if today != self.today {
                 self.today = today;
                 let result = self.reread_day(today).map(|()| self.update_days());
