@@ -2,7 +2,7 @@
 # ~/.config/markoff/config.toml over it: set only the keys you want to change there.
 
 [general]
-# The root directory with the sections, used when neither `--dir` nor $MARKOFF_DIR is given.
+# The root directory with the sections, used when no `--dir` is given.
 # `~/` is the home directory, a relative path starts at the config file's directory.
 # No default.
 # dir = "~/notes/tasks"

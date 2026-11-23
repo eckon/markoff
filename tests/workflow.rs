@@ -233,10 +233,17 @@ struct Cli {
 }
 
 impl Cli {
+    /// The root comes from the config, so `--dir` stays out of the transcript.
     fn new() -> Self {
+        let root = TempDir::new().unwrap();
+        let home = TempDir::new().unwrap();
+        write(
+            &home.path().join("markoff/config.toml"),
+            &format!("[general]\ndir = '{}'\n", root.path().display()),
+        );
         Self {
-            root: TempDir::new().unwrap(),
-            home: TempDir::new().unwrap(),
+            root,
+            home,
             transcript: String::new(),
         }
     }
@@ -251,7 +258,6 @@ impl Cli {
         let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_markoff"))
             .args(args)
             .env_clear()
-            .env("MARKOFF_DIR", self.root.path())
             .env("HOME", self.home.path())
             .env("XDG_CONFIG_HOME", self.home.path())
             .stdin(std::process::Stdio::piped())
