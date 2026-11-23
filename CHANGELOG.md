@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2](https://github.com/eckon/markoff/compare/v0.9.1...v0.9.2) - 2026-11-23
+
+### Fixed
+
+- remove config via env variable
+- *(cli)* read only the archive days a command needs
+- same message for a taken section name in the TUI and the CLI
+
 ### Changed
 
 - drop `$MARKOFF_DIR`, use `--dir` or `general.dir` in the config instead
