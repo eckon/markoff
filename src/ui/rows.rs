@@ -22,9 +22,9 @@ pub struct Row {
 }
 
 pub enum Kind {
-    /// All of the line after the gutter: a section header. A blank line goes
-    /// before it, except at the top.
-    Section(Vec<Span<'static>>),
+    /// A section header with the key of the `key`th section and the number of its tasks below
+    /// it. A blank line goes before it, except at the top.
+    Section { key: usize, name: String },
     Task {
         /// Wrapped to as many lines as it needs.
         title: Vec<Span<'static>>,
@@ -40,19 +40,28 @@ pub fn block<'a>() -> Block<'a> {
     Block::new().padding(Padding::new(1, 2, 0, 0))
 }
 
-/// The rows with the cursor on row `cursor`, `None` while the list does not have the keys. Then
-/// the `notes` dimmed, a blank line before each unless it is at the top. Starts from `offset`,
-/// returns the new one. What is scrolled out of `area` is counted on the lines around it, see
-/// [`render_out_of_view`].
+/// The rows with the cursor on row `cursor`, `None` while the list does not have the keys, the
+/// section headers `header_width` wide. Then the `notes` dimmed, a blank line before each unless
+/// it is at the top. Starts from `offset`, returns the new one. What is scrolled out of `area` is
+/// counted on the lines around it, see [`render_out_of_view`].
 pub fn render(
     frame: &mut Frame,
     area: Rect,
     rows: Vec<Row>,
     (cursor, offset): (Option<usize>, usize),
+    header_width: usize,
     notes: &[&str],
 ) -> usize {
     let block = block();
     let width = block.inner(area).width as usize;
+    // The tasks below each section header, only those shown, so with a filter the matches.
+    let counts: Vec<usize> = (0..rows.len())
+        .map(|i| {
+            (rows[i + 1..].iter())
+                .take_while(|row| matches!(row.kind, Kind::Task { .. }))
+                .count()
+        })
+        .collect();
     let mut items: Vec<ListItem> = Vec::new();
     // Which items are tasks, for the counts of those out of view.
     let mut tasks = Vec::new();
@@ -60,7 +69,7 @@ pub fn render(
     for (i, row) in rows.into_iter().enumerate() {
         let is_cursor = cursor == Some(i);
         // Blank line before each section except the first. Not a row, the cursor skips it.
-        if i > 0 && matches!(row.kind, Kind::Section(_)) {
+        if i > 0 && matches!(row.kind, Kind::Section { .. }) {
             items.push(ListItem::new(""));
         }
         if is_cursor {
@@ -75,9 +84,11 @@ pub fn render(
             }
         };
         let (title, right, repeats) = match row.kind {
-            Kind::Section(spans) => {
+            Kind::Section { key, name } => {
                 let mut line = vec![gutter()];
-                line.extend(spans);
+                // Without the gutter.
+                let width = header_width.saturating_sub(1);
+                line.extend(section_header(key, row.color, &name, counts[i], width));
                 items.push(ListItem::new(Line::from(line)));
                 continue;
             }
@@ -200,7 +211,7 @@ const KEY_OPEN: &str = "──[";
 /// `──[1]─ work ─────── 2` with the key of the `key`th section, in `color`, filled to `width`.
 /// Every section header in a list, so they all align: without a key (sections past nine) the lead
 /// is a plain line as long.
-pub fn section_header(
+fn section_header(
     key: usize,
     color: Color,
     name: &str,
@@ -281,7 +292,7 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(40, 8)).unwrap();
         terminal
             .draw(|frame| {
-                render(frame, frame.area(), rows, (Some(cursor), 0), notes);
+                render(frame, frame.area(), rows, (Some(cursor), 0), 37, notes);
             })
             .unwrap();
         let buffer = terminal.backend().buffer();
@@ -293,10 +304,12 @@ mod tests {
     }
 
     fn section(name: &str) -> Row {
-        let header = section_header(0, Color::Blue, name, 1, 36);
         Row {
             color: Color::Blue,
-            kind: Kind::Section(header),
+            kind: Kind::Section {
+                key: 0,
+                name: name.to_string(),
+            },
         }
     }
 
@@ -369,7 +382,7 @@ mod tests {
                 .draw(|frame| {
                     // A blank line above and below, like on both pages.
                     let area = Rect::new(0, 1, 30, 4);
-                    render(frame, area, rows(), (Some(cursor), 0), &[]);
+                    render(frame, area, rows(), (Some(cursor), 0), 27, &[]);
                 })
                 .unwrap();
             let buffer = terminal.backend().buffer();

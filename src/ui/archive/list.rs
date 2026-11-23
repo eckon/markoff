@@ -60,20 +60,10 @@ fn render_rows(
             let (ArchiveRow::Section(s, _) | ArchiveRow::Task(s, ..)) = row;
             let color = section_color(s);
             let kind = match row {
-                ArchiveRow::Section(s, key) => {
-                    let count = rows
-                        .iter()
-                        .filter(|row| matches!(row, ArchiveRow::Task(task_s, ..) if *task_s == s))
-                        .count();
-                    let header = rows::section_header(
-                        key,
-                        color,
-                        sections[s],
-                        count,
-                        width.saturating_sub(1),
-                    );
-                    rows::Kind::Section(header)
-                }
+                ArchiveRow::Section(s, key) => rows::Kind::Section {
+                    key,
+                    name: sections[s].to_string(),
+                },
                 ArchiveRow::Task(_, day, index) => {
                     let task = &app.archive[&day][index].task;
                     let mut style = if cursor == Some(i) {
@@ -101,7 +91,14 @@ fn render_rows(
         (true, true) => &["<empty>"],
         (true, false) => &["no matches"],
     };
-    rows::render(frame, area, items, (cursor, app.archive_page.offset), notes)
+    rows::render(
+        frame,
+        area,
+        items,
+        (cursor, app.archive_page.offset),
+        width,
+        notes,
+    )
 }
 
 /// The selected day for the app header with how long ago, `Fri 16 Oct 2026 · today`, a
