@@ -72,6 +72,18 @@ impl Op {
     }
 
     /// The op that undoes this one.
+    /// The paths it changes.
+    pub fn paths(&self) -> Vec<&Path> {
+        match self {
+            Op::Create { path, .. }
+            | Op::Remove { path, .. }
+            | Op::Update { path, .. }
+            | Op::CreateDir { path }
+            | Op::RemoveDir { path } => vec![path],
+            Op::Rename { from, to } => vec![from, to],
+        }
+    }
+
     pub fn inverse(&self) -> Op {
         match self.clone() {
             Op::Create { path, content } => Op::Remove { path, content },

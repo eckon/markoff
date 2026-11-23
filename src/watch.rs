@@ -1,7 +1,9 @@
 //! Notices changes in the root made outside markoff (another editor, git, the shell).
 
 use std::{
-    path::Path,
+    collections::BTreeSet,
+    fs,
+    path::{Path, PathBuf},
     sync::mpsc::{self, Receiver},
     time::{Duration, Instant},
 };
@@ -21,6 +23,11 @@ pub struct RootWatcher {
     _watcher: RecommendedWatcher,
     events: Receiver<notify::Result<Event>>,
     debounce: Debounce,
+    /// The root as given and as the system resolves it, events may come with either (macOS
+    /// reports `/private/var` for `/var`).
+    roots: [PathBuf; 2],
+    /// What changed since the last reload, relative to the root.
+    changed: BTreeSet<PathBuf>,
 }
 
 impl RootWatcher {
@@ -31,28 +38,46 @@ impl RootWatcher {
         watcher
             .watch(dir, RecursiveMode::Recursive)
             .wrap_err_with(|| format!("failed to watch {}", dir.display()))?;
+        let resolved = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
         Ok(Self {
             _watcher: watcher,
             events,
             debounce: Debounce::default(),
+            roots: [dir.to_path_buf(), resolved],
+            changed: BTreeSet::new(),
         })
     }
 
-    /// Takes all waiting events without blocking. Returns `true` once a reload is due.
-    pub fn poll(&mut self) -> Result<bool> {
+    /// Takes all waiting events without blocking. Returns what changed, relative to the root,
+    /// once a reload is due. An empty path is the root: the system lost track of the changes
+    /// (an event without paths), or one came from outside it.
+    pub fn poll(&mut self) -> Result<Option<BTreeSet<PathBuf>>> {
         let now = Instant::now();
         while let Ok(event) = self.events.try_recv() {
-            if is_change(&event.wrap_err("file watcher failed")?) {
-                self.debounce.touch(now);
+            let event = event.wrap_err("file watcher failed")?;
+            if !is_change(&event) || !self.debounce.touch(now) {
+                continue;
+            }
+            if event.paths.is_empty() {
+                self.changed.insert(PathBuf::new());
+            }
+            for path in &event.paths {
+                let relative = (self.roots.iter()).find_map(|root| path.strip_prefix(root).ok());
+                self.changed
+                    .insert(relative.map_or_else(PathBuf::new, Path::to_path_buf));
             }
         }
-        Ok(self.debounce.ready(now))
+        Ok(self
+            .debounce
+            .ready(now)
+            .then(|| std::mem::take(&mut self.changed)))
     }
 
     /// Drops the changes a reload has just read. Our own writes reach the watcher only after
     /// the reload that follows them, without this every action would be read twice.
     pub fn skip(&mut self) {
         self.debounce.skip(Instant::now());
+        self.changed.clear();
     }
 }
 
@@ -75,10 +100,13 @@ struct Debounce {
 }
 
 impl Debounce {
-    fn touch(&mut self, now: Instant) {
-        if self.skip_until.is_none_or(|until| now >= until) {
+    /// Returns whether the change counts, see [`Self::skip`].
+    fn touch(&mut self, now: Instant) -> bool {
+        let counts = self.skip_until.is_none_or(|until| now >= until);
+        if counts {
             self.last_change = Some(now);
         }
+        counts
     }
 
     /// Forgets the changes so far, and those of the next [`DEBOUNCE`]: events take a moment
@@ -161,10 +189,14 @@ mod tests {
 
         // Real file system events take a moment, poll until the debounce fires.
         let deadline = Instant::now() + Duration::from_secs(5);
-        while !watcher.poll().unwrap() {
+        let changed = loop {
+            if let Some(changed) = watcher.poll().unwrap() {
+                break changed;
+            }
             assert!(Instant::now() < deadline, "no reload within 5s");
             thread::sleep(Duration::from_millis(20));
-        }
+        };
+        assert!(changed.contains(Path::new("new.md")), "{changed:?}");
     }
 
     #[test]
@@ -176,7 +208,7 @@ mod tests {
 
         let end = Instant::now() + DEBOUNCE * 3;
         while Instant::now() < end {
-            assert!(!watcher.poll().unwrap(), "own write reloaded");
+            assert_eq!(watcher.poll().unwrap(), None, "own write reloaded");
             thread::sleep(Duration::from_millis(20));
         }
     }
