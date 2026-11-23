@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- drop `$MARKOFF_DIR`, use `--dir` or `general.dir` in the config instead
+
 ## [0.9.1](https://github.com/eckon/markoff/compare/v0.9.0...v0.9.1) - 2026-11-23
 
 ### Fixed

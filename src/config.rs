@@ -16,9 +16,6 @@ use serde::Deserialize;
 
 use crate::load;
 
-/// Env var with the root directory, used when no `--dir` is given.
-const DIR_ENV: &str = "MARKOFF_DIR";
-
 /// The config file in the config directory, `~/.config` by default.
 const CONFIG_FILE: &str = "markoff/config.toml";
 
@@ -38,7 +35,7 @@ pub struct Config {
 #[derive(Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct General {
-    /// The root directory, used when neither `--dir` nor [`DIR_ENV`] is given.
+    /// The root directory, used when no `--dir` is given.
     pub dir: Option<PathBuf>,
 }
 
@@ -50,19 +47,6 @@ pub struct Sections {
     pub gitkeep: bool,
 }
 
-/// The root directory, the one with the sections: `--dir`, then [`DIR_ENV`], then
-/// `general.dir` of the config file. Env and config are parameters so this can be tested
-/// without the real process. Not clap's `env`, it would take an empty var as a value.
-fn root(dir: Option<PathBuf>, env: Option<String>, config_dir: Option<PathBuf>) -> Result<PathBuf> {
-    match dir.or(env.map(PathBuf::from)).or(config_dir) {
-        Some(dir) => Ok(dir),
-        None => bail!(
-            "no directory given, use --dir <path>, set {DIR_ENV}, \
-             or set `general.dir` in ~/.config/{CONFIG_FILE}"
-        ),
-    }
-}
-
 /// Reads the config file with the real env, and returns the root for `dir` from the args and
 /// the config. The config is read even with `dir`, so a broken one always shows.
 pub fn from_env(dir: Option<PathBuf>) -> Result<(PathBuf, Config)> {
@@ -72,7 +56,11 @@ pub fn from_env(dir: Option<PathBuf>) -> Result<(PathBuf, Config)> {
         Some(path) => read_config(&path, home.as_deref())?,
         None => merged(toml::Table::new())?,
     };
-    let root = root(dir, var(DIR_ENV), config.general.dir.clone())?;
+    let Some(root) = dir.or(config.general.dir.clone()) else {
+        bail!(
+            "no directory given, use --dir <path> or set `general.dir` in ~/.config/{CONFIG_FILE}"
+        );
+    };
     Ok((root, config))
 }
 
@@ -147,24 +135,6 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-
-    #[test]
-    fn root_order() {
-        let (a, c) = (PathBuf::from("/a"), PathBuf::from("/c"));
-        let env = || Some("/b".to_string());
-        assert_eq!(root(Some(a.clone()), env(), Some(c.clone())).unwrap(), a);
-        assert_eq!(
-            root(None, env(), Some(c.clone())).unwrap(),
-            PathBuf::from("/b")
-        );
-        assert_eq!(root(None, None, Some(c.clone())).unwrap(), c);
-        assert!(
-            root(None, None, None)
-                .unwrap_err()
-                .to_string()
-                .starts_with("no directory given")
-        );
-    }
 
     #[test]
     fn config_path_prefers_xdg() {

@@ -38,11 +38,10 @@ cargo install --locked --git https://github.com/eckon/markoff
 
 ## Quick start
 
-Point markoff at a directory (first match wins):
+Point markoff at a directory:
 
 ```sh
 markoff --dir ~/notes/tasks
-MARKOFF_DIR=~/notes/tasks markoff
 ```
 
 Or set `dir` in `~/.config/markoff/config.toml`, see [`src/config.toml`](src/config.toml) for all keys.

@@ -23,7 +23,7 @@ use crate::config::Config;
 #[derive(Debug, Parser)]
 #[command(version)]
 pub struct Cli {
-    /// Root directory, else $MARKOFF_DIR, else `general.dir` in ~/.config/markoff/config.toml
+    /// Root directory, else `general.dir` in ~/.config/markoff/config.toml
     #[arg(long, global = true, value_name = "PATH")]
     pub dir: Option<PathBuf>,
 
