@@ -71,7 +71,6 @@ impl Op {
         }
     }
 
-    /// The op that undoes this one.
     /// The paths it changes.
     pub fn paths(&self) -> Vec<&Path> {
         match self {
@@ -84,6 +83,7 @@ impl Op {
         }
     }
 
+    /// The op that undoes this one.
     pub fn inverse(&self) -> Op {
         match self.clone() {
             Op::Create { path, content } => Op::Remove { path, content },

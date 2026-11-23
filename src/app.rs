@@ -629,7 +629,6 @@ impl App {
         self.rows().get(self.cursor).copied()
     }
 
-    /// The filter of the current page, each page has its own.
     /// The filter of the help while it is open, else of the page.
     pub fn active_filter(&self) -> &str {
         match self.show_help {
@@ -638,6 +637,7 @@ impl App {
         }
     }
 
+    /// The filter of the current page, each page has its own.
     pub fn page_filter(&self) -> &str {
         match self.page {
             Page::Tasks => &self.filter,
