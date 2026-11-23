@@ -68,7 +68,7 @@ fn render_rows(
                     let header = rows::section_header(
                         key,
                         color,
-                        &sections[s],
+                        sections[s],
                         count,
                         width.saturating_sub(1),
                     );

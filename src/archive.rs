@@ -14,7 +14,7 @@ use std::{
 
 use jiff::civil::Date;
 
-use crate::task::Task;
+use crate::task::{Section, Task};
 
 /// Directory in the root. Hidden, so it is never loaded as a section.
 pub const DIR: &str = ".archive";
@@ -40,6 +40,18 @@ pub struct ArchiveDir {
 pub struct Done {
     pub section: String,
     pub task: Task,
+}
+
+/// The section names of `archive`: those of the root's `sections` in their order, so they keep
+/// their key and color, then the ones only in the archive by name.
+pub fn sections<'a>(sections: &'a [Section], archive: &'a Archive) -> Vec<&'a str> {
+    let mut names: Vec<&str> = sections.iter().map(|s| s.name.as_str()).collect();
+    let gone: BTreeSet<&str> = (archive.values().flatten())
+        .map(|done| done.section.as_str())
+        .filter(|name| !names.contains(name))
+        .collect();
+    names.extend(gone);
+    names
 }
 
 /// The days of the archive that changes at `paths`, relative to the root, touch. `None` when one

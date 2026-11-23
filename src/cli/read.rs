@@ -8,7 +8,7 @@ use color_eyre::{Result, eyre::bail};
 use jiff::{ToSpan, civil::Date};
 
 use super::id::{self, Found};
-use crate::{load, task::Task};
+use crate::{archive, load, task::Task};
 
 #[derive(Debug, Args)]
 pub struct ListArgs {
@@ -80,12 +80,7 @@ fn list_archive(root: &Path, args: &ListArgs, today: Date) -> Result<String> {
     let archive = load::archive(root, from..=to)?;
     // A section of the archive may be gone from the root, so both count.
     let (sections, _) = load::load(root)?;
-    let mut names = id::names(&sections);
-    for done in archive.values().flatten() {
-        if !names.contains(&done.section.as_str()) {
-            names.push(&done.section);
-        }
-    }
+    let names = archive::sections(&sections, &archive);
     for name in &args.sections {
         id::section(name, &names)?;
     }
