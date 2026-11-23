@@ -20,7 +20,7 @@ use crate::app::{App, archive::Focus};
 /// Lines between the heatmap and the list: a double line with a blank line on each side.
 const SEPARATOR: usize = 3;
 
-/// Turns while the archive loads, a frame per [`App::spinner`] step.
+/// Turns while the archive loads, see [`App::spinner`].
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 /// The heatmap from the top of `area`, the done tasks of the selected day below it in the rest,
@@ -33,13 +33,16 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
     let block = Block::new().padding(Padding::new(2, 2, 0, 0));
     let inner = block.inner(area);
     let width = inner.width as usize;
-    // In the middle of the page, there is nothing else on it yet.
+    // In the middle of the page, there is nothing else on it yet. Empty until the spinner
+    // shows.
     if !app.archive_loaded() {
         let mut lines = vec![Line::default(); inner.height as usize / 2];
-        lines.push(Line::from(vec![
-            SPINNER[app.spinner % SPINNER.len()].fg(CURRENT_COLOR),
-            " loading the archive…".dim(),
-        ]));
+        lines.extend(app.spinner.map(|spinner| {
+            Line::from(vec![
+                SPINNER[spinner % SPINNER.len()].fg(CURRENT_COLOR),
+                " loading the archive…".dim(),
+            ])
+        }));
         let loading = Paragraph::new(lines).alignment(Alignment::Center);
         frame.render_widget(loading.block(block), area);
         return (0, 0, None);
@@ -572,10 +575,16 @@ mod tests {
 
         app.archive_load = crate::app::archive::ArchiveLoad::NotLoaded;
         let screen = lines(&draw(&app));
+        assert!(
+            screen[1..39].iter().all(|line| line.trim().is_empty()),
+            "{screen:#?}"
+        );
+        app.spinner = Some(0);
+        let screen = lines(&draw(&app));
         // The page has the 38 lines between app header and footer, the middle is the 19th.
         assert_eq!(screen[20].trim(), "⠋ loading the archive…", "{screen:#?}");
         assert!(screen[13].trim().is_empty(), "no list yet: {screen:#?}");
-        app.spinner = 1;
+        app.spinner = Some(1);
         let screen = lines(&draw(&app));
         assert!(screen[20].trim().starts_with('⠙'), "turns: {screen:#?}");
     }

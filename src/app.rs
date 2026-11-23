@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
     sync::mpsc,
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use color_eyre::Result;
@@ -37,6 +37,10 @@ use crate::{
 
 /// How long to wait for a key before checking the file watcher again.
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
+/// How long the archive page waits before it shows a spinner. A quick load would only flash it.
+const SPINNER_DELAY: Duration = Duration::from_millis(200);
+/// How long the spinner shows each frame.
+const SPINNER_FRAME: Duration = Duration::from_millis(80);
 
 /// One line in the list. The cursor moves over these.
 ///
@@ -130,8 +134,9 @@ pub struct App {
     pub archive_load: ArchiveLoad,
     /// Tasks archived per day, for the heatmap.
     pub days: heatmap::Days,
-    /// Frames drawn while the archive page waits for the archive, turns its spinner.
-    pub spinner: usize,
+    /// The spinner's frame while the archive page waits for the archive, `None` until it
+    /// waited [`SPINNER_DELAY`].
+    pub spinner: Option<usize>,
     /// markoff wrote to the root since the main loop last looked, and read it again. The
     /// watcher reports these writes too, see [`RootWatcher::skip`].
     wrote: bool,
@@ -171,7 +176,7 @@ impl App {
             archive_load: ArchiveLoad::Loaded,
             days: heatmap::Days::new(),
             wrote: false,
-            spinner: 0,
+            spinner: None,
         }
     }
 
@@ -196,6 +201,8 @@ impl App {
         // Nobody to send to once markoff quit.
         thread::spawn(move || sender.send(RootWatcher::new(&root)).ok());
         let mut watcher = None;
+        // Since when the archive page waits for the archive, for its spinner.
+        let mut waiting_since = None;
         // Only redraw after something happened, not on every poll.
         let mut dirty = true;
 
@@ -243,10 +250,14 @@ impl App {
             if self.poll_archive() {
                 dirty = true;
             }
-            // The spinner turns once per loop, the poll interval sets its pace.
             if self.page == Page::Archive && !self.archive_loaded() {
-                self.spinner = self.spinner.wrapping_add(1);
+                let waited = waiting_since.get_or_insert_with(Instant::now).elapsed();
+                self.spinner = (waited >= SPINNER_DELAY)
+                    .then(|| (waited.as_millis() / SPINNER_FRAME.as_millis()) as usize);
                 dirty = true;
+            } else {
+                waiting_since = None;
+                self.spinner = None;
             }
 
             match watcher.as_mut().map(RootWatcher::poll) {
