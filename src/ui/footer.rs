@@ -116,11 +116,9 @@ fn status_text(app: &App) -> Vec<Span<'_>> {
         }
         (None, None) if !app.page_filter().is_empty() => {
             // The archive counts its matches over all days, not only the selected ones.
-            let count = match app.archive_matches() {
-                Some(matches) if app.page == Page::Archive => matches.values().sum(),
-                _ => app
-                    .rows()
-                    .iter()
+            let count = match app.page {
+                Page::Archive => app.archive_matches().map_or(0, |m| m.values().sum()),
+                Page::Tasks => (app.rows().iter())
                     .filter(|row| matches!(row, Row::Task(..)))
                     .count(),
             };
