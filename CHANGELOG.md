@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1](https://github.com/eckon/markoff/compare/v0.9.0...v0.9.1) - 2026-11-23
+
+### Fixed
+
+- draw the first frame before the file watcher is ready
+- read the disk once per action instead of twice
+- skip a stat per file when reading the tasks and archive
+- read the archive only when its page opens, then only what changed
+- show a spinner while the archive page loads
+- show the archive spinner only when loading takes a while
+- never miss an outside change right after an action
+- show no date in the app header while the archive loads
+
 ## [0.9.0](https://github.com/eckon/markoff/compare/v0.8.0...v0.9.0) - 2026-11-07
 
 ### Added
