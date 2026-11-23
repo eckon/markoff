@@ -128,6 +128,9 @@ pub struct App {
     pub archive: crate::archive::Archive,
     /// Tasks archived per day, for the heatmap.
     pub days: heatmap::Days,
+    /// markoff wrote to the root since the main loop last looked, and read it again. The
+    /// watcher reports these writes too, see [`RootWatcher::skip`].
+    wrote: bool,
 }
 
 impl App {
@@ -161,6 +164,7 @@ impl App {
             help_filter: String::new(),
             archive: crate::archive::Archive::new(),
             days: heatmap::Days::new(),
+            wrote: false,
         }
     }
 
@@ -213,7 +217,11 @@ impl App {
 
             if let Ok(result) = setup.try_recv() {
                 match result {
-                    Ok(ready) => watcher = Some(ready),
+                    // It sees only what comes after, nothing to skip.
+                    Ok(ready) => {
+                        watcher = Some(ready);
+                        self.wrote = false;
+                    }
                     Err(err) => {
                         self.report(Err(err));
                         dirty = true;
@@ -221,7 +229,6 @@ impl App {
                 }
             }
 
-            // Our own writes trigger this as well, a reload is harmless then.
             match watcher.as_mut().map(RootWatcher::poll) {
                 None | Some(Ok(false)) => {}
                 Some(Ok(true)) => {
@@ -238,7 +245,15 @@ impl App {
             if let Some(request) = self.editor_request.take() {
                 let result = self.run_editor(terminal, request);
                 self.report(result);
+                // What was written in the editor is read right after it closed.
+                self.wrote = true;
                 dirty = true;
+            }
+
+            if std::mem::take(&mut self.wrote)
+                && let Some(watcher) = &mut watcher
+            {
+                watcher.skip();
             }
         }
         Ok(())
@@ -482,6 +497,7 @@ impl App {
                 .map_or(path, |(_, to)| to.clone())
         });
         op::apply_all(&ops)?;
+        self.wrote = true;
         self.reload(selected.as_deref())?;
         Ok(renames)
     }
@@ -528,6 +544,7 @@ impl App {
             return Ok(false);
         }
         op::apply_all(&ops)?;
+        self.wrote = true;
         // `sections` still shows the disk before the ops until the reload, so the cursor and
         // its neighbor are found in it.
         let cursor = self.selected().map(|row| self.row_path(row));
@@ -1069,9 +1086,23 @@ pub mod tests {
     fn reload_from_watcher_does_not_write() {
         let (dir, mut app) = app_with_files(&["work/a.md"]);
         fs::write(dir.path().join("work/draft.md"), "# New").unwrap();
+        app.wrote = false;
         app.reload_keep_selection().unwrap();
         assert_eq!(listing(&app), ["[work]", "a.md", "draft.md"]);
         assert_eq!(state_file(&dir), "# work\na\n");
+        // Its events must not be skipped, more outside changes may follow.
+        assert!(!app.wrote);
+    }
+
+    #[test]
+    fn own_writes_are_flagged_for_the_watcher_to_skip() {
+        let (_dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
+        app.cursor = 1;
+        for action in [Action::MoveDown, Action::Undo] {
+            app.wrote = false;
+            app.update(action);
+            assert!(app.wrote, "{action:?}");
+        }
     }
 
     #[test]

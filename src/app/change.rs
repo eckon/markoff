@@ -119,6 +119,7 @@ impl App {
         };
         // Only pop once the inverse worked, so a failed undo can be retried.
         op::apply_all(&op::inverse_all(&step.ops))?;
+        self.wrote = true;
         let cursor = step.cursor.clone();
         self.undo.pop();
         self.reload(cursor.as_deref())
