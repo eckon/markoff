@@ -3,6 +3,7 @@
 
 use std::{
     fs, io,
+    ops::RangeBounds,
     path::{Path, PathBuf},
 };
 
@@ -68,12 +69,12 @@ pub fn read_if_exists(path: &Path) -> Result<Option<String>> {
 }
 
 /// Where a task of `section` done on `date` goes in the archive of `root`, with what is
-/// there already.
+/// there already: `done`, the archived tasks of that day.
 pub fn archive_dir(
     root: &Path,
     date: Date,
     section: &str,
-    archive: &archive::Archive,
+    done: &[archive::Done],
 ) -> archive::ArchiveDir {
     let path = root.join(archive::DIR).join(date.to_string()).join(section);
     let mut missing: Vec<PathBuf> = (path.ancestors())
@@ -81,7 +82,7 @@ pub fn archive_dir(
         .map(Path::to_path_buf)
         .collect();
     missing.reverse();
-    let taken = (archive.get(&date).into_iter().flatten())
+    let taken = (done.iter())
         .filter(|done| done.section == section)
         .map(|done| done.task.stem().to_string())
         .collect();
@@ -92,10 +93,10 @@ pub fn archive_dir(
     }
 }
 
-/// The done tasks per day from the archive in `root`, each day read like the root without a
-/// state file: sections and tasks by name. Entries whose name is no date are skipped. No
-/// `.archive/` yet means nothing was done.
-pub fn archive(root: &Path) -> Result<archive::Archive> {
+/// The done tasks per day in `range` from the archive in `root`, each day read like the root
+/// without a state file: sections and tasks by name. Entries whose name is no date are skipped.
+/// No `.archive/` yet means nothing was done.
+pub fn archive(root: &Path, range: impl RangeBounds<Date>) -> Result<archive::Archive> {
     let dir = root.join(archive::DIR);
     let mut days = archive::Archive::new();
     if !dir.is_dir() {
@@ -105,6 +106,9 @@ pub fn archive(root: &Path) -> Result<archive::Archive> {
         let Ok(date) = file_name(&path).parse::<Date>() else {
             continue;
         };
+        if !range.contains(&date) {
+            continue;
+        }
         days.insert(date, day(&path)?);
     }
     Ok(days)
@@ -229,7 +233,12 @@ mod tests {
             (".archive/2026-10-03.md", "# Old format\n"),
             (".archive/notes/work/a.md", ""),
         ]);
-        let days = archive(dir.path()).unwrap();
+        let days = archive(dir.path(), ..).unwrap();
+        let some = archive(dir.path(), .."2026-10-13".parse::<Date>().unwrap()).unwrap();
+        assert_eq!(
+            some.keys().collect::<Vec<_>>(),
+            [&"2026-10-02".parse().unwrap()]
+        );
         let dates: Vec<String> = days.keys().map(Date::to_string).collect();
         assert_eq!(dates, ["2026-10-02", "2026-10-14"]);
         let done: Vec<String> = days[&"2026-10-14".parse().unwrap()]
@@ -262,7 +271,7 @@ mod tests {
     #[test]
     fn archive_without_dir_is_empty() {
         let dir = fixture(&[]);
-        assert!(archive(dir.path()).unwrap().is_empty());
+        assert!(archive(dir.path(), ..).unwrap().is_empty());
     }
 
     fn titles(section: &Section) -> Vec<String> {

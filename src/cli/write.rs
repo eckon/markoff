@@ -106,8 +106,7 @@ pub struct MoveArgs {
 /// another one.
 pub fn add(root: &Path, args: &AddArgs, config: &Config) -> Result<String> {
     let (sections, _) = load::load(root)?;
-    let archive = load::archive(root)?;
-    let find = |id: &str| id::find(id, root, &sections, &archive);
+    let find = |id: &str| id::find(id, root, &sections);
 
     if let Some(name) = &args.new_section {
         if name.trim().is_empty() {
@@ -152,10 +151,8 @@ pub fn add(root: &Path, args: &AddArgs, config: &Config) -> Result<String> {
 /// section, like `<CR>` on it.
 pub fn edit(root: &Path, args: &EditArgs, config: &Config) -> Result<String> {
     let (sections, _) = load::load(root)?;
-    let archive = load::archive(root)?;
     let id = &args.id;
-    match id::find(id, root, &sections, &archive)? {
-        Found::Archived(_) => bail!("'{id}' is archived, archived tasks are read-only"),
+    match id::find(id, root, &sections)? {
         Found::Section(s) => {
             let (Some(name), None, None, None) =
                 (&args.name, &args.title, &args.body, &args.append)
@@ -217,11 +214,9 @@ pub fn edit(root: &Path, args: &EditArgs, config: &Config) -> Result<String> {
 /// section among the others.
 pub fn move_to(root: &Path, args: &MoveArgs, config: &Config) -> Result<String> {
     let (sections, _) = load::load(root)?;
-    let archive = load::archive(root)?;
-    let find = |id: &str| id::find(id, root, &sections, &archive);
+    let find = |id: &str| id::find(id, root, &sections);
     let id = &args.id;
     match find(id)? {
-        Found::Archived(_) => bail!("'{id}' is archived, archived tasks are read-only"),
         Found::Section(s) => {
             if args.to.is_some() {
                 bail!("'{id}' is a section, --to is for tasks, --before or --after moves it");
@@ -261,7 +256,6 @@ pub fn move_to(root: &Path, args: &MoveArgs, config: &Config) -> Result<String> 
                     bail!("'{other}' is no task in section '{}'", sections[to].name)
                 }
                 Found::Section(_) => bail!("'{other}' is a section, --to moves a task into it"),
-                Found::Archived(_) => bail!("'{other}' is archived, archived tasks are read-only"),
             };
             let (to, index) = match (&args.before, &args.after) {
                 (Some(other), _) => place(other)?,
@@ -305,7 +299,6 @@ pub fn delete(root: &Path, ids: &[String], config: &Config) -> Result<String> {
         let ops = match position(&sections, &path) {
             Found::Section(s) => edit::delete_section(&sections, s, &file),
             Found::Task(s, t) => edit::delete(&sections, s, t, &file),
-            Found::Archived(_) => unreachable!("paths only has open ones"),
         };
         op::apply_all(&ops)?;
     }
@@ -338,8 +331,8 @@ pub fn done(
             text.push_str(&format!("{} ({due})\n", id::of(root, &path)));
             continue;
         }
-        let archive = load::archive(root)?;
-        let to = load::archive_dir(root, today, &sections[s].name, &archive);
+        let done = load::archive_day(root, today)?.unwrap_or_default();
+        let to = load::archive_dir(root, today, &sections[s].name, &done);
         let (ops, archived) = edit::archive(&sections, s, t, cancel, &to, &file);
         op::apply_all(&ops)?;
         text.push_str(&format!("{}\n", id::of(root, &archived)));
@@ -350,11 +343,10 @@ pub fn done(
 /// The paths of `ids` after normalizing, so commands with several ids can find each one again
 /// after the changes of the ones before. Only tasks, or sections too with `sections`.
 fn paths(root: &Path, ids: &[String], sections: bool, config: &Config) -> Result<Vec<PathBuf>> {
-    let (found, archive) = (load::load(root)?.0, load::archive(root)?);
+    let (found, _) = load::load(root)?;
     let mut targets = Vec::new();
     for id in ids {
-        let target = match id::find(id, root, &found, &archive)? {
-            Found::Archived(_) => bail!("'{id}' is archived, archived tasks are read-only"),
+        let target = match id::find(id, root, &found)? {
             Found::Section(_) if !sections => {
                 bail!("'{id}' is a section, not a task, see 'markoff list {id}'")
             }
@@ -370,13 +362,12 @@ fn paths(root: &Path, ids: &[String], sections: bool, config: &Config) -> Result
         .map(|target| match target {
             Found::Section(s) => normalized[s].dir.clone(),
             Found::Task(s, t) => normalized[s].tasks[t].path.clone(),
-            Found::Archived(_) => unreachable!("refused above"),
         })
         .collect())
 }
 
 /// Where the section or task at `path` is in `sections`. It is there, [`paths`] found it.
-fn position(sections: &[Section], path: &Path) -> Found<'static> {
+fn position(sections: &[Section], path: &Path) -> Found {
     for (s, section) in sections.iter().enumerate() {
         if section.dir == path {
             return Found::Section(s);

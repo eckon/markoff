@@ -207,7 +207,7 @@ impl App {
         let (sender, receiver) = mpsc::channel();
         let root = self.root.clone();
         // Nobody to send to once markoff quit or started again.
-        thread::spawn(move || sender.send(load::archive(&root)).ok());
+        thread::spawn(move || sender.send(load::archive(&root, ..)).ok());
         self.archive_load = ArchiveLoad::Loading(receiver);
     }
 

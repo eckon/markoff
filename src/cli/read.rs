@@ -77,7 +77,7 @@ fn list_archive(root: &Path, args: &ListArgs, today: Date) -> Result<String> {
     if from > to {
         bail!("--from {from} is after --to {to}");
     }
-    let archive = load::archive(root)?;
+    let archive = load::archive(root, from..=to)?;
     // A section of the archive may be gone from the root, so both count.
     let (sections, _) = load::load(root)?;
     let mut names = id::names(&sections);
@@ -90,7 +90,7 @@ fn list_archive(root: &Path, args: &ListArgs, today: Date) -> Result<String> {
         id::section(name, &names)?;
     }
     let query = args.filter.as_deref().unwrap_or_default();
-    let text = archive.range(from..=to).rev().filter_map(|(day, done)| {
+    let text = archive.iter().rev().filter_map(|(day, done)| {
         let mut text = format!("## {day}\n");
         let mut section = None;
         for done in done.iter().filter(|done| {
@@ -132,16 +132,21 @@ fn item(root: &Path, task: &Task, extra: &str) -> String {
 
 /// The content of the task with `id`, as it is.
 pub fn show(root: &Path, id: &str) -> Result<String> {
-    let (sections, _) = load::load(root)?;
-    let archive = load::archive(root)?;
-    let content = match id::find(id, root, &sections, &archive)? {
-        Found::Task(s, t) => &sections[s].tasks[t].content,
-        Found::Archived(task) => &task.content,
-        Found::Section(_) => bail!("'{id}' is a section, not a task, see 'markoff list {id}'"),
+    let content = match id::archived(id, root)? {
+        Some(task) => task.content,
+        None => {
+            let (sections, _) = load::load(root)?;
+            match id::find(id, root, &sections)? {
+                Found::Task(s, t) => sections[s].tasks[t].content.clone(),
+                Found::Section(_) => {
+                    bail!("'{id}' is a section, not a task, see 'markoff list {id}'")
+                }
+            }
+        }
     };
     // Ends the output in a newline, so the next prompt starts on a line of its own.
     match content.ends_with('\n') || content.is_empty() {
-        true => Ok(content.clone()),
+        true => Ok(content),
         false => Ok(format!("{content}\n")),
     }
 }
@@ -284,6 +289,12 @@ mod tests {
         assert_eq!(
             show(root, "work").unwrap_err().to_string(),
             "'work' is a section, not a task, see 'markoff list work'"
+        );
+        fs::create_dir_all(root.join(".archive/2026-11-05/work")).unwrap();
+        fs::write(root.join(".archive/2026-11-05/work/old.md"), "# Old\n").unwrap();
+        assert_eq!(
+            show(root, ".archive/2026-11-05/work/old").unwrap(),
+            "# Old\n"
         );
     }
 }

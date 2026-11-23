@@ -22,7 +22,8 @@ impl App {
             }
             return Ok(());
         }
-        let to = load::archive_dir(&self.root, date, &self.sections[s].name, &self.archive);
+        // Today is always read, see [`App::reload`].
+        let to = load::archive_dir(&self.root, date, &self.sections[s].name, self.done_today());
         let (ops, _) = edit::archive(&self.sections, s, t, cancel, &to, &self.state_file);
         self.apply(ops)?;
         let message = match cancel {
