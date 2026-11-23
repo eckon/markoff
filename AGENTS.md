@@ -57,7 +57,7 @@ Use these words in code, docs and UI, not their synonyms (in brackets).
 - Visual choices (colors, symbols, layout) are decided by looking, not in the abstract: bring up as many variants of different styles as possible and offer to build them all as a try-out. A simple implementation without tests, `[` / `]` cycle the variants (while those keys have no binding, not in the filter input), the status shows the selected variant's number out of all and its name (`3/7: below`), so it can be named. The chosen one stays, the rest comes out.
 - Keep it simple. Remove code that becomes unused, unless there is a stated reason to keep it.
 - Keep files focused: when a feature grows its own part of a general file (like the archive page in `ui/archive.rs`), move it into its own module. Bring it up yourself when you notice it, don't wait to be asked.
-- Do not commit, the user reviews and commits.
+- Commit each finished step on its own, once the checks pass, with a conventional subject (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`) in the style of the history. The user reviews the commits.
 - Try-outs and prototypes go straight into the working tree of this repo, the user resets them with git. Only if that clashes with uncommitted changes, use a branch. A git worktree is the last resort. Never in copies outside the repo.
 
 ## Checks after every change
