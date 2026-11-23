@@ -14,14 +14,11 @@ mod list;
 
 pub use list::range;
 
-use super::{CURRENT_COLOR, LINE_COLOR};
+use super::{LINE_COLOR, spinner};
 use crate::app::{App, archive::Focus};
 
 /// Lines between the heatmap and the list: a double line with a blank line on each side.
 const SEPARATOR: usize = 3;
-
-/// Turns while the archive loads, see [`App::spinner`].
-const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 /// The heatmap from the top of `area`, the done tasks of the selected day below it in the rest,
 /// a double line between them. The part without the keys is dimmed.
@@ -37,12 +34,10 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
     // shows.
     if !app.archive_loaded() {
         let mut lines = vec![Line::default(); inner.height as usize / 2];
-        lines.extend(app.spinner.map(|spinner| {
-            Line::from(vec![
-                SPINNER[spinner % SPINNER.len()].fg(CURRENT_COLOR),
-                " loading the archive…".dim(),
-            ])
-        }));
+        lines.extend(
+            app.spinner
+                .map(|frame| spinner::line(frame, "loading the archive…")),
+        );
         let loading = Paragraph::new(lines).alignment(Alignment::Center);
         frame.render_widget(loading.block(block), area);
         return (0, 0, None);

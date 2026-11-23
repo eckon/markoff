@@ -37,10 +37,6 @@ use crate::{
 
 /// How long to wait for a key before checking the file watcher again.
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
-/// How long the archive page waits before it shows a spinner. A quick load would only flash it.
-const SPINNER_DELAY: Duration = Duration::from_millis(200);
-/// How long the spinner shows each frame.
-const SPINNER_FRAME: Duration = Duration::from_millis(80);
 
 /// One line in the list. The cursor moves over these.
 ///
@@ -134,8 +130,8 @@ pub struct App {
     pub archive_load: ArchiveLoad,
     /// Tasks archived per day, for the heatmap.
     pub days: heatmap::Days,
-    /// The spinner's frame while the archive page waits for the archive, `None` until it
-    /// waited [`SPINNER_DELAY`].
+    /// The spinner's frame while the archive page waits for the archive, `None` while it does
+    /// not show, see [`ui::spinner::frame`].
     pub spinner: Option<usize>,
     /// markoff wrote to the root since the main loop last looked, and read it again. The
     /// watcher reports these writes too, see [`RootWatcher::skip`].
@@ -252,8 +248,7 @@ impl App {
             }
             if self.page == Page::Archive && !self.archive_loaded() {
                 let waited = waiting_since.get_or_insert_with(Instant::now).elapsed();
-                self.spinner = (waited >= SPINNER_DELAY)
-                    .then(|| (waited.as_millis() / SPINNER_FRAME.as_millis()) as usize);
+                self.spinner = ui::spinner::frame(waited);
                 dirty = true;
             } else {
                 waiting_since = None;

@@ -12,6 +12,7 @@ use ratatui::{
 mod archive;
 mod help;
 mod rows;
+pub mod spinner;
 mod tasks;
 
 use crate::{
