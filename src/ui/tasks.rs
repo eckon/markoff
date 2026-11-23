@@ -56,21 +56,10 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
             let (Row::Section(s) | Row::Task(s, _)) = row;
             let color = section_color(s);
             let kind = match row {
-                Row::Section(s) => {
-                    // Only the shown tasks, so with a filter it says how many match.
-                    let count = rows
-                        .iter()
-                        .filter(|row| matches!(row, Row::Task(task_s, _) if *task_s == s))
-                        .count();
-                    let name = &app.sections[s].name;
-                    rows::Kind::Section(rows::section_header(
-                        s,
-                        color,
-                        name,
-                        count,
-                        width.saturating_sub(1),
-                    ))
-                }
+                Row::Section(s) => rows::Kind::Section {
+                    key: s,
+                    name: app.sections[s].name.clone(),
+                },
                 Row::Task(s, t) => {
                     let task = &app.sections[s].tasks[t];
                     let title = task.title();
@@ -118,6 +107,7 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
         area,
         items,
         (Some(app.tasks_page.cursor), app.tasks_page.offset),
+        width,
         &notes,
     )
 }
