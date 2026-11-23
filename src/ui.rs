@@ -232,24 +232,25 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::app::tests::{TODAY, sections};
-    use ratatui::{Terminal, backend::TestBackend};
+    use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 
-    /// Renders the app and returns the screen as text, styles (bold, highlight) are ignored.
+    /// Renders the app `width` wide and `height` high, the buffer has the styles.
+    pub(super) fn draw(app: &App, width: u16, height: u16) -> Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| _ = render(app, frame)).unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    /// The lines of text in `buffer`, styles (bold, highlight) are ignored.
+    pub(super) fn screen_lines(buffer: &Buffer) -> Vec<String> {
+        (buffer.content().chunks(buffer.area.width as usize))
+            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+            .collect()
+    }
+
+    /// Renders the app 50 by 9 and returns the screen as text.
     pub(super) fn screen(app: &App) -> String {
-        let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
-        terminal
-            .draw(|frame| {
-                render(app, frame);
-            })
-            .unwrap();
-
-        let buffer = terminal.backend().buffer();
-        buffer
-            .content()
-            .chunks(buffer.area.width as usize)
-            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
-            .collect::<Vec<_>>()
-            .join("\n")
+        screen_lines(&draw(app, 50, 9)).join("\n")
     }
 
     #[test]
@@ -267,15 +268,8 @@ mod tests {
         app.archive = [(TODAY, vec![done("# A"), done("# B"), done("# ~~C~~")])].into();
         app.tasks_page.hide_preview = true;
         // Wider than the others, the pages take room.
-        let mut terminal = Terminal::new(TestBackend::new(70, 9)).unwrap();
-        let draw = |terminal: &mut Terminal<TestBackend>, app: &App| {
-            terminal.draw(|frame| _ = render(app, frame)).unwrap();
-            let buffer = terminal.backend().buffer();
-            (buffer.content().chunks(buffer.area.width as usize))
-                .map(|row| row.iter().map(|cell| cell.symbol()).collect())
-                .collect::<Vec<String>>()
-        };
-        let lines = draw(&mut terminal, &app);
+        let buffer = draw(&app, 70, 9);
+        let lines = screen_lines(&buffer);
 
         assert!(
             lines[0].starts_with(&format!(
@@ -289,9 +283,9 @@ mod tests {
             "{lines:#?}"
         );
         let check = lines[0].chars().position(|c| c == '✓').unwrap() as u16;
-        assert_eq!(terminal.backend().buffer()[(check, 0)].fg, DONE_COLOR);
+        assert_eq!(buffer[(check, 0)].fg, DONE_COLOR);
         let cross = lines[0].chars().position(|c| c == '✗').unwrap() as u16;
-        assert_eq!(terminal.backend().buffer()[(cross, 0)].fg, CANCELED_COLOR);
+        assert_eq!(buffer[(cross, 0)].fg, CANCELED_COLOR);
 
         // A blank line, then the sections.
         assert_eq!(lines[1].trim(), "");
@@ -299,8 +293,9 @@ mod tests {
 
         // Each count only when there are any.
         app.archive = [(TODAY, vec![done("# ~~C~~")])].into();
-        assert!(draw(&mut terminal, &app)[0].ends_with("─ 3 open · ✗ 1 canceled"));
+        let first_line = |app: &App| screen_lines(&draw(app, 70, 9)).remove(0);
+        assert!(first_line(&app).ends_with("─ 3 open · ✗ 1 canceled"));
         app.archive.clear();
-        assert!(draw(&mut terminal, &app)[0].ends_with("─ 3 open"));
+        assert!(first_line(&app).ends_with("─ 3 open"));
     }
 }

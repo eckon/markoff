@@ -141,31 +141,17 @@ mod tests {
     use std::path::PathBuf;
 
     use jiff::ToSpan;
-    use ratatui::{Terminal, backend::TestBackend};
 
     use super::*;
     use crate::{
         app::tests::{TODAY, sections},
         keymap::Action,
         task::Task,
-        ui::{CURRENT_COLOR, DONE_COLOR, render},
+        ui::{
+            CURRENT_COLOR, DONE_COLOR,
+            tests::{draw, screen_lines},
+        },
     };
-
-    /// Renders the app 80 wide and returns the screen as lines.
-    fn lines_80(app: &App, height: u16) -> Vec<String> {
-        let mut terminal = Terminal::new(TestBackend::new(80, height)).unwrap();
-        terminal
-            .draw(|frame| {
-                render(app, frame);
-            })
-            .unwrap();
-        let buffer = terminal.backend().buffer();
-        buffer
-            .content()
-            .chunks(buffer.area.width as usize)
-            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
-            .collect()
-    }
 
     #[test]
     fn one_cursor_and_the_selected_cell_in_the_current_color() {
@@ -182,15 +168,6 @@ mod tests {
         app.archive = [(TODAY - 1.days(), vec![done])].into();
         app.days = crate::heatmap::days(&app.archive);
         app.update(Action::NextPage);
-        let draw = |app: &App| {
-            let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-            terminal
-                .draw(|frame| {
-                    render(app, frame);
-                })
-                .unwrap();
-            terminal.backend().buffer().clone()
-        };
         let text = |buffer: &ratatui::buffer::Buffer, y: u16| -> String {
             (0..80).map(|x| buffer[(x, y)].symbol()).collect()
         };
@@ -205,7 +182,7 @@ mod tests {
 
         // The heatmap has the keys: the selected day in the current color between brackets. The
         // list has no cursor.
-        let buffer = draw(&app);
+        let buffer = draw(&app, 80, 24);
         let selected_cell = current(&buffer);
         assert_eq!(
             selected_cell.len(),
@@ -225,7 +202,7 @@ mod tests {
         // The list has the keys: its cursor shows, the brackets go, the selected cell keeps its
         // color.
         app.update(Action::FocusList);
-        let buffer = draw(&app);
+        let buffer = draw(&app, 80, 24);
         assert_eq!(current(&buffer), selected_cell);
         assert!(heatmap.clone().all(|y| !text(&buffer, y).contains('[')));
         assert!(
@@ -249,13 +226,7 @@ mod tests {
         for _ in 0..3 {
             app.update(Action::Up);
         }
-        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-        terminal
-            .draw(|frame| {
-                render(&app, frame);
-            })
-            .unwrap();
-        let buffer = terminal.backend().buffer().clone();
+        let buffer = draw(&app, 80, 24);
         let line = |y: u16| -> String { (0..80).map(|x| buffer[(x, y)].symbol()).collect() };
 
         // Monday to Thursday in the current color, the cursor on Monday, the anchor on Thursday.
@@ -272,7 +243,7 @@ mod tests {
         );
         // Not while the list has the keys, `v` does nothing there.
         app.update(Action::FocusList);
-        let screen = lines_80(&app, 24);
+        let screen = screen_lines(&draw(&app, 80, 24));
         assert!(!screen[23].contains("v / Esc end range"), "{}", screen[23]);
     }
 
@@ -297,29 +268,20 @@ mod tests {
         .into();
         app.days = crate::heatmap::days(&app.archive);
         app.update(Action::NextPage);
-        let draw = |app: &App| {
-            let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-            terminal
-                .draw(|frame| {
-                    render(app, frame);
-                })
-                .unwrap();
-            terminal.backend().buffer().clone()
-        };
         let monday_color = |buffer: &ratatui::buffer::Buffer| {
             let x = (0..80)
                 .find(|&x| "░▒▓█".contains(buffer[(x, 3)].symbol()))
                 .unwrap();
             buffer[(x, 3)].fg
         };
-        assert_eq!(monday_color(&draw(&app)), DONE_COLOR);
+        assert_eq!(monday_color(&draw(&app, 80, 24)), DONE_COLOR);
 
         app.update(Action::Filter);
         for c in "water".chars() {
             app.update(Action::FilterType(c));
         }
         app.update(Action::FilterAccept);
-        let buffer = draw(&app);
+        let buffer = draw(&app, 80, 24);
         assert_eq!(monday_color(&buffer), LINE_COLOR);
         let footer: String = (0..80).map(|x| buffer[(x, 23)].symbol()).collect();
         assert!(
@@ -344,12 +306,8 @@ mod tests {
         app.days = crate::heatmap::days(&app.archive);
         app.update(Action::NextPage);
 
-        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-        terminal.draw(|frame| _ = render(&app, frame)).unwrap();
-        let buffer = terminal.backend().buffer();
-        let screen: Vec<String> = (buffer.content().chunks(80))
-            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
-            .collect();
+        let buffer = draw(&app, 80, 24);
+        let screen = screen_lines(&buffer);
         // Still counted, apart from the done ones.
         assert!(
             screen[0].ends_with("─ ✓ 1 done · ✗ 1 canceled"),
@@ -395,7 +353,7 @@ mod tests {
         // `Plain` first, then the one with a body.
         app.update(Action::Down);
 
-        let screen = lines_80(&app, 24);
+        let screen = screen_lines(&draw(&app, 80, 24));
         let at = |text: &str| screen.iter().position(|line| line.contains(text));
         let notes = at("## Notes").expect("preview");
         let divider = screen[notes].chars().position(|c| c == '│').unwrap();
@@ -416,7 +374,7 @@ mod tests {
 
         // The title gets all the width without the preview.
         let full_width = |app: &App| {
-            let screen = lines_80(app, 24);
+            let screen = screen_lines(&draw(app, 80, 24));
             assert!(
                 !screen.iter().any(|line| line.contains("## Notes")),
                 "{screen:#?}"
@@ -450,13 +408,13 @@ mod tests {
 
         // On today, the newest weeks: the first one with its month and year, the two tasks done
         // before them counted below the heatmap.
-        let screen = lines_80(&app, 24);
+        let screen = screen_lines(&draw(&app, 80, 24));
         assert!(screen[2].starts_with("  Feb 2026 "), "{screen:#?}");
         assert_eq!(screen[10].trim_end(), "  ← 2 more", "{screen:#?}");
 
         // `gg` scrolls to the first week, today's task is out of view on the right.
         app.update(Action::Top);
-        let screen = lines_80(&app, 24);
+        let screen = screen_lines(&draw(&app, 80, 24));
         assert!(screen[2].starts_with("  Sep 2025 "), "{screen:#?}");
         assert!(!screen[10].contains('←'), "{screen:#?}");
         assert!(screen[10].trim_end().ends_with("1 more →"), "{screen:#?}");
@@ -473,13 +431,7 @@ mod tests {
         app.days = [(TODAY, 3)].into();
         app.update(Action::NextPage);
         for (width, height) in [(30, 30), (80, 12), (80, 6)] {
-            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-            terminal
-                .draw(|frame| {
-                    render(&app, frame);
-                })
-                .unwrap();
-            let screen = format!("{:?}", terminal.backend().buffer());
+            let screen = format!("{:?}", draw(&app, width, height));
             assert!(screen.contains("Mon"), "{screen}");
         }
     }
@@ -497,7 +449,7 @@ mod tests {
         app.update(Action::NextPage);
         app.archive_page.day = Some(first);
 
-        let screen = lines_80(&app, 24);
+        let screen = screen_lines(&draw(&app, 80, 24));
         let row = 3 + first.weekday().to_monday_zero_offset() as usize;
         let start: String = screen[row].chars().take(4).collect();
         assert!(
@@ -514,28 +466,12 @@ mod tests {
             crate::config::defaults(),
         );
         app.today = TODAY;
-        let draw = |app: &App| {
-            let mut terminal = Terminal::new(TestBackend::new(80, 40)).unwrap();
-            terminal
-                .draw(|frame| {
-                    render(app, frame);
-                })
-                .unwrap();
-            terminal.backend().buffer().clone()
-        };
-        let lines = |buffer: &ratatui::buffer::Buffer| {
-            buffer
-                .content()
-                .chunks(buffer.area.width as usize)
-                .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
-                .collect::<Vec<_>>()
-        };
         // Today the busiest, older days so it is not in the first column.
         app.days = [(TODAY, 3), (TODAY - 10.days(), 1), (TODAY - 20.days(), 2)].into();
         app.tasks_page.hide_preview = true;
 
         // On the tasks page: the list, the footer as a line.
-        let screen = lines(&draw(&app));
+        let screen = screen_lines(&draw(&app, 80, 40));
         assert!(screen[0].ends_with(" 1 open"), "{screen:#?}");
         assert!(!screen.iter().any(|line| line.contains(" Mon")));
         assert_eq!(screen[38].trim(), "", "{screen:#?}");
@@ -543,8 +479,8 @@ mod tests {
 
         // On its page: the selected day in the app header, the heatmap from the top.
         app.update(Action::NextPage);
-        let buffer = draw(&app);
-        let screen = lines(&buffer);
+        let buffer = draw(&app, 80, 40);
+        let screen = screen_lines(&buffer);
         assert!(
             screen[0].starts_with(&format!(
                 "── tasks  archive ── {} · today ─",
@@ -579,11 +515,11 @@ mod tests {
         assert!(screen[39].ends_with("? toggle help"), "{screen:#?}");
 
         app.days.clear();
-        let screen = lines(&draw(&app));
+        let screen = screen_lines(&draw(&app, 80, 40));
         assert!(screen[2].contains("nothing archived yet"), "{screen:#?}");
 
         app.archive_load = crate::app::archive::ArchiveLoad::NotLoaded;
-        let screen = lines(&draw(&app));
+        let screen = screen_lines(&draw(&app, 80, 40));
         assert!(
             screen[1..39].iter().all(|line| line.trim().is_empty()),
             "{screen:#?}"
@@ -595,12 +531,12 @@ mod tests {
             "{screen:#?}"
         );
         app.spinner = Some(0);
-        let screen = lines(&draw(&app));
+        let screen = screen_lines(&draw(&app, 80, 40));
         // The page has the 38 lines between app header and footer, the middle is the 19th.
         assert_eq!(screen[20].trim(), "⠋ loading the archive…", "{screen:#?}");
         assert!(screen[13].trim().is_empty(), "no list yet: {screen:#?}");
         app.spinner = Some(1);
-        let screen = lines(&draw(&app));
+        let screen = screen_lines(&draw(&app, 80, 40));
         assert!(screen[20].trim().starts_with('⠙'), "turns: {screen:#?}");
     }
 }

@@ -126,18 +126,21 @@ mod tests {
     use crate::{
         app::tests::{TODAY, sections},
         keymap::Action,
-        ui::{render, tests::screen},
+        ui::{
+            render,
+            tests::{draw, screen, screen_lines},
+        },
     };
 
     /// Draws like the main loop: the scroll offset of one frame is where the next starts.
-    fn draw(app: &mut App) -> Vec<String> {
+    fn draw_scrolled(app: &mut App) -> Vec<String> {
         let mut offset = app.tasks_page.offset;
         let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
         terminal
             .draw(|frame| offset = render(app, frame).list_offset)
             .unwrap();
         app.tasks_page.offset = offset;
-        screen(app).lines().map(str::to_string).collect()
+        screen_lines(terminal.backend().buffer())
     }
 
     #[test]
@@ -151,14 +154,14 @@ mod tests {
         );
 
         app.update(Action::Bottom);
-        let lines = draw(&mut app);
+        let lines = draw_scrolled(&mut app);
         assert!(lines[6].contains("▌   • Task 20"), "{lines:#?}");
 
         // Moving up inside the screen moves the cursor, the list does not scroll.
         app.update(Action::Up);
-        draw(&mut app);
+        draw_scrolled(&mut app);
         app.update(Action::Up);
-        let lines = draw(&mut app);
+        let lines = draw_scrolled(&mut app);
         assert!(lines[6].contains("• Task 20"), "{lines:#?}");
         assert!(lines[4].contains("▌   • Task 18"), "{lines:#?}");
     }
@@ -174,7 +177,7 @@ mod tests {
         app.tasks_page.hide_preview = true;
 
         app.update(Action::Down);
-        let lines = draw(&mut app);
+        let lines = draw_scrolled(&mut app);
         // 50 wide: padding, gutter and `   • ` leave 41 for the title.
         assert_eq!(
             lines[3],
@@ -222,10 +225,8 @@ mod tests {
         );
         app.tasks_page.cursor = 1;
         app.tasks_page.hide_preview = true;
-        let mut terminal = Terminal::new(TestBackend::new(40, 6)).unwrap();
-        terminal.draw(|frame| _ = render(&app, frame)).unwrap();
-        let buffer = terminal.backend().buffer();
-        let line: String = (0..40).map(|x| buffer[(x, 3)].symbol()).collect();
+        let buffer = draw(&app, 40, 6);
+        let line = &screen_lines(&buffer)[3];
         assert!(line.starts_with(" ▌   • Fix typo "), "{line:?}");
         assert!(buffer[(7, 3)].modifier.contains(Modifier::CROSSED_OUT));
     }
@@ -240,33 +241,22 @@ mod tests {
         app.today = TODAY;
         app.sections[0].tasks[1].last_done = Some(TODAY);
         app.tasks_page.hide_preview = true;
-        let mut terminal = Terminal::new(TestBackend::new(60, 9)).unwrap();
-        terminal.draw(|frame| _ = render(&app, frame)).unwrap();
-        let lines: Vec<String> = (terminal.backend().buffer().content())
-            .chunks(60)
-            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
-            .collect();
+        let buffer = draw(&app, 60, 9);
+        let lines = screen_lines(&buffer);
 
         // Never done, so due: `⟳` and the rule dimmed on the right, before the padding. Done
         // today: hidden, also from the counts.
         assert!(lines[3].starts_with("     ⟳ Water "), "{lines:#?}");
         assert!(lines[3].ends_with(" weekdays  "), "{lines:#?}");
-        assert!(
-            terminal.backend().buffer()[(50, 3)]
-                .modifier
-                .contains(Modifier::DIM)
-        );
+        assert!(buffer[(50, 3)].modifier.contains(Modifier::DIM));
         assert!(lines[4].contains("• Fix typo"), "{lines:#?}");
         assert!(lines[2].trim_end().ends_with(" 2"), "{lines:#?}");
         assert!(lines[0].ends_with(" 2 open"), "{lines:#?}");
 
         // `.` shows it dimmed, with its rule. Not open, the section counts what it shows.
         app.tasks_page.show_hidden = true;
-        terminal.draw(|frame| _ = render(&app, frame)).unwrap();
-        let buffer = terminal.backend().buffer();
-        let lines: Vec<String> = (buffer.content().chunks(60))
-            .map(|row| row.iter().map(|cell| cell.symbol()).collect())
-            .collect();
+        let buffer = draw(&app, 60, 9);
+        let lines = screen_lines(&buffer);
         assert!(lines[4].starts_with("     ⟳ Dust "), "{lines:#?}");
         assert!(lines[4].ends_with(" daily  "), "{lines:#?}");
         // Title and rule struck through.
@@ -315,14 +305,8 @@ mod tests {
         for c in "fix".chars() {
             app.update(Action::FilterType(c));
         }
-        let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
-        terminal
-            .draw(|frame| {
-                render(&app, frame);
-            })
-            .unwrap();
-        let buffer = terminal.backend().buffer();
-        let lines: Vec<String> = screen(&app).lines().map(str::to_string).collect();
+        let buffer = draw(&app, 50, 9);
+        let lines = screen_lines(&buffer);
 
         assert!(
             lines[2].trim_end().ends_with(" 1"),
