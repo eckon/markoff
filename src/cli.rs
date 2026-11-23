@@ -94,6 +94,14 @@ pub fn run(command: Command, root: &Path, config: &Config, today: Date) -> Resul
     }
 }
 
+/// When a repeating task is due again, from [`crate::repeat::Repeat::next`].
+fn due(next: Option<Date>) -> String {
+    match next {
+        Some(next) => format!("due {next}"),
+        None => "never due".to_string(),
+    }
+}
+
 /// The text of an option, read from stdin for `-`, for text too long or awkward to quote.
 fn stdin(text: Option<String>) -> Result<Option<String>> {
     match text.as_deref() {

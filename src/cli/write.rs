@@ -320,10 +320,7 @@ pub fn done(
         if let Some(repeat) = &task.repeat {
             let ops = edit::repeat_done(&sections, s, t, today, &file);
             op::apply_all(&ops)?;
-            let due = match repeat.next(today) {
-                Some(next) => format!("due {next}"),
-                None => "never due".to_string(),
-            };
+            let due = super::due(repeat.next(today));
             text.push_str(&format!("{} ({due})\n", id::of(root, &path)));
             continue;
         }

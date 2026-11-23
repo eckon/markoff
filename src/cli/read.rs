@@ -53,10 +53,7 @@ pub fn list(root: &Path, args: &ListArgs, today: Date) -> Result<String> {
                 .map(|task| {
                     let due = match (&task.repeat, task.last_done) {
                         (Some(repeat), Some(last_done)) if !task.due(today) => {
-                            match repeat.next(last_done) {
-                                Some(next) => format!(", due {next}"),
-                                None => ", never due".to_string(),
-                            }
+                            format!(", {}", super::due(repeat.next(last_done)))
                         }
                         _ => String::new(),
                     };
