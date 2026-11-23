@@ -120,6 +120,14 @@ use Action as A;
 use KeyCode::{BackTab, Backspace, Char, Down, End, Enter, Esc, Home, Left, Right, Tab, Up};
 use Trigger::{Ctrl, Key, Seq, Shift};
 
+/// `1`-`9`: the first nine sections, in the task list and in the archive's.
+#[rustfmt::skip]
+const JUMP_KEYS: &[(&[Trigger], Action)] = &[
+    (&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)),
+    (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)),
+    (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8)),
+];
+
 /// The single source of truth for keys: [`Keymap::handle`] reads it and so does the help
 /// overlay, so the two can never disagree. A key may be in several groups of a page, like `j` in
 /// the archive's heatmap and list, it does the same there. One line per binding, hence no
@@ -129,7 +137,7 @@ pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "move", contexts: TASKS },
     Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "move", contexts: TASKS },
     Binding { keys: &[(&[Key(Char('{'))], A::PrevSection), (&[Key(Char('}'))], A::NextSection)], help: "previous / next section", group: "move", contexts: TASKS },
-    Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section by its number", group: "move", contexts: TASKS },
+    Binding { keys: JUMP_KEYS, help: "jump to section by its number", group: "move", contexts: TASKS },
     Binding { keys: &[(&[Key(Char('J')), Shift(Down)], A::MoveDown), (&[Key(Char('K')), Shift(Up)], A::MoveUp)], help: "move down / up", group: "change", contexts: TASKS },
     Binding { keys: &[(&[Key(Enter)], A::Open)], help: "open task in $EDITOR, or rename section", group: "change", contexts: TASKS },
     Binding { keys: &[(&[Key(Char('o'))], A::NewBelow), (&[Key(Char('O'))], A::NewAbove)], help: "new task below / above", group: "change", contexts: TASKS },
@@ -143,12 +151,12 @@ pub const BINDINGS: &[Binding] = &[
     Binding { keys: &[(&[Key(Char('v'))], A::Visual)], help: "select days from here, v / Esc ends", group: "heatmap", contexts: ARCHIVE },
     Binding { keys: &[(&[Key(Char('H'))], A::SkipLeft), (&[Key(Char('L'))], A::SkipRight)], help: "like h / l, skips empty days", group: "heatmap", contexts: ARCHIVE },
     Binding { keys: &[(&[Key(Char('J'))], A::SkipDown), (&[Key(Char('K'))], A::SkipUp)], help: "like j / k, skips empty days", group: "heatmap", contexts: ARCHIVE },
-    Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to a section in the list", group: "heatmap", contexts: ARCHIVE },
+    Binding { keys: JUMP_KEYS, help: "jump to a section in the list", group: "heatmap", contexts: ARCHIVE },
     Binding { keys: &[(&[Key(Enter)], A::FocusList)], help: "go to the tasks of the selected days", group: "heatmap", contexts: ARCHIVE },
     Binding { keys: &[(&[Key(Char('j')), Key(Down)], A::Down), (&[Key(Char('k')), Key(Up)], A::Up)], help: "down / up", group: "list", contexts: ARCHIVE },
     Binding { keys: &[(&[Seq('g', 'g'), Key(Home)], A::Top), (&[Key(Char('G')), Key(End)], A::Bottom)], help: "top / bottom", group: "list", contexts: ARCHIVE },
     Binding { keys: &[(&[Key(Char('{'))], A::PrevSection), (&[Key(Char('}'))], A::NextSection)], help: "previous / next section", group: "list", contexts: ARCHIVE },
-    Binding { keys: &[(&[Key(Char('1'))], A::JumpSection(0)), (&[Key(Char('2'))], A::JumpSection(1)), (&[Key(Char('3'))], A::JumpSection(2)), (&[Key(Char('4'))], A::JumpSection(3)), (&[Key(Char('5'))], A::JumpSection(4)), (&[Key(Char('6'))], A::JumpSection(5)), (&[Key(Char('7'))], A::JumpSection(6)), (&[Key(Char('8'))], A::JumpSection(7)), (&[Key(Char('9'))], A::JumpSection(8))], help: "jump to section by its number", group: "list", contexts: ARCHIVE },
+    Binding { keys: JUMP_KEYS, help: "jump to section by its number", group: "list", contexts: ARCHIVE },
     Binding { keys: &[(&[Key(Char('p'))], A::Preview)], help: "toggle preview of the task", group: "list", contexts: ARCHIVE },
     Binding { keys: &[(&[Key(Esc)], A::FocusHeatmap)], help: "back to the heatmap", group: "list", contexts: ARCHIVE },
     Binding { keys: &[(&[Key(Char('p'))], A::Preview)], help: "toggle preview of the task", group: "show", contexts: TASKS },
