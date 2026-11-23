@@ -113,9 +113,7 @@ pub fn add(root: &Path, args: &AddArgs, config: &Config) -> Result<String> {
             bail!("cannot add: empty name");
         }
         let slug = slugify(name);
-        if sections.iter().any(|section| section.name == slug) {
-            bail!("a section named '{slug}' already exists");
-        }
+        edit::ensure_free_section(&sections, &slug)?;
         let index = match (&args.before, &args.after) {
             (Some(id), _) => section(id, find(id)?)?,
             (_, Some(id)) => section(id, find(id)?)? + 1,
@@ -166,9 +164,7 @@ pub fn edit(root: &Path, args: &EditArgs, config: &Config) -> Result<String> {
             if slug == sections[s].name {
                 return Ok(format!("{slug}\n"));
             }
-            if sections.iter().any(|section| section.name == slug) {
-                bail!("a section named '{slug}' already exists");
-            }
+            edit::ensure_free_section(&sections, &slug)?;
             let (sections, file) = normalize(root, config)?;
             let (ops, _) = edit::rename_section(&sections, s, &slug, &file);
             op::apply_all(&ops)?;

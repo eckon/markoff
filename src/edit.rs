@@ -6,6 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
+use color_eyre::{Result, eyre::bail};
 use jiff::civil::Date;
 
 use crate::{
@@ -68,6 +69,15 @@ pub fn section_name(content: &str) -> Option<(String, bool)> {
     let slug = slugify(&heading?);
     let more = !body.replace(SECTION_NOTE, "").trim().is_empty();
     Some((slug, more))
+}
+
+/// Refuses a new section name `slug` that is taken: two sections with the same name would look
+/// the same in the list and the archive.
+pub fn ensure_free_section(sections: &[Section], slug: &str) -> Result<()> {
+    if sections.iter().any(|section| section.name == slug) {
+        bail!("a section named '{slug}' already exists");
+    }
+    Ok(())
 }
 
 /// Renames section `s` to `slug`, keeping its place. Returns the ops and the new directory.
