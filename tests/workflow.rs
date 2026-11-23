@@ -199,9 +199,19 @@ impl Markoff {
         rows.join("\n")
     }
 
-    /// The screen, then everything in the root.
+    /// The screen once it stopped changing, then everything in the root. A frame can reach the
+    /// terminal in pieces, a snapshot in between would catch half of it.
     fn state(&self) -> String {
-        format!("{}\n{}", self.screen().trim_end(), files(self.root.path()))
+        let mut screen = self.screen();
+        loop {
+            thread::sleep(Duration::from_millis(50));
+            let now = self.screen();
+            if now == screen {
+                break;
+            }
+            screen = now;
+        }
+        format!("{}\n{}", screen.trim_end(), files(self.root.path()))
     }
 
     #[track_caller]
@@ -513,8 +523,9 @@ fn filter_and_help() {
 
     // The help scrolls with the move keys, other keys do nothing while it is open, it closes
     // with ? or <Esc>.
+    // Not `toggle help`, the footer always has it.
     app.press("?");
-    app.wait_for("toggle help");
+    app.wait_for("help · tasks");
     snapshot!("filter_and_help_2_help", app.state());
     app.press("G");
     app.wait_for("close help");
@@ -525,8 +536,9 @@ fn filter_and_help() {
     snapshot!("filter_and_help_4_help_filtered", app.state());
     app.press("D??");
     app.wait_for("── change");
+    // The whole section header, the help covered its end.
     app.press("?");
-    app.wait_for("• Buy milk");
+    app.wait_for("──[2]─ work ────────────── 1");
     snapshot!("filter_and_help_5_closed", app.state());
 
     // The preview shows a task's body, `p` hides it and shows it again.
