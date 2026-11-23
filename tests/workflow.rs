@@ -540,7 +540,7 @@ fn filter_and_help() {
 /// any day instead of snapshots.
 #[test]
 fn archive() {
-    let today = jiff::Zoned::now().date();
+    let today = jiff::ZonedDateTime::now().date();
     let earlier = today.saturating_sub(jiff::Span::new().days(10));
     let mut app = Markoff::start_with(&[
         ("work/fix-bug.md", "# Fix bug\n"),
@@ -658,7 +658,10 @@ fn cli_lifecycle() {
     cli.run(&["list", "--archive"]);
     cli.run(&[
         "show",
-        &format!(".archive/{}/work/call-bob", jiff::Zoned::now().date()),
+        &format!(
+            ".archive/{}/work/call-bob",
+            jiff::ZonedDateTime::now().date()
+        ),
     ]);
 
     // Cleaning up: a section goes with its last tasks.
@@ -702,7 +705,10 @@ fn cli_mistakes() {
     write(&cli.root.path().join("work/fix-bug.md"), "# Fix the bug\n");
     cli.run(&["list"]);
     cli.run(&["done", "work/fix-bug"]);
-    let archived = format!(".archive/{}/work/fix-the-bug", jiff::Zoned::now().date());
+    let archived = format!(
+        ".archive/{}/work/fix-the-bug",
+        jiff::ZonedDateTime::now().date()
+    );
     cli.run(&["edit", &archived, "--append", "late"]);
     cli.run(&["list", "--archive", "--filter", "fix"]);
     snapshot!("cli_mistakes", cli.checkpoint());
