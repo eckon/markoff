@@ -261,10 +261,7 @@ mod tests {
             crate::config::defaults(),
         );
         app.today = TODAY;
-        let done = |content: &str| crate::archive::Done {
-            section: "home".to_string(),
-            task: crate::task::Task::parse(PathBuf::new(), content),
-        };
+        let done = |content: &str| crate::archive::tests::done("home", content);
         app.archive = [(TODAY, vec![done("# A"), done("# B"), done("# ~~C~~")])].into();
         app.tasks_page.hide_preview = true;
         // Wider than the others, the pages take room.
