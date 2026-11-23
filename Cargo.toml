@@ -12,7 +12,7 @@ color-eyre = "0.6.5"
 croner = { version = "5.0.0", default-features = false, features = ["jiff"] }
 deunicode = "1.6.2"
 jiff = "1.0.0"
-notify = "8.2.0"
+notify = "9.0.0"
 ratatui = "0.30.2"
 serde = { version = "1.0.229", features = ["derive"] }
 strsim = "0.11.1"
