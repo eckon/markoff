@@ -75,7 +75,8 @@ For TUI changes also run the real app in tmux against a scratch root dir (or a c
 - The CLI (`cli/`) has a command for every action of the TUI but undo, so nobody has to change files by hand. It uses the same `edit.rs` ops. `markoff skill` prints `cli/skill.md` for agents: update it in the same change as the commands or the data layout, and keep it short, it goes into their context.
 - The archive page lives in `app/archive.rs` and `ui/archive/`. It shares the cursor moves (`cursor.rs`) and the list renderer (`ui/rows.rs`) with the task list, so both lists behave alike.
 - Pure logic (`edit.rs`, `archive.rs`, `cursor.rs`, `heatmap.rs`, `name.rs`, `state.rs`) never touches the disk. All writes go through ops in `op.rs`, each with an exact inverse for undo.
-- The disk is the source of truth: after a change, reload instead of patching state.
+- The disk is the source of truth: after a change, reload instead of patching state. Only what changed and what is needed: the tasks and today's archive always, the rest of the archive only once its page opened, then only the days that changed.
+- Nothing slow blocks the main loop: the first frame comes first, slow work runs on a thread with a loading state (the file watcher, the archive).
 - `App::update(Action)` never touches the terminal, so it is testable.
 - The date comes from `App.today`, read from the clock only in the main loop (and once for a CLI command), so a frame sees one day and tests can set it. Never call `Zoned::now()` elsewhere.
 - All keys live in `BINDINGS` (`keymap.rs`), the help overlay reads the same table. Update the README key table with it.

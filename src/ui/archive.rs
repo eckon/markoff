@@ -30,6 +30,10 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) -> (usize, usize, Option
     let block = Block::new().padding(Padding::new(2, 2, 0, 0));
     let inner = block.inner(area);
     let width = inner.width as usize;
+    if !app.archive_loaded() {
+        frame.render_widget(Paragraph::new("loading…".dim()).block(block), area);
+        return (0, 0, None);
+    }
     let heatmap = (!app.days.is_empty()).then(|| {
         heatmap::lines(
             &app.days,
@@ -555,5 +559,10 @@ mod tests {
         app.days.clear();
         let screen = lines(&draw(&app));
         assert!(screen[2].contains("nothing archived yet"), "{screen:#?}");
+
+        app.archive_load = crate::app::archive::ArchiveLoad::NotLoaded;
+        let screen = lines(&draw(&app));
+        assert_eq!(screen[2].trim(), "loading…", "{screen:#?}");
+        assert!(screen[13].trim().is_empty(), "no list yet: {screen:#?}");
     }
 }

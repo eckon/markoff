@@ -20,7 +20,7 @@ pub mod archive;
 mod change;
 mod editor;
 
-use archive::ArchivePage;
+use archive::{ArchiveLoad, ArchivePage};
 use editor::EditorRequest;
 
 use crate::{
@@ -124,8 +124,10 @@ pub struct App {
     pub help_offset: usize,
     /// `/` filter of the help, empty for none. The help is temporary: it opens without one.
     pub help_filter: String,
-    /// The archived tasks, done or canceled.
+    /// The archived tasks, done or canceled. Only today until the page needs all, see
+    /// [`ArchiveLoad`].
     pub archive: crate::archive::Archive,
+    pub archive_load: ArchiveLoad,
     /// Tasks archived per day, for the heatmap.
     pub days: heatmap::Days,
     /// markoff wrote to the root since the main loop last looked, and read it again. The
@@ -163,6 +165,8 @@ impl App {
             help_offset: 0,
             help_filter: String::new(),
             archive: crate::archive::Archive::new(),
+            // Made in memory, its archive is all there is.
+            archive_load: ArchiveLoad::Loaded,
             days: heatmap::Days::new(),
             wrote: false,
         }
@@ -171,6 +175,7 @@ impl App {
     /// Loads `root` and normalizes it, renames are mentioned in the status.
     pub fn load(root: PathBuf, config: Config) -> Result<Self> {
         let mut app = Self::new(root, Vec::new(), config);
+        app.archive_load = ArchiveLoad::NotLoaded;
         app.reload(None)?;
         app.normalize_before_action();
         Ok(app)
@@ -185,7 +190,8 @@ impl App {
         // aside, the first frame does not wait for it, changes until then go unnoticed.
         let (sender, setup) = mpsc::channel();
         let root = self.root.clone();
-        thread::spawn(move || sender.send(RootWatcher::new(&root)));
+        // Nobody to send to once markoff quit.
+        thread::spawn(move || sender.send(RootWatcher::new(&root)).ok());
         let mut watcher = None;
         // Only redraw after something happened, not on every poll.
         let mut dirty = true;
@@ -195,6 +201,8 @@ impl App {
             let today = jiff::Zoned::now().date();
             if today != self.today {
                 self.today = today;
+                let result = self.reread_day(today).map(|()| self.update_days());
+                self.report(result);
                 dirty = true;
             }
             if dirty {
@@ -229,10 +237,17 @@ impl App {
                 }
             }
 
+            if self.poll_archive() {
+                dirty = true;
+            }
+
             match watcher.as_mut().map(RootWatcher::poll) {
-                None | Some(Ok(false)) => {}
-                Some(Ok(true)) => {
-                    let result = self.reload_keep_selection();
+                None | Some(Ok(None)) => {}
+                Some(Ok(Some(changed))) => {
+                    let touched =
+                        crate::archive::days_touched(changed.iter().map(PathBuf::as_path));
+                    let result =
+                        (self.reload_keep_selection()).and_then(|()| self.reread_archive(touched));
                     self.report(result);
                     dirty = true;
                 }
@@ -548,20 +563,29 @@ impl App {
         // `sections` still shows the disk before the ops until the reload, so the cursor and
         // its neighbor are found in it.
         let cursor = self.selected().map(|row| self.row_path(row));
+        let touched = self.days_touched(&ops);
         self.undo.push(UndoStep { ops, cursor });
         self.reload_keep_selection()?;
+        self.reread_archive(touched)?;
         Ok(true)
     }
 
-    /// Reads the root again and puts the cursor on `path` if it still exists, else keeps the
-    /// row number, clamped. The disk is the source of truth, `sections` is only a view of it.
+    /// The archive days `ops` change, see [`crate::archive::days_touched`].
+    fn days_touched(&self, ops: &[Op]) -> Option<std::collections::BTreeSet<Date>> {
+        let paths =
+            (ops.iter().flat_map(Op::paths)).filter_map(|path| path.strip_prefix(&self.root).ok());
+        crate::archive::days_touched(paths)
+    }
+
+    /// Reads the tasks and today's archive again and puts the cursor on `path` if it still
+    /// exists, else keeps the row number, clamped. The disk is the source of truth, `sections`
+    /// is only a view of it. The rest of the archive is read where it changed, see
+    /// [`Self::reread_archive`].
     fn reload(&mut self, path: Option<&Path>) -> Result<()> {
         (self.sections, self.state_file) = load::load(&self.root)?;
-        self.archive = load::archive(&self.root)?;
-        self.days = heatmap::days(&self.archive);
+        self.reread_day(self.today)?;
+        self.update_days();
         self.cursor = self.cursor.min(self.rows().len().saturating_sub(1));
-        let archive_rows = self.archive_rows().len();
-        self.archive_page.cursor = self.archive_page.cursor.min(archive_rows.saturating_sub(1));
         if let Some(path) = path {
             self.select_path(path);
         }
@@ -701,6 +725,16 @@ pub mod tests {
         let mut app = App::load(root.to_path_buf(), crate::config::defaults()).unwrap();
         app.today = TODAY;
         (dir, app)
+    }
+
+    /// Until the archive read on its thread arrived, see [`App::poll_archive`].
+    pub(super) fn wait_for_archive(app: &mut App) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !app.poll_archive() {
+            assert!(std::time::Instant::now() < deadline, "no archive within 5s");
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(app.archive_loaded(), "{:?}", app.status);
     }
 
     pub(super) fn state_file(dir: &TempDir) -> String {
@@ -845,6 +879,7 @@ pub mod tests {
 
         // On the archive page only in the list, and not the task list's.
         app.update(Action::NextPage);
+        wait_for_archive(&mut app);
         app.update(Action::Preview);
         assert!(!app.archive_page.hide_preview, "not in the heatmap");
         app.update(Action::FocusList);

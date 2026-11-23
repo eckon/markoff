@@ -121,8 +121,10 @@ impl App {
         op::apply_all(&op::inverse_all(&step.ops))?;
         self.wrote = true;
         let cursor = step.cursor.clone();
+        let touched = self.days_touched(&step.ops);
         self.undo.pop();
-        self.reload(cursor.as_deref())
+        self.reload(cursor.as_deref())?;
+        self.reread_archive(touched)
     }
 }
 

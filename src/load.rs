@@ -105,18 +105,32 @@ pub fn archive(root: &Path) -> Result<archive::Archive> {
         let Ok(date) = file_name(&path).parse::<Date>() else {
             continue;
         };
-        let done = sections(&path, &State::default())?
-            .into_iter()
-            .flat_map(|section| {
-                section.tasks.into_iter().map(move |task| archive::Done {
-                    section: section.name.clone(),
-                    task,
-                })
-            })
-            .collect();
-        days.insert(date, done);
+        days.insert(date, day(&path)?);
     }
     Ok(days)
+}
+
+/// The done tasks of `date` from the archive in `root`, `None` without a directory for it.
+pub fn archive_day(root: &Path, date: Date) -> Result<Option<Vec<archive::Done>>> {
+    let path = root.join(archive::DIR).join(date.to_string());
+    if !path.is_dir() {
+        return Ok(None);
+    }
+    day(&path).map(Some)
+}
+
+/// A day directory of the archive, read like the root without a state file.
+fn day(path: &Path) -> Result<Vec<archive::Done>> {
+    let done = sections(path, &State::default())?
+        .into_iter()
+        .flat_map(|section| {
+            section.tasks.into_iter().map(move |task| archive::Done {
+                section: section.name.clone(),
+                task,
+            })
+        })
+        .collect();
+    Ok(done)
 }
 
 fn load_tasks(mut paths: Vec<PathBuf>, state: &State, section: &str) -> Result<Vec<Task>> {
@@ -223,6 +237,26 @@ mod tests {
             .map(|done| format!("{}/{}/{}", done.section, done.task.title(), done.task.body))
             .collect();
         assert_eq!(done, ["home/c/", "work/b/", "work/Fix bug/notes\n"]);
+    }
+
+    #[test]
+    fn archive_day_reads_one_day() {
+        let dir = fixture(&[
+            (".archive/2026-10-14/work/a.md", "# A"),
+            (".archive/2026-10-15/work/b.md", "# B"),
+            (".archive/2026-10-16/", ""),
+        ]);
+        let day = |date: &str| archive_day(dir.path(), date.parse().unwrap()).unwrap();
+        let titles: Vec<String> = (day("2026-10-14").unwrap().iter())
+            .map(|done| done.task.title())
+            .collect();
+        assert_eq!(titles, ["A"]);
+        assert_eq!(
+            day("2026-10-16"),
+            Some(Vec::new()),
+            "a day without tasks is a day"
+        );
+        assert_eq!(day("2026-10-17"), None);
     }
 
     #[test]

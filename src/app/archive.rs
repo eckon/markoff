@@ -1,12 +1,28 @@
 //! The archive page: the cursor in the heatmap and the done tasks of its day. Read-only,
 //! nothing here writes.
 
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    sync::mpsc::{self, Receiver, TryRecvError},
+    thread,
+};
 
+use color_eyre::{Result, eyre::eyre};
 use jiff::{ToSpan, civil::Date};
 
-use super::App;
-use crate::{cursor, heatmap, keymap::Action};
+use super::{App, Page};
+use crate::{archive::Archive, cursor, heatmap, keymap::Action, load};
+
+/// How much of the archive [`App::archive`] holds. It grows with every done task, so it is read
+/// only once the page needs it, and then only the days that change.
+#[derive(Debug)]
+pub enum ArchiveLoad {
+    /// Only today, for the app header.
+    NotLoaded,
+    /// Read on a thread, see [`App::poll_archive`].
+    Loading(Receiver<Result<Archive>>),
+    Loaded,
+}
 
 /// Where the archive page is, kept while switching pages.
 #[derive(Debug, Default)]
@@ -79,6 +95,8 @@ impl App {
             ) => {
                 return false;
             }
+            // Nothing to move in yet.
+            _ if !self.archive_loaded() => return true,
             (Action::FocusList, _) => {
                 self.archive_page.focus = Focus::List;
                 return true;
@@ -166,10 +184,94 @@ impl App {
     }
 
     /// The first time the page opens, see [`Self::archive_day`]. Later it stays where it was.
+    /// Reads the archive first if it is not there yet.
     pub(super) fn open_archive(&mut self) {
-        if self.archive_page.day.is_none() {
-            self.select_day(self.archive_day());
+        match self.archive_load {
+            ArchiveLoad::NotLoaded => self.load_archive(),
+            ArchiveLoad::Loading(_) => {}
+            ArchiveLoad::Loaded => {
+                if self.archive_page.day.is_none() {
+                    self.select_day(self.archive_day());
+                }
+            }
         }
+    }
+
+    pub fn archive_loaded(&self) -> bool {
+        matches!(self.archive_load, ArchiveLoad::Loaded)
+    }
+
+    /// Reads the whole archive on a thread, see [`Self::poll_archive`]. A load already running
+    /// is dropped, it may have missed a change.
+    fn load_archive(&mut self) {
+        let (sender, receiver) = mpsc::channel();
+        let root = self.root.clone();
+        // Nobody to send to once markoff quit or started again.
+        thread::spawn(move || sender.send(load::archive(&root)).ok());
+        self.archive_load = ArchiveLoad::Loading(receiver);
+    }
+
+    /// Takes the archive once its thread read it. Returns whether anything changed.
+    pub fn poll_archive(&mut self) -> bool {
+        let ArchiveLoad::Loading(receiver) = &self.archive_load else {
+            return false;
+        };
+        let result = match receiver.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => return false,
+            Err(TryRecvError::Disconnected) => Err(eyre!("failed to read the archive")),
+        };
+        match result {
+            Ok(archive) => {
+                self.archive = archive;
+                self.archive_load = ArchiveLoad::Loaded;
+                self.update_days();
+                if self.page == Page::Archive {
+                    self.open_archive();
+                }
+            }
+            // Opening the page again tries again.
+            Err(err) => {
+                self.archive_load = ArchiveLoad::NotLoaded;
+                self.report(Err(err));
+            }
+        }
+        true
+    }
+
+    /// Reads the archive days in `touched` again, all for `None`, see
+    /// [`crate::archive::days_touched`]. Only once the archive is there or on its way, today is
+    /// read with every reload anyway.
+    pub(super) fn reread_archive(&mut self, touched: Option<BTreeSet<Date>>) -> Result<()> {
+        match (&self.archive_load, touched) {
+            (ArchiveLoad::NotLoaded, _) => {}
+            (_, Some(days)) if days.is_empty() => {}
+            (ArchiveLoad::Loading(_), _) | (ArchiveLoad::Loaded, None) => self.load_archive(),
+            (ArchiveLoad::Loaded, Some(days)) => {
+                for day in days {
+                    self.reread_day(day)?;
+                }
+                self.update_days();
+            }
+        }
+        Ok(())
+    }
+
+    /// Reads one day of the archive again, a day without a directory goes.
+    pub(super) fn reread_day(&mut self, day: Date) -> Result<()> {
+        match load::archive_day(&self.root, day)? {
+            Some(done) => self.archive.insert(day, done),
+            None => self.archive.remove(&day),
+        };
+        Ok(())
+    }
+
+    /// Follows a change of [`App::archive`]: the heatmap's counts, the list's cursor within its
+    /// rows.
+    pub(super) fn update_days(&mut self) {
+        self.days = heatmap::days(&self.archive);
+        let rows = self.archive_rows().len();
+        self.archive_page.cursor = self.archive_page.cursor.min(rows.saturating_sub(1));
     }
 
     /// Moves the heatmap cursor to `day`. A new list, on its first task like a jump to a
@@ -227,6 +329,10 @@ impl App {
     /// The done tasks of the selected days under their sections, newest day first, by name within
     /// a day. Sections without any are left out.
     pub fn archive_rows(&self) -> Vec<ArchiveRow> {
+        // Before, the archive holds only today.
+        if !self.archive_loaded() {
+            return Vec::new();
+        }
         let (start, length) = self.archive_selected();
         let days: Vec<_> = self
             .archive
@@ -259,14 +365,97 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{fs, path::PathBuf};
 
     use super::*;
     use crate::{
-        app::tests::{TODAY, sections},
+        app::tests::{TODAY, app_with_files, sections, wait_for_archive},
         archive::Done,
         task::Task,
     };
+
+    #[test]
+    fn archive_is_read_when_the_page_opens() {
+        let (dir, mut app) = app_with_files(&["work/a.md"]);
+        let archive = dir.path().join(".archive");
+        for day in [TODAY - 1.days(), TODAY] {
+            fs::create_dir_all(archive.join(format!("{day}/work"))).unwrap();
+            fs::write(archive.join(format!("{day}/work/b.md")), "# b").unwrap();
+        }
+        app.reload(None).unwrap();
+        assert_eq!(
+            app.archive.keys().collect::<Vec<_>>(),
+            [&TODAY],
+            "only today"
+        );
+        assert_eq!(app.done_today().len(), 1);
+
+        app.update(Action::NextPage);
+        assert!(matches!(app.archive_load, ArchiveLoad::Loading(_)));
+        app.update(Action::FocusList);
+        assert_eq!(
+            app.archive_page.focus,
+            Focus::Heatmap,
+            "no keys while loading"
+        );
+
+        wait_for_archive(&mut app);
+        assert_eq!(app.archive.len(), 2);
+        assert_eq!(
+            app.archive_day(),
+            TODAY,
+            "the cursor goes to the last day done"
+        );
+        assert_eq!(app.archive_rows().len(), 2);
+    }
+
+    #[test]
+    fn only_the_changed_days_are_read_again() {
+        let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
+        let old = TODAY - 3.days();
+        let old_dir = dir.path().join(format!(".archive/{old}/work"));
+        fs::create_dir_all(&old_dir).unwrap();
+        fs::write(old_dir.join("c.md"), "# c").unwrap();
+        app.update(Action::NextPage);
+        wait_for_archive(&mut app);
+        app.update(Action::PrevPage);
+
+        // Behind markoff's back: a day nobody reports as changed stays as it was read.
+        fs::write(old_dir.join("d.md"), "# d").unwrap();
+        app.cursor = 1;
+        app.update(Action::Done);
+        assert_eq!(app.archive[&TODAY].len(), 1);
+        assert_eq!(app.archive[&old].len(), 1, "not read again");
+
+        app.reread_archive(Some([old].into())).unwrap();
+        assert_eq!(app.archive[&old].len(), 2);
+        assert_eq!(app.days[&old], 2, "the heatmap follows");
+
+        app.update(Action::Undo);
+        assert!(
+            !app.archive.contains_key(&TODAY),
+            "the day is gone with its directory"
+        );
+        assert!(app.archive_loaded());
+    }
+
+    #[test]
+    fn a_change_while_loading_is_in_what_arrives() {
+        let (_dir, mut app) = app_with_files(&["work/a.md"]);
+        app.reread_archive(None).unwrap();
+        assert!(
+            matches!(app.archive_load, ArchiveLoad::NotLoaded),
+            "nothing to keep"
+        );
+
+        app.update(Action::NextPage);
+        app.update(Action::PrevPage);
+        app.cursor = 1;
+        app.update(Action::Done);
+        assert!(matches!(app.archive_load, ArchiveLoad::Loading(_)));
+        wait_for_archive(&mut app);
+        assert_eq!(app.archive[&TODAY].len(), 1);
+    }
 
     #[test]
     fn first_open_skips_empty_days() {

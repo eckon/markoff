@@ -7,7 +7,10 @@
 //!       fix-login-bug.md   <- the task file, moved here as it was
 //! ```
 
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::{Component, Path, PathBuf},
+};
 
 use jiff::civil::Date;
 
@@ -37,4 +40,46 @@ pub struct ArchiveDir {
 pub struct Done {
     pub section: String,
     pub task: Task,
+}
+
+/// The days of the archive that changes at `paths`, relative to the root, touch. `None` when one
+/// is the archive as a whole: `.archive` itself, or the root above it. Paths outside the archive
+/// touch no day.
+pub fn days_touched<'a>(paths: impl IntoIterator<Item = &'a Path>) -> Option<BTreeSet<Date>> {
+    let mut days = BTreeSet::new();
+    for path in paths {
+        let mut parts = path.components().filter(|part| *part != Component::CurDir);
+        match (parts.next(), parts.next()) {
+            (None, _) => return None,
+            (Some(first), day) if first.as_os_str() == DIR => {
+                let day = day?.as_os_str().to_str();
+                days.extend(day.and_then(|day| day.parse::<Date>().ok()));
+            }
+            _ => {}
+        }
+    }
+    Some(days)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn days_touched_by_paths() {
+        let touched = |paths: &[&str]| days_touched(paths.iter().map(Path::new));
+        let day = |date: &str| date.parse::<Date>().unwrap();
+        assert_eq!(
+            touched(&[
+                ".archive/2026-10-14/work/a.md",
+                ".archive/2026-10-15",
+                "work/b.md",
+                ".archive/notes/c.md",
+            ]),
+            Some([day("2026-10-14"), day("2026-10-15")].into())
+        );
+        assert_eq!(touched(&["work/b.md", ".markoff"]), Some(BTreeSet::new()));
+        assert_eq!(touched(&[".archive"]), None);
+        assert_eq!(touched(&[""]), None, "the root");
+    }
 }
