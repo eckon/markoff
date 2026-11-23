@@ -4,10 +4,28 @@ use ratatui::{
     Frame,
     layout::Rect,
     style::{Style, Stylize},
+    text::Span,
 };
 
-use super::{filtered_title, list_with_preview, rows, section_color};
+use super::{done_count, filtered_title, preview::list_with_preview, rows, section_color};
 use crate::app::{App, Row};
+
+/// Today and the counts for the app header: the open tasks in all sections and those archived
+/// today, so done tasks don't just vanish.
+pub fn app_header(app: &App) -> (String, Vec<Span<'static>>) {
+    let today = app.today.strftime("%a %d %b").to_string();
+    // Hidden tasks are not open, even while `.` shows them.
+    let open = (app.sections.iter().flat_map(|section| &section.tasks))
+        .filter(|task| task.due(app.today))
+        .count();
+    let mut count = vec![format!("{open} open").dim()];
+    let done = done_count(app.done_today());
+    if !done.is_empty() {
+        count.push(" · ".dim());
+        count.extend(done);
+    }
+    (today, count)
+}
 
 /// The list, and the preview of the selected task next to it unless `p` hid it. Returns
 /// the list's offset and the column of the preview's divider.

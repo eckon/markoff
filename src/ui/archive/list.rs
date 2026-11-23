@@ -14,7 +14,7 @@ use crate::{
         App,
         archive::{ArchiveRow, Focus},
     },
-    ui::{filtered_title, list_with_preview, rows, section_color},
+    ui::{filtered_title, preview::list_with_preview, rows, section_color},
 };
 
 /// The list below the heatmap, see [`rows`], with the preview of the selected task like

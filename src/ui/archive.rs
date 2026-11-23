@@ -5,17 +5,31 @@ use ratatui::{
     Frame,
     layout::{Alignment, Rect},
     style::{Modifier, Stylize},
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, Padding, Paragraph},
 };
 
 mod heatmap;
 mod list;
 
-pub use list::range;
+use super::{LINE_COLOR, done_count, spinner};
+use crate::app::{
+    App,
+    archive::{ArchiveRow, Focus},
+};
 
-use super::{LINE_COLOR, spinner};
-use crate::app::{App, archive::Focus};
+/// The selected days and the counts of their tasks for the app header. Nothing while the
+/// archive loads, the selected day is not known yet.
+pub fn app_header(app: &App) -> Option<(String, Vec<Span<'static>>)> {
+    if !app.archive_loaded() {
+        return None;
+    }
+    let done = (app.archive_rows().into_iter()).filter_map(|row| match row {
+        ArchiveRow::Task(_, day, index) => Some(&app.archive[&day][index]),
+        ArchiveRow::Section(..) => None,
+    });
+    Some((list::range(app), done_count(done)))
+}
 
 /// Lines between the heatmap and the list: a double line with a blank line on each side.
 const SEPARATOR: usize = 3;
