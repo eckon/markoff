@@ -18,12 +18,6 @@ const WEEKDAYS: usize = 4;
 /// A cell and the space after it.
 const STEP: usize = 2;
 
-/// The glyph per step from little to a lot, see [`heatmap::bounds`]. Only the shade changes:
-/// fonts draw it brighter in order, while dim, light and bold greens often look the same.
-fn steps() -> [Span<'static>; 4] {
-    ["░", "▒", "▓", "█"].map(|shade| shade.fg(DONE_COLOR))
-}
-
 /// The heatmap as [`lines`] draws it.
 pub struct Heatmap {
     pub lines: Vec<Line<'static>>,
@@ -66,8 +60,10 @@ pub fn lines(
         .and_then(|anchor| heatmap::find(&columns, anchor))
         .map(on_screen);
 
+    // The glyph per step from little to a lot. Only the shade changes: fonts draw it brighter in
+    // order, while dim, light and bold greens often look the same.
+    let steps = ["░", "▒", "▓", "█"].map(|shade| shade.fg(DONE_COLOR));
     // Counted over all days, so the shades stay while scrolling.
-    let steps = steps();
     let bounds = heatmap::bounds(days.values().copied(), steps.len());
     let row_width = shown.len() * STEP + WEEKDAYS;
     let mut lines = vec![labels(shown, row_width)];

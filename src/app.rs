@@ -536,7 +536,13 @@ impl App {
     fn normalize_before_action(&mut self) {
         match self.normalize() {
             Ok(renames) if renames.is_empty() => {}
-            Ok(renames) => self.status = Some(Status::Info(renamed_message(renames.len()))),
+            Ok(renames) => {
+                let message = match renames.len() {
+                    1 => "1 file renamed to match its title".to_string(),
+                    count => format!("{count} files renamed to match their titles"),
+                };
+                self.status = Some(Status::Info(message));
+            }
             Err(err) => self.report(Err(err)),
         }
     }
@@ -663,14 +669,6 @@ impl App {
     /// Tasks archived today, counted in the app header.
     pub fn done_today(&self) -> &[crate::archive::Done] {
         self.archive.get(&self.today).map_or(&[], Vec::as_slice)
-    }
-}
-
-fn renamed_message(count: usize) -> String {
-    if count == 1 {
-        "1 file renamed to match its title".to_string()
-    } else {
-        format!("{count} files renamed to match their titles")
     }
 }
 
