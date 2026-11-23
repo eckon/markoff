@@ -4,6 +4,8 @@
 
 use std::{
     path::{Path, PathBuf},
+    sync::mpsc,
+    thread,
     time::Duration,
 };
 
@@ -175,7 +177,12 @@ impl App {
     /// Keys are read on this thread (no background reader), so the TUI can hand the
     /// terminal to `$EDITOR` without the two fighting over stdin.
     pub fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
-        let mut watcher = RootWatcher::new(&self.root)?;
+        // Watching the root takes a watch per directory, the archive has one per day. Set up
+        // aside, the first frame does not wait for it, changes until then go unnoticed.
+        let (sender, setup) = mpsc::channel();
+        let root = self.root.clone();
+        thread::spawn(move || sender.send(RootWatcher::new(&root)));
+        let mut watcher = None;
         // Only redraw after something happened, not on every poll.
         let mut dirty = true;
 
@@ -204,15 +211,25 @@ impl App {
                 dirty = true;
             }
 
+            if let Ok(result) = setup.try_recv() {
+                match result {
+                    Ok(ready) => watcher = Some(ready),
+                    Err(err) => {
+                        self.report(Err(err));
+                        dirty = true;
+                    }
+                }
+            }
+
             // Our own writes trigger this as well, a reload is harmless then.
-            match watcher.poll() {
-                Ok(false) => {}
-                Ok(true) => {
+            match watcher.as_mut().map(RootWatcher::poll) {
+                None | Some(Ok(false)) => {}
+                Some(Ok(true)) => {
                     let result = self.reload_keep_selection();
                     self.report(result);
                     dirty = true;
                 }
-                Err(err) => {
+                Some(Err(err)) => {
                     self.report(Err(err));
                     dirty = true;
                 }
