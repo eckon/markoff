@@ -371,8 +371,7 @@ mod tests {
     use super::*;
     use crate::{
         app::tests::{TODAY, app_with_files, sections, wait_for_archive},
-        archive::Done,
-        task::Task,
+        archive::tests::done,
     };
 
     #[test]
@@ -469,8 +468,8 @@ mod tests {
         // The newest day has a directory without tasks.
         let day = TODAY - 400.days();
         app.archive = [
-            (day - 1.days(), vec![done("work")]),
-            (day, vec![done("work")]),
+            (day - 1.days(), vec![done("work", "")]),
+            (day, vec![done("work", "")]),
             (day + 1.days(), Vec::new()),
         ]
         .into();
@@ -480,14 +479,6 @@ mod tests {
         assert_eq!(app.archive_day(), day);
         let rows = app.archive_rows();
         assert_eq!(rows[app.archive_page.cursor], ArchiveRow::Task(0, day, 0));
-    }
-
-    /// A done task in `section`.
-    fn done(section: &str) -> Done {
-        Done {
-            section: section.to_string(),
-            task: Task::parse(PathBuf::new(), ""),
-        }
     }
 
     #[test]
@@ -502,7 +493,7 @@ mod tests {
         let today = jiff::civil::date(2026, 10, 21);
         app.today = today;
         app.archive = [day - 28.days(), day, day + 2.days(), day + 14.days()]
-            .map(|day| (day, vec![done("work")]))
+            .map(|day| (day, vec![done("work", "")]))
             .into();
         app.days = heatmap::days(&app.archive);
         app.update(Action::NextPage);
@@ -546,7 +537,7 @@ mod tests {
         );
         app.today = TODAY;
         app.archive = (0..3)
-            .map(|back| (TODAY - back.days(), vec![done("work")]))
+            .map(|back| (TODAY - back.days(), vec![done("work", "")]))
             .collect();
         app.days = heatmap::days(&app.archive);
         app.update(Action::NextPage);
@@ -588,10 +579,6 @@ mod tests {
             crate::config::defaults(),
         );
         app.today = TODAY;
-        let done = |section: &str, content: &str| Done {
-            section: section.to_string(),
-            task: Task::parse(PathBuf::new(), content),
-        };
         let water = || done("home", "# Water plants\n");
         let review = || done("work", "# Review PR\n");
         // The last days of one week, so up stays in today's column.
@@ -643,7 +630,11 @@ mod tests {
             crate::config::defaults(),
         );
         app.today = TODAY;
-        app.archive = [(TODAY, vec![done("work"), done("misc"), done("misc")])].into();
+        app.archive = [(
+            TODAY,
+            vec![done("work", ""), done("misc", ""), done("misc", "")],
+        )]
+        .into();
         app.days = heatmap::days(&app.archive);
         app.update(Action::NextPage);
         // Without tasks `home` is not in the list, the keys count the sections shown.

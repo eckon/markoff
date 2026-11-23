@@ -74,8 +74,16 @@ pub fn days_touched<'a>(paths: impl IntoIterator<Item = &'a Path>) -> Option<BTr
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
+
+    /// A task archived in `section`, read from `content`. Not on disk.
+    pub fn done(section: &str, content: &str) -> Done {
+        Done {
+            section: section.to_string(),
+            task: Task::parse(PathBuf::new(), content),
+        }
+    }
 
     #[test]
     fn days_touched_by_paths() {

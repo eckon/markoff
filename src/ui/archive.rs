@@ -145,8 +145,8 @@ mod tests {
     use super::*;
     use crate::{
         app::tests::{TODAY, sections},
+        archive::tests::done,
         keymap::Action,
-        task::Task,
         ui::{
             CURRENT_COLOR, DONE_COLOR,
             tests::{draw, screen_lines},
@@ -161,11 +161,7 @@ mod tests {
             crate::config::defaults(),
         );
         app.today = TODAY;
-        let done = crate::archive::Done {
-            section: "work".to_string(),
-            task: Task::parse(PathBuf::new(), "# Fix bug\n"),
-        };
-        app.archive = [(TODAY - 1.days(), vec![done])].into();
+        app.archive = [(TODAY - 1.days(), vec![done("work", "# Fix bug\n")])].into();
         app.days = crate::heatmap::days(&app.archive);
         app.update(Action::NextPage);
         let text = |buffer: &ratatui::buffer::Buffer, y: u16| -> String {
@@ -255,10 +251,7 @@ mod tests {
             crate::config::defaults(),
         );
         app.today = TODAY;
-        let done = |content: &str| crate::archive::Done {
-            section: "home".to_string(),
-            task: Task::parse(PathBuf::new(), content),
-        };
+        let done = |content: &str| done("home", content);
         // A Monday, the first row of the heatmap, the selected cell is today.
         let monday = TODAY - 10.days();
         app.archive = [
@@ -298,10 +291,7 @@ mod tests {
             crate::config::defaults(),
         );
         app.today = TODAY;
-        let done = |content: &str| crate::archive::Done {
-            section: "work".to_string(),
-            task: Task::parse(PathBuf::new(), content),
-        };
+        let done = |content: &str| done("work", content);
         app.archive = [(TODAY, vec![done("# Done"), done("# ~~Dropped~~")])].into();
         app.days = crate::heatmap::days(&app.archive);
         app.update(Action::NextPage);
@@ -333,10 +323,7 @@ mod tests {
             crate::config::defaults(),
         );
         app.today = TODAY;
-        let done = |content: &str| crate::archive::Done {
-            section: "work".to_string(),
-            task: Task::parse(PathBuf::new(), content),
-        };
+        let done = |content: &str| done("work", content);
         let long = "a done task with a title long enough to run past the split";
         let day = TODAY - 400.days();
         app.archive = [(

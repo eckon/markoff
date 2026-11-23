@@ -124,10 +124,8 @@ pub fn level(count: usize, bounds: &[usize]) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
-    use crate::{archive::Done, task::Task};
+    use crate::archive::tests::done;
 
     fn date(text: &str) -> Date {
         text.parse().unwrap()
@@ -221,10 +219,7 @@ mod tests {
 
     #[test]
     fn days_count_the_tasks_of_each_day() {
-        let done = || Done {
-            section: "work".to_string(),
-            task: Task::parse(PathBuf::new(), ""),
-        };
+        let done = || done("work", "");
         let archive = Archive::from([
             (date("2026-10-12"), vec![done(), done(), done()]),
             (date("2026-10-13"), vec![done(), done()]),
