@@ -47,7 +47,7 @@ fn sections(dir: &Path, state: &State) -> Result<Vec<Section>> {
         let name = file_name(&dir).to_string();
         let task_paths = visible_entries(&dir, false)?
             .into_iter()
-            .filter(|path| is_markdown(path))
+            .filter(|path| path.extension().is_some_and(|ext| ext == task::EXTENSION))
             .collect();
         sections.push(Section {
             tasks: load_tasks(task_paths, state, &name)?,
@@ -194,10 +194,6 @@ fn file_name(path: &Path) -> &str {
     path.file_name()
         .and_then(|s| s.to_str())
         .unwrap_or_default()
-}
-
-fn is_markdown(path: &Path) -> bool {
-    path.extension().is_some_and(|ext| ext == task::EXTENSION)
 }
 
 #[cfg(test)]

@@ -18,10 +18,6 @@ pub fn days(archive: &Archive) -> Days {
         .collect()
 }
 
-fn monday(day: Date) -> Date {
-    day - i64::from(day.weekday().to_monday_zero_offset()).days()
-}
-
 /// Cells in a heatmap column, a day each, so a column is a week.
 pub const CELLS: i64 = 7;
 
@@ -82,7 +78,8 @@ pub fn step(
 /// The weeks from the first archived day to `today`, oldest first.
 pub fn columns(days: &Days, today: Date) -> Vec<Column> {
     let first = days.keys().next().map_or(today, |&day| day.min(today));
-    let mut start = monday(first);
+    // The Monday of its week.
+    let mut start = first - i64::from(first.weekday().to_monday_zero_offset()).days();
     let mut columns = Vec::new();
     while start <= today {
         columns.push(Column { start });
