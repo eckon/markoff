@@ -154,7 +154,10 @@ mod tests {
     use crate::{
         app::{App, tests::sections},
         keymap::Action,
-        ui::render,
+        ui::{
+            render,
+            tests::{draw, screen_lines},
+        },
     };
 
     #[test]
@@ -165,19 +168,8 @@ mod tests {
             crate::config::defaults(),
         );
         app.update(Action::Help);
-        let mut terminal = Terminal::new(TestBackend::new(80, 30)).unwrap();
-        terminal
-            .draw(|frame| {
-                render(&app, frame);
-            })
-            .unwrap();
-        let screen: String = terminal
-            .backend()
-            .buffer()
-            .content()
-            .iter()
-            .map(|c| c.symbol())
-            .collect();
+        let buffer = draw(&app, 80, 30);
+        let screen = screen_lines(&buffer).concat();
         for text in [
             "help · tasks",
             "── move ──",
@@ -193,7 +185,7 @@ mod tests {
         }
 
         // Keys are bold, the `/` between them is dim. The filter key `/` is bold.
-        let content = terminal.backend().buffer().content();
+        let content = buffer.content();
         let modifier = |text: &str, offset: usize| {
             let start = screen.find(text).unwrap();
             content[screen[..start + offset].chars().count()].modifier
@@ -220,10 +212,7 @@ mod tests {
             let drawn = terminal.draw(|frame| {
                 app.help.as_mut().unwrap().offset = render(app, frame).help_offset.unwrap()
             });
-            let screen: String = (drawn.unwrap().buffer.content().iter())
-                .map(|c| c.symbol())
-                .collect();
-            screen
+            screen_lines(drawn.unwrap().buffer).concat()
         };
         let screen = draw(&mut app);
         assert!(screen.contains("help · tasks"));
@@ -247,18 +236,13 @@ mod tests {
             crate::config::defaults(),
         );
         app.update(Action::Help);
-        let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
-        let mut draw = |app: &App| {
-            let drawn = terminal.draw(|frame| {
-                render(app, frame);
-            });
-            let buffer = drawn.unwrap().buffer.clone();
-            let screen: String = buffer.content().iter().map(|c| c.symbol()).collect();
-            (screen, buffer)
+        let screen_and_buffer = |app: &App| {
+            let buffer = draw(app, 80, 20);
+            (screen_lines(&buffer).concat(), buffer)
         };
         // By key, the group without a match drops out.
         app.help.as_mut().unwrap().filter = "C-c".to_string();
-        let (screen, buffer) = draw(&app);
+        let (screen, buffer) = screen_and_buffer(&app);
         assert!(screen.contains("q ············ quit, also C-c"), "{screen}");
         assert!(!screen.contains("── move"));
         let at = screen[..screen.find("C-c").unwrap()].chars().count();
@@ -270,13 +254,13 @@ mod tests {
 
         // By text.
         app.help.as_mut().unwrap().filter = "SECTION".to_string();
-        let (screen, _) = draw(&app);
+        let (screen, _) = screen_and_buffer(&app);
         assert!(screen.contains("{ / } ········ previous / next section"));
         assert!(screen.contains("N ············ new section"));
         assert!(!screen.contains("quit"));
 
         app.help.as_mut().unwrap().filter = "zz".to_string();
-        let (screen, _) = draw(&app);
+        let (screen, _) = screen_and_buffer(&app);
         assert!(screen.contains("no matches"));
     }
 }

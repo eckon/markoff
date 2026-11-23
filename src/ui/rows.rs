@@ -286,6 +286,7 @@ mod tests {
     use ratatui::{Terminal, backend::TestBackend, style::Color};
 
     use super::*;
+    use crate::ui::tests::screen_lines;
 
     /// The rows in a list 40 wide, as text.
     fn draw(rows: Vec<Row>, cursor: usize, notes: &[&str]) -> Vec<String> {
@@ -295,12 +296,7 @@ mod tests {
                 render(frame, frame.area(), rows, (Some(cursor), 0), 37, notes);
             })
             .unwrap();
-        let buffer = terminal.backend().buffer();
-        buffer
-            .content()
-            .chunks(buffer.area.width as usize)
-            .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
-            .collect()
+        screen_lines(terminal.backend().buffer())
     }
 
     fn section(name: &str) -> Row {
@@ -385,10 +381,7 @@ mod tests {
                     render(frame, area, rows(), (Some(cursor), 0), 27, &[]);
                 })
                 .unwrap();
-            let buffer = terminal.backend().buffer();
-            (buffer.content().chunks(30))
-                .map(|row| row.iter().map(|cell| cell.symbol()).collect())
-                .collect()
+            screen_lines(terminal.backend().buffer())
         };
 
         // At the top only below: 3 of 6 tasks fit.
