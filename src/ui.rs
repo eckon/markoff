@@ -72,7 +72,7 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
                 count.push(" · ".dim());
                 count.extend(done);
             }
-            render_app_header(app, frame, app_header_area, &today, count);
+            render_app_header(app, frame, app_header_area, Some(&today), count);
             let preview;
             (drawn.list_offset, preview) = tasks::render(app, frame, main_area);
             if let Some(x) = preview {
@@ -87,15 +87,20 @@ pub fn render(app: &App, frame: &mut Frame) -> Drawn {
             if let Some(x) = divider {
                 join_divider(frame, x, bottom_gap.y, footer_area.y, "┴");
             }
-            // The tasks done on the selected days.
-            let range = archive::range(app);
-            let done: Vec<&crate::archive::Done> = (app.archive_rows().into_iter())
-                .filter_map(|row| match row {
-                    ArchiveRow::Task(_, day, index) => Some(&app.archive[&day][index]),
-                    ArchiveRow::Section(..) => None,
-                })
-                .collect();
-            render_app_header(app, frame, app_header_area, &range, done_count(done));
+            // The tasks done on the selected days. Nothing while the archive loads, the selected
+            // day is not known yet.
+            if app.archive_loaded() {
+                let range = archive::range(app);
+                let done: Vec<&crate::archive::Done> = (app.archive_rows().into_iter())
+                    .filter_map(|row| match row {
+                        ArchiveRow::Task(_, day, index) => Some(&app.archive[&day][index]),
+                        ArchiveRow::Section(..) => None,
+                    })
+                    .collect();
+                render_app_header(app, frame, app_header_area, Some(&range), done_count(done));
+            } else {
+                render_app_header(app, frame, app_header_area, None, Vec::new());
+            }
         }
     }
     if app.show_help {
@@ -158,12 +163,13 @@ fn join_divider(frame: &mut Frame, x: u16, gap_y: u16, line_y: u16, joint: &str)
 }
 
 /// `── tasks  archive ── Sat 17 Oct ──── 4 open · ✓ 2 done · ✗ 1 canceled` over the whole width: the pages with
-/// the current one in [`CURRENT_COLOR`], then the page's `date` and `count`.
+/// the current one in [`CURRENT_COLOR`], then the page's `date` and `count`. Without a date
+/// the line runs on right after the pages.
 fn render_app_header(
     app: &App,
     frame: &mut Frame,
     area: Rect,
-    date: &str,
+    date: Option<&str>,
     count: Vec<Span<'static>>,
 ) {
     let mut pages = vec!["── ".fg(LINE_COLOR)];
@@ -176,11 +182,14 @@ fn render_app_header(
             false => page.name().dim(),
         });
     }
-    pages.push(" ── ".fg(LINE_COLOR));
+    pages.push(match date {
+        Some(_) => " ── ".fg(LINE_COLOR),
+        None => " ".into(),
+    });
     // Not bold, that is for keys.
     let spans = filled_line(
         Some(pages),
-        date.to_string().into(),
+        date.unwrap_or_default().to_string().into(),
         count,
         area.width as usize,
     );
@@ -340,8 +349,10 @@ fn filled_line(
     width: usize,
 ) -> Vec<Span<'static>> {
     let mut spans = lead.unwrap_or_else(|| vec!["── ".fg(LINE_COLOR)]);
-    spans.push(title);
-    spans.push(" ".into());
+    if !title.content.is_empty() {
+        spans.push(title);
+        spans.push(" ".into());
+    }
     if !count.is_empty() {
         count.insert(0, " ".into());
     }
