@@ -55,9 +55,10 @@ impl RootWatcher {
         let now = Instant::now();
         while let Ok(event) = self.events.try_recv() {
             let event = event.wrap_err("file watcher failed")?;
-            if !is_change(&event) || !self.debounce.touch(now) {
+            if !is_change(&event) {
                 continue;
             }
+            self.debounce.touch(now);
             if event.paths.is_empty() {
                 self.changed.insert(PathBuf::new());
             }
@@ -71,13 +72,6 @@ impl RootWatcher {
             .debounce
             .ready(now)
             .then(|| std::mem::take(&mut self.changed)))
-    }
-
-    /// Drops the changes a reload has just read. Our own writes reach the watcher only after
-    /// the reload that follows them, without this every action would be read twice.
-    pub fn skip(&mut self) {
-        self.debounce.skip(Instant::now());
-        self.changed.clear();
     }
 }
 
@@ -95,25 +89,11 @@ fn is_change(event: &Event) -> bool {
 #[derive(Debug, Default)]
 struct Debounce {
     last_change: Option<Instant>,
-    /// Changes before this are dropped, see [`Self::skip`].
-    skip_until: Option<Instant>,
 }
 
 impl Debounce {
-    /// Returns whether the change counts, see [`Self::skip`].
-    fn touch(&mut self, now: Instant) -> bool {
-        let counts = self.skip_until.is_none_or(|until| now >= until);
-        if counts {
-            self.last_change = Some(now);
-        }
-        counts
-    }
-
-    /// Forgets the changes so far, and those of the next [`DEBOUNCE`]: events take a moment
-    /// to arrive. A change from outside in that time is missed until the next one.
-    fn skip(&mut self, now: Instant) {
-        self.last_change = None;
-        self.skip_until = Some(now + DEBOUNCE);
+    fn touch(&mut self, now: Instant) {
+        self.last_change = Some(now);
     }
 
     fn ready(&mut self, now: Instant) -> bool {
@@ -153,19 +133,6 @@ mod tests {
     }
 
     #[test]
-    fn skip_drops_changes_until_the_debounce_passed() {
-        let start = Instant::now();
-        let mut debounce = Debounce::default();
-        debounce.touch(start);
-        debounce.skip(start);
-        debounce.touch(start + DEBOUNCE / 2);
-        assert!(!debounce.ready(start + DEBOUNCE * 3), "all changes dropped");
-
-        debounce.touch(start + DEBOUNCE);
-        assert!(debounce.ready(start + DEBOUNCE * 2), "later changes count");
-    }
-
-    #[test]
     fn reads_are_not_changes() {
         let event = |kind| Event::new(kind);
         assert!(is_change(&event(EventKind::Create(CreateKind::File))));
@@ -197,19 +164,5 @@ mod tests {
             thread::sleep(Duration::from_millis(20));
         };
         assert!(changed.contains(Path::new("new.md")), "{changed:?}");
-    }
-
-    #[test]
-    fn skip_drops_the_events_of_a_write_just_made() {
-        let dir = TempDir::new().unwrap();
-        let mut watcher = RootWatcher::new(dir.path()).unwrap();
-        fs::write(dir.path().join("new.md"), "# New").unwrap();
-        watcher.skip();
-
-        let end = Instant::now() + DEBOUNCE * 3;
-        while Instant::now() < end {
-            assert_eq!(watcher.poll().unwrap(), None, "own write reloaded");
-            thread::sleep(Duration::from_millis(20));
-        }
     }
 }
