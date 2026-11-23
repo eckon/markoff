@@ -574,6 +574,12 @@ mod tests {
             screen[1..39].iter().all(|line| line.trim().is_empty()),
             "{screen:#?}"
         );
+        // No day selected yet, so no date in the app header, only the pages.
+        assert_eq!(
+            screen[0],
+            format!("── tasks  archive {}", "─".repeat(62)),
+            "{screen:#?}"
+        );
         app.spinner = Some(0);
         let screen = lines(&draw(&app));
         // The page has the 38 lines between app header and footer, the middle is the 19th.
