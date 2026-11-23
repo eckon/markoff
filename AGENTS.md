@@ -57,7 +57,7 @@ Use these words in code, docs and UI, not their synonyms (in brackets).
 - Visual choices (colors, symbols, layout) are decided by looking, not in the abstract: bring up as many variants of different styles as possible and offer to build them all as a try-out. A simple implementation without tests, `[` / `]` cycle the variants (while those keys have no binding, not in the filter input), the status shows the selected variant's number out of all and its name (`3/7: below`), so it can be named. The chosen one stays, the rest comes out.
 - Keep it simple. Remove code that becomes unused, unless there is a stated reason to keep it.
 - Keep files focused: when a feature grows its own part of a general file (like the archive page in `ui/archive.rs`), move it into its own module. Bring it up yourself when you notice it, don't wait to be asked.
-- Commit each finished step on its own, once the checks pass, with a conventional subject (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`) in the style of the history. The user reviews the commits.
+- Commit each finished step on its own, once the checks pass, with a conventional subject (`feat`, `fix`, `refactor`, `test`, `docs`, `chore`) in the style of the history, without a co-author or other attribution trailer. The user reviews the commits.
 - Try-outs and prototypes go straight into the working tree of this repo, the user resets them with git. Only if that clashes with uncommitted changes, use a branch. A git worktree is the last resort. Never in copies outside the repo.
 
 ## Checks after every change
@@ -68,18 +68,18 @@ cargo test
 cargo clippy --all-targets -- -D warnings   # same as CI
 ```
 
-For TUI changes also run the real app in tmux against a scratch root dir (or a copy of real data, never the real notes): `tmux new-session -d -x 80 -y 20 'cargo run -- --dir <scratch>'`, then `send-keys` and `capture-pane -p`.
+For TUI changes also run the real app in tmux against a scratch root dir (`./assets/make-example.py <dir>` builds one, or a copy of real data, never the real notes): `tmux new-session -d -x 80 -y 20 'cargo run -- --dir <scratch>'`, then `send-keys` and `capture-pane -p`.
 
 ## Code
 
 - The CLI (`cli/`) has a command for every action of the TUI but undo, so nobody has to change files by hand. It uses the same `edit.rs` ops. `markoff skill` prints `cli/skill.md` for agents: update it in the same change as the commands or the data layout, and keep it short, it goes into their context.
 - The archive page lives in `app/archive.rs` and `ui/archive/`. It shares the cursor moves (`cursor.rs`) and the list renderer (`ui/rows.rs`) with the task list, so both lists behave alike.
-- Pure logic (`edit.rs`, `archive.rs`, `cursor.rs`, `heatmap.rs`, `name.rs`, `state.rs`) never touches the disk. All writes go through ops in `op.rs`, each with an exact inverse for undo.
-- The disk is the source of truth: after a change, reload instead of patching state. Only what changed and what is needed: the tasks and today's archive always, the rest of the archive only once its page opened, then only the days that changed.
+- Pure logic (`edit.rs`, `archive.rs`, `cursor.rs`, `filter.rs`, `heatmap.rs`, `name.rs`, `repeat.rs`, `state.rs`, `task.rs`) never touches the disk. All writes go through ops in `op.rs`, each with an exact inverse for undo.
+- The disk is the source of truth: after a change, reload instead of patching state. Only what changed and what is needed: the tasks and today's archive always, the rest of the archive only once its page opened, then only the days that changed. The CLI reads only the archive days a command needs.
 - Nothing slow blocks the main loop: the first frame comes first, slow work runs on a thread with a loading state (the file watcher, the archive).
 - `App::update(Action)` never touches the terminal, so it is testable.
 - The date comes from `App.today`, read from the clock only in the main loop (and once at the start, for the first load or a CLI command), so a frame sees one day and tests can set it. Never call `ZonedDateTime::now()` elsewhere.
-- All keys live in `BINDINGS` (`keymap.rs`), the help overlay reads the same table. Update the README key table with it.
+- All keys live in `BINDINGS` (`keymap.rs`), the help overlay and the footer hints read the same table. Update the README key table with it.
 - Errors go to the status, they never end the app.
 - Colors: only the 16 terminal colors, so the look follows the terminal theme. Colors carry meaning (sections, where you are, done, canceled, matches, errors), keys have none.
 - Keys are bold in the default color, so they show without adding a color. Nothing else in the default color is bold.
@@ -92,7 +92,8 @@ For TUI changes also run the real app in tmux against a scratch root dir (or a c
 - Pure logic: plain unit tests, ops compared as short strings (`describe`).
 - App actions: on a `TempDir`, checking the files on disk, the cursor and the status.
 - Rendering: ratatui `TestBackend`, checking the screen text.
-- Workflows (`tests/workflow.rs`): the real binary in a pty, or its commands for the CLI, a few long scenarios from start to quit, snapshots of screen and files at checkpoints. Keep them few and long: a new or changed feature goes into the scenario it fits, a removed one comes out of it, no scenario per feature. Experimental features stay out. A failing snapshot leaves a `.snap.new` (ignored by git): review it with `cargo insta review` (needs `cargo install cargo-insta --locked` once), or regenerate all with `INSTA_UPDATE=always cargo test --test workflow` and read the git diff. Never accept them unread.
+- Reuse the test helpers instead of writing new ones: `app::tests` (`app_with_files`, `sections`, `TODAY`), `ui::tests` (`draw`, `screen_lines`, `screen`), `archive::tests::done`, `cli::tests` (`root`, `markoff`).
+- Workflows (`tests/workflow.rs`): the real binary in a pty, or its commands for the CLI, a few long scenarios from start to quit, snapshots of screen and files at checkpoints. Keep them few and long: a new or changed feature goes into the scenario it fits, a removed one comes out of it, no scenario per feature. Experimental features stay out. Wait for text that only shows once a key took effect, not text already on screen (the footer's hints), or a snapshot races the redraw. A failing snapshot leaves a `.snap.new` (ignored by git): review it with `cargo insta review` (needs `cargo install cargo-insta --locked` once), or regenerate all with `INSTA_UPDATE=always cargo test --test workflow` and read the git diff. Never accept them unread.
 - When behavior changes, update the expectations, keep the coverage.
 
 ## Docs
