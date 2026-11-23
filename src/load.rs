@@ -36,10 +36,7 @@ pub fn load(root: &Path) -> Result<(Vec<Section>, StateFile)> {
 
 /// The section directories in `dir` with their tasks, in the order of `state`.
 fn sections(dir: &Path, state: &State) -> Result<Vec<Section>> {
-    let mut section_dirs: Vec<PathBuf> = visible_entries(dir)?
-        .into_iter()
-        .filter(|path| path.is_dir())
-        .collect();
+    let mut section_dirs = visible_entries(dir, true)?;
     sort_by_order(&mut section_dirs, |dir| {
         state.section_position(file_name(dir))
     });
@@ -47,9 +44,9 @@ fn sections(dir: &Path, state: &State) -> Result<Vec<Section>> {
     let mut sections = Vec::new();
     for dir in section_dirs {
         let name = file_name(&dir).to_string();
-        let task_paths = visible_entries(&dir)?
+        let task_paths = visible_entries(&dir, false)?
             .into_iter()
-            .filter(|path| path.is_file() && is_markdown(path))
+            .filter(|path| is_markdown(path))
             .collect();
         sections.push(Section {
             tasks: load_tasks(task_paths, state, &name)?,
@@ -104,11 +101,8 @@ pub fn archive(root: &Path) -> Result<archive::Archive> {
     if !dir.is_dir() {
         return Ok(days);
     }
-    for path in visible_entries(&dir)? {
-        let Some(date) = Some(&path)
-            .filter(|path| path.is_dir())
-            .and_then(|path| file_name(path).parse::<Date>().ok())
-        else {
+    for path in visible_entries(&dir, true)? {
+        let Ok(date) = file_name(&path).parse::<Date>() else {
             continue;
         };
         let done = sections(&path, &State::default())?
@@ -141,15 +135,29 @@ fn load_tasks(mut paths: Vec<PathBuf>, state: &State, section: &str) -> Result<V
         .collect()
 }
 
-/// Directory entries without hidden ones (`.git`, `.markoff`, `.archive`, editor swap files).
-fn visible_entries(dir: &Path) -> Result<Vec<PathBuf>> {
+/// The directories in `dir`, or with `dirs` false the files, without hidden ones (`.git`,
+/// `.markoff`, `.archive`, editor swap files).
+fn visible_entries(dir: &Path, dirs: bool) -> Result<Vec<PathBuf>> {
     let read_dir =
         fs::read_dir(dir).wrap_err_with(|| format!("failed to read {}", dir.display()))?;
 
     let mut paths = Vec::new();
     for entry in read_dir {
-        let path = entry?.path();
-        if !file_name(&path).starts_with('.') {
+        let entry = entry?;
+        let path = entry.path();
+        if file_name(&path).starts_with('.') {
+            continue;
+        }
+        // The type mostly comes with the listing, a `stat` per entry is slow on some file
+        // systems. Only a symlink needs one, to see what it points to.
+        let file_type = entry.file_type()?;
+        let wanted = match (file_type.is_symlink(), dirs) {
+            (true, true) => path.is_dir(),
+            (true, false) => path.is_file(),
+            (false, true) => file_type.is_dir(),
+            (false, false) => file_type.is_file(),
+        };
+        if wanted {
             paths.push(path);
         }
     }
@@ -304,6 +312,22 @@ mod tests {
 
         assert_eq!(section_names(&sections), ["work"]);
         assert_eq!(titles(&sections[0]), ["Task"]);
+    }
+
+    #[test]
+    fn follows_symlinks_by_what_they_point_to() {
+        use std::os::unix::fs::symlink;
+        let dir = fixture(&[("work/task.md", "# Task"), ("outside/note.md", "# Note")]);
+        let root = dir.path();
+        symlink(root.join("outside"), root.join("linked")).unwrap();
+        symlink(root.join("work/task.md"), root.join("work/link.md")).unwrap();
+        // A link to a directory is no task.
+        symlink(root.join("outside"), root.join("work/dir.md")).unwrap();
+        let (sections, _) = load(root).unwrap();
+
+        assert_eq!(section_names(&sections), ["linked", "outside", "work"]);
+        assert_eq!(titles(&sections[0]), ["Note"]);
+        assert_eq!(titles(&sections[2]), ["Task", "Task"]);
     }
 
     #[test]
