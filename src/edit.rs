@@ -175,7 +175,8 @@ fn task_names(section: &Section) -> Vec<TaskName> {
 
 /// Renames tasks whose filename does not match their heading, and writes the state file so
 /// it lists exactly what is on disk. Tasks without heading keep their name. With
-/// `sections.gitkeep` it also adds a missing [`GITKEEP`]. Returns no ops if everything already matches.
+/// `sections.gitkeep` it also adds a missing [`GITKEEP`]. Returns no ops if everything already
+/// matches.
 pub fn normalize(sections: &[Section], file: &StateFile, config: &Config) -> Vec<Op> {
     let mut state = State::of(sections);
     let mut ops = Vec::new();

@@ -142,8 +142,8 @@ pub fn render(
 
 /// `↑ 4 more` on the line above `area` if items from `offset` on do not start at the top, `↓ 12
 /// more` on the line below if they do not all fit: the tasks out of view, those cut off at the
-/// bottom too. Without a task out of view only `↑ more`. Both lists have a blank line there, between
-/// them and the app header or the footer.
+/// bottom too. Without a task out of view only `↑ more`. Both lists have a blank line there,
+/// between them and the app header or the footer.
 fn render_out_of_view(
     frame: &mut Frame,
     area: Rect,

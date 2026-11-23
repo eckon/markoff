@@ -162,9 +162,9 @@ fn join_divider(frame: &mut Frame, x: u16, gap_y: u16, line_y: u16, joint: &str)
     }
 }
 
-/// `── tasks  archive ── Sat 17 Oct ──── 4 open · ✓ 2 done · ✗ 1 canceled` over the whole width: the pages with
-/// the current one in [`CURRENT_COLOR`], then the page's `date` and `count`. Without a date
-/// the line runs on right after the pages.
+/// `── tasks  archive ── Sat 17 Oct ──── 4 open · ✓ 2 done · ✗ 1 canceled` over the whole
+/// width: the pages with the current one in [`CURRENT_COLOR`], then the page's `date` and
+/// `count`. Without a date the line runs on right after the pages.
 fn render_app_header(
     app: &App,
     frame: &mut Frame,
