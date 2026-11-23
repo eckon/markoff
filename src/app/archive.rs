@@ -69,6 +69,16 @@ pub enum ArchiveRow {
     Task(usize, Date, usize),
 }
 
+/// The key of a section, its position among those shown, is what the cursor jumps by.
+impl From<ArchiveRow> for cursor::Line {
+    fn from(row: ArchiveRow) -> Self {
+        match row {
+            ArchiveRow::Section(_, key) => Self::Section(key),
+            ArchiveRow::Task(..) => Self::Task,
+        }
+    }
+}
+
 impl App {
     /// The selected day, see [`ArchivePage::day`]. Before the page was opened the last day with
     /// tasks done, so a Monday shows Friday. Today if nothing is done yet.
@@ -144,12 +154,8 @@ impl App {
             // Like in the task list, `h` / `l` do nothing. A section key from the heatmap goes
             // to the list, like `<CR>` and the jump in one.
             (_, Focus::List) | (Action::JumpSection(_), Focus::Heatmap) => {
-                let lines: Vec<cursor::Line> = (self.archive_rows())
-                    .into_iter()
-                    .map(|row| match row {
-                        ArchiveRow::Section(_, key) => cursor::Line::Section(key),
-                        ArchiveRow::Task(..) => cursor::Line::Task,
-                    })
+                let lines: Vec<_> = (self.archive_rows().into_iter())
+                    .map(cursor::Line::from)
                     .collect();
                 // Only to a section that is there, otherwise the heatmap keeps the keys.
                 if let Action::JumpSection(s) = action

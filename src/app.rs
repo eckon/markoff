@@ -49,6 +49,15 @@ pub enum Row {
     Task(usize, usize),
 }
 
+impl From<Row> for cursor::Line {
+    fn from(row: Row) -> Self {
+        match row {
+            Row::Section(s) => Self::Section(s),
+            Row::Task(..) => Self::Task,
+        }
+    }
+}
+
 /// Fills the screen, switched with `Tab` / `S-Tab` in this order. The help is an overlay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
@@ -414,12 +423,7 @@ impl App {
             | Action::PrevSection
             | Action::NextSection
             | Action::JumpSection(_) => {
-                let lines: Vec<cursor::Line> = (self.rows().into_iter())
-                    .map(|row| match row {
-                        Row::Section(s) => cursor::Line::Section(s),
-                        Row::Task(..) => cursor::Line::Task,
-                    })
-                    .collect();
+                let lines: Vec<_> = self.rows().into_iter().map(cursor::Line::from).collect();
                 self.tasks_page.cursor = cursor::moved(&lines, self.tasks_page.cursor, action);
             }
             Action::MoveDown | Action::MoveUp => self.move_selected(action == Action::MoveDown)?,
