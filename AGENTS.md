@@ -78,7 +78,7 @@ For TUI changes also run the real app in tmux against a scratch root dir (or a c
 - The disk is the source of truth: after a change, reload instead of patching state. Only what changed and what is needed: the tasks and today's archive always, the rest of the archive only once its page opened, then only the days that changed.
 - Nothing slow blocks the main loop: the first frame comes first, slow work runs on a thread with a loading state (the file watcher, the archive).
 - `App::update(Action)` never touches the terminal, so it is testable.
-- The date comes from `App.today`, read from the clock only in the main loop (and once for a CLI command), so a frame sees one day and tests can set it. Never call `ZonedDateTime::now()` elsewhere.
+- The date comes from `App.today`, read from the clock only in the main loop (and once at the start, for the first load or a CLI command), so a frame sees one day and tests can set it. Never call `ZonedDateTime::now()` elsewhere.
 - All keys live in `BINDINGS` (`keymap.rs`), the help overlay reads the same table. Update the README key table with it.
 - Errors go to the status, they never end the app.
 - Colors: only the 16 terminal colors, so the look follows the terminal theme. Colors carry meaning (sections, where you are, done, canceled, matches, errors), keys have none.

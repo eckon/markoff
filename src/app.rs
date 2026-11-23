@@ -136,7 +136,7 @@ pub struct App {
     /// The help overlay, while it is open.
     pub help: Option<Help>,
     /// The local date, read from the clock once per loop so a frame never mixes two days, and
-    /// tests can set it. A placeholder until the first loop.
+    /// tests can set it. A placeholder in an app made by [`App::new`].
     pub today: Date,
     pub page: Page,
     pub tasks_page: TasksPage,
@@ -186,9 +186,10 @@ impl App {
         }
     }
 
-    /// Loads `root` and normalizes it, renames are mentioned in the status.
-    pub fn load(root: PathBuf, config: Config) -> Result<Self> {
+    /// Loads `root` on `today` and normalizes it, renames are mentioned in the status.
+    pub fn load(root: PathBuf, config: Config, today: Date) -> Result<Self> {
         let mut app = Self::new(root, Vec::new(), config);
+        app.today = today;
         app.archive_load = ArchiveLoad::NotLoaded;
         app.reload(None)?;
         app.normalize_before_action();
@@ -733,8 +734,7 @@ pub mod tests {
             });
         }
         fs::write(root.join(state::FILE), state.format()).unwrap();
-        let mut app = App::load(root.to_path_buf(), crate::config::defaults()).unwrap();
-        app.today = TODAY;
+        let app = App::load(root.to_path_buf(), crate::config::defaults(), TODAY).unwrap();
         (dir, app)
     }
 
@@ -1101,7 +1101,7 @@ pub mod tests {
         fs::write(work.join("02-b.md"), "# b").unwrap();
         fs::write(work.join("01-a.md"), "# a").unwrap();
         fs::write(dir.path().join("01-home/old.md"), "# Old task").unwrap();
-        let app = App::load(dir.path().to_path_buf(), crate::config::defaults()).unwrap();
+        let app = App::load(dir.path().to_path_buf(), crate::config::defaults(), TODAY).unwrap();
 
         assert_eq!(
             listing(&app),
@@ -1126,7 +1126,7 @@ pub mod tests {
         .unwrap();
 
         // Not listed: to the end, by name. Listed but gone: dropped. No rename, no message.
-        let app = App::load(dir.path().to_path_buf(), crate::config::defaults()).unwrap();
+        let app = App::load(dir.path().to_path_buf(), crate::config::defaults(), TODAY).unwrap();
         assert_eq!(listing(&app), ["[x]", "[work]", "b.md", "a.md", "[home]"]);
         assert_eq!(state_file(&dir), "# x\n\n# work\nb\na\n\n# home\n");
         assert_eq!(app.status, None);
