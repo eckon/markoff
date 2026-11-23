@@ -123,7 +123,7 @@ impl App {
     fn after_create_section(&mut self, index: usize, content: &str) -> Result<()> {
         let (slug, more) =
             edit::section_name(content).ok_or_else(|| eyre!("aborted, empty name"))?;
-        self.ensure_no_section(&slug)?;
+        edit::ensure_free_section(&self.sections, &slug)?;
         // Normalizing keeps the order of sections, so `index` stays valid.
         self.normalize_before_action();
         let (ops, created) = edit::insert_section(
@@ -144,14 +144,6 @@ impl App {
         Ok(())
     }
 
-    /// Two sections with the same name would look the same in the list and the archive.
-    fn ensure_no_section(&self, slug: &str) -> Result<()> {
-        if self.sections.iter().any(|section| section.name == slug) {
-            return Err(eyre!("a section named {slug} already exists"));
-        }
-        Ok(())
-    }
-
     /// Renames section `s` to the heading written in the editor.
     fn after_rename_section(&mut self, s: usize, content: &str) -> Result<()> {
         let (slug, more) =
@@ -159,7 +151,7 @@ impl App {
         if slug == self.sections[s].name {
             return Ok(());
         }
-        self.ensure_no_section(&slug)?;
+        edit::ensure_free_section(&self.sections, &slug)?;
         // Normalizing keeps the order of sections, so `s` stays valid.
         self.normalize_before_action();
         let (ops, to) = edit::rename_section(&self.sections, s, &slug, &self.state_file);
@@ -306,7 +298,7 @@ mod tests {
             app.after_create_section(1, &draft("Home"))
                 .unwrap_err()
                 .to_string(),
-            "a section named home already exists"
+            "a section named 'home' already exists"
         );
         assert_eq!(listing(&app), before);
 
@@ -379,7 +371,7 @@ mod tests {
         app.after_rename_section(0, &same).unwrap();
         assert_eq!(
             app.after_rename_section(0, &clash).unwrap_err().to_string(),
-            "a section named home already exists"
+            "a section named 'home' already exists"
         );
         assert_eq!(listing(&app), before);
         assert!(app.undo.is_empty());
