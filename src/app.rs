@@ -130,6 +130,8 @@ pub struct App {
     pub archive_load: ArchiveLoad,
     /// Tasks archived per day, for the heatmap.
     pub days: heatmap::Days,
+    /// Frames drawn while the archive page waits for the archive, turns its spinner.
+    pub spinner: usize,
     /// markoff wrote to the root since the main loop last looked, and read it again. The
     /// watcher reports these writes too, see [`RootWatcher::skip`].
     wrote: bool,
@@ -169,6 +171,7 @@ impl App {
             archive_load: ArchiveLoad::Loaded,
             days: heatmap::Days::new(),
             wrote: false,
+            spinner: 0,
         }
     }
 
@@ -238,6 +241,11 @@ impl App {
             }
 
             if self.poll_archive() {
+                dirty = true;
+            }
+            // The spinner turns once per loop, the poll interval sets its pace.
+            if self.page == Page::Archive && !self.archive_loaded() {
+                self.spinner = self.spinner.wrapping_add(1);
                 dirty = true;
             }
 
