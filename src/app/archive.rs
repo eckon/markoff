@@ -11,7 +11,12 @@ use color_eyre::{Result, eyre::eyre};
 use jiff::{ToSpan, civil::Date};
 
 use super::{App, Page};
-use crate::{archive::Archive, cursor, heatmap, keymap::Action, load};
+use crate::{
+    archive::{self, Archive},
+    cursor, heatmap,
+    keymap::Action,
+    load,
+};
 
 /// How much of the archive [`App::archive`] holds. It grows with every done task, so it is read
 /// only once the page needs it, and then only the days that change.
@@ -302,19 +307,9 @@ impl App {
         Some(days.collect())
     }
 
-    /// The sections of the done tasks: those of the task list in its order, so they keep their
-    /// key and color, then the ones only in the archive by name.
-    pub fn archive_sections(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.sections.iter().map(|s| s.name.clone()).collect();
-        let gone: BTreeSet<&String> = self
-            .archive
-            .values()
-            .flatten()
-            .map(|done| &done.section)
-            .filter(|name| !names.contains(name))
-            .collect();
-        names.extend(gone.into_iter().cloned());
-        names
+    /// The sections of the done tasks, see [`archive::sections`].
+    pub fn archive_sections(&self) -> Vec<&str> {
+        archive::sections(&self.sections, &self.archive)
     }
 
     /// The first selected day and how many: the day at the cursor, or the range from the anchor
@@ -347,7 +342,7 @@ impl App {
                 .flat_map(|&(&day, done)| {
                     (0..done.len())
                         .filter(|&i| {
-                            &done[i].section == name
+                            done[i].section == *name
                                 && done[i].task.matches(&self.archive_page.filter)
                         })
                         .map(move |i| ArchiveRow::Task(s, day, i))
