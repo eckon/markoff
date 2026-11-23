@@ -183,11 +183,11 @@ mod tests {
         app.update(Action::Open);
         assert_eq!(app.editor_request, Some(EditorRequest::RenameSection(0)));
 
-        app.cursor = 2;
+        app.tasks_page.cursor = 2;
         app.update(Action::Open);
         assert_eq!(app.editor_request, Some(EditorRequest::RenameSection(1)));
 
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.update(Action::Open);
         assert_eq!(
             app.editor_request,
@@ -210,7 +210,7 @@ mod tests {
             (3, Action::NewBelow, create(1, 0)),
             (3, Action::NewAbove, create(1, 0)),
         ] {
-            app.cursor = cursor;
+            app.tasks_page.cursor = cursor;
             app.update(action);
             assert_eq!(app.editor_request, expected, "cursor {cursor}, {action:?}");
         }
@@ -230,16 +230,16 @@ mod tests {
     fn after_create_inserts_and_undo_removes() {
         let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
         // `o` was pressed on `b`.
-        app.cursor = 2;
+        app.tasks_page.cursor = 2;
         app.after_create(0, 2, "# New task\n\nnotes\n").unwrap();
         assert_eq!(listing(&app), ["[work]", "a.md", "b.md", "new-task.md"]);
         assert_eq!(state_file(&dir), "# work\na\nb\nnew-task\n");
-        assert_eq!(app.cursor, 3, "cursor is on the new task");
+        assert_eq!(app.tasks_page.cursor, 3, "cursor is on the new task");
 
         app.update(Action::Undo);
         assert_eq!(listing(&app), ["[work]", "a.md", "b.md"]);
         assert_eq!(
-            app.cursor, 2,
+            app.tasks_page.cursor, 2,
             "cursor is back on `b`, where `o` was pressed"
         );
     }
@@ -247,11 +247,11 @@ mod tests {
     #[test]
     fn insert_at_the_top_touches_no_other_file() {
         let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md", "work/c.md"]);
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         app.after_create(0, 0, "# New").unwrap();
         assert_eq!(listing(&app), ["[work]", "new.md", "a.md", "b.md", "c.md"]);
         assert_eq!(state_file(&dir), "# work\nnew\na\nb\nc\n");
-        assert_eq!(app.cursor, 1, "cursor is on the new task");
+        assert_eq!(app.tasks_page.cursor, 1, "cursor is on the new task");
 
         // One undo reverts the file and the order.
         app.update(Action::Undo);
@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn after_create_fails_on_changes_made_while_editing() {
         let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         // A sync reorders while the editor is open. That order must not be overwritten.
         fs::write(dir.path().join(state::FILE), "# work\nb\na\n").unwrap();
 
@@ -303,13 +303,13 @@ mod tests {
         assert_eq!(listing(&app), before);
 
         // `N` was pressed on `a`: after `work`, before `home`.
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         let content = format!("{}\nnotes", draft("Garden"));
         app.after_create_section(1, &content).unwrap();
         assert_eq!(listing(&app), ["[work]", "a.md", "[garden]", "[home]"]);
         assert!(dir.path().join("garden").is_dir());
         assert_eq!(state_file(&dir), "# work\na\n\n# garden\n\n# home\n");
-        assert_eq!(app.cursor, 2, "cursor on the new section");
+        assert_eq!(app.tasks_page.cursor, 2, "cursor on the new section");
         assert_eq!(
             app.status,
             Some(Status::Info(
@@ -320,7 +320,7 @@ mod tests {
         app.update(Action::Undo);
         assert_eq!(listing(&app), before);
         assert!(!dir.path().join("garden").exists());
-        assert_eq!(app.cursor, 1, "back on `a`");
+        assert_eq!(app.tasks_page.cursor, 1, "back on `a`");
     }
 
     #[test]
@@ -337,7 +337,7 @@ mod tests {
             fs::read_to_string(dir.path().join("work/.gitkeep")).unwrap(),
             ""
         );
-        assert_eq!(app.cursor, 0);
+        assert_eq!(app.tasks_page.cursor, 0);
     }
 
     #[test]
@@ -345,7 +345,7 @@ mod tests {
         let (_dir, mut app) = app_with_files(&["work/a.md", "home/b.md"]);
         // Rows: work, a, home, b.
         for (cursor, index) in [(0, 1), (1, 1), (2, 2), (3, 2)] {
-            app.cursor = cursor;
+            app.tasks_page.cursor = cursor;
             app.update(Action::NewSection);
             assert_eq!(
                 app.editor_request,
@@ -377,7 +377,7 @@ mod tests {
         assert!(app.undo.is_empty());
 
         // Text below the heading is dropped, the status says so.
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         let renamed = format!("{}\nnotes", draft("# Work Stuff"));
         app.after_rename_section(0, &renamed).unwrap();
         assert!(dir.path().join("work-stuff/a.md").exists());
@@ -396,13 +396,13 @@ mod tests {
 
         app.update(Action::Undo);
         assert_eq!(listing(&app), before);
-        assert_eq!(app.cursor, 1, "back on the task");
+        assert_eq!(app.tasks_page.cursor, 1, "back on the task");
     }
 
     #[test]
     fn after_edit_renames_to_new_heading() {
         let (dir, mut app) = app_with_files(&["work/a.md", "work/b.md"]);
-        app.cursor = 1;
+        app.tasks_page.cursor = 1;
         let path = app.sections[0].tasks[0].path.clone();
 
         // What the user does in the editor.
@@ -415,7 +415,7 @@ mod tests {
             "# work\nrenamed-task\nb\n",
             "keeps its place"
         );
-        assert_eq!(app.cursor, 1, "cursor follows the renamed file");
+        assert_eq!(app.tasks_page.cursor, 1, "cursor follows the renamed file");
         assert_eq!(app.sections[0].tasks[0].body, "notes");
     }
 }

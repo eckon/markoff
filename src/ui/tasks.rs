@@ -31,16 +31,19 @@ pub fn app_header(app: &App) -> (String, Vec<Span<'static>>) {
 /// the list's offset and the column of the preview's divider.
 pub fn render(app: &App, frame: &mut Frame, main_area: Rect) -> (usize, Option<u16>) {
     let body = match app.selected() {
-        _ if app.hide_preview => None,
+        _ if app.tasks_page.hide_preview => None,
         Some(Row::Task(s, t)) => Some(app.sections[s].tasks[t].body.as_str()),
         Some(Row::Section(_)) => Some(""),
         // Nothing to preview without rows, the note about it gets the width.
         None => None,
     };
-    let (offset, preview) =
-        list_with_preview(frame, main_area, body, &app.filter, |frame, area, width| {
-            render_list(app, frame, area, width)
-        });
+    let (offset, preview) = list_with_preview(
+        frame,
+        main_area,
+        body,
+        &app.tasks_page.filter,
+        |frame, area, width| render_list(app, frame, area, width),
+    );
     (offset, preview.map(|preview| preview.x))
 }
 
@@ -71,7 +74,7 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                 Row::Task(s, t) => {
                     let task = &app.sections[s].tasks[t];
                     let title = task.title();
-                    let mut style = match i == app.cursor {
+                    let mut style = match i == app.tasks_page.cursor {
                         true => Style::new().fg(color),
                         false => Style::new(),
                     };
@@ -84,7 +87,7 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                     if task.canceled {
                         style = style.crossed_out();
                     }
-                    let spans = filtered_title(&title, &app.filter, style);
+                    let spans = filtered_title(&title, &app.tasks_page.filter, style);
                     // Why it is there, where the archive puts the day. Struck through like the
                     // title while it is not due.
                     let rule = task.repeat.as_ref().map(|repeat| {
@@ -99,7 +102,7 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
         .collect();
 
     let mut notes = Vec::new();
-    if items.is_empty() && !app.filter.is_empty() {
+    if items.is_empty() && !app.tasks_page.filter.is_empty() {
         notes.push("no matches");
     }
     // Tasks only live in sections, so without one there is nowhere to add a task.
@@ -110,7 +113,7 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
         frame,
         area,
         items,
-        (Some(app.cursor), app.list_offset),
+        (Some(app.tasks_page.cursor), app.tasks_page.offset),
         &notes,
     )
 }
@@ -134,12 +137,12 @@ mod tests {
 
     /// Draws like the main loop: the scroll offset of one frame is where the next starts.
     fn draw(app: &mut App) -> Vec<String> {
-        let mut offset = app.list_offset;
+        let mut offset = app.tasks_page.offset;
         let mut terminal = Terminal::new(TestBackend::new(50, 9)).unwrap();
         terminal
             .draw(|frame| offset = render(app, frame).list_offset)
             .unwrap();
-        app.list_offset = offset;
+        app.tasks_page.offset = offset;
         screen(app).lines().map(str::to_string).collect()
     }
 
@@ -174,7 +177,7 @@ mod tests {
             sections(&[("home", &[long, long])]),
             crate::config::defaults(),
         );
-        app.hide_preview = true;
+        app.tasks_page.hide_preview = true;
 
         app.update(Action::Down);
         let lines = draw(&mut app);
@@ -223,8 +226,8 @@ mod tests {
             sections(&[("home", &["~~Fix typo~~"])]),
             crate::config::defaults(),
         );
-        app.cursor = 1;
-        app.hide_preview = true;
+        app.tasks_page.cursor = 1;
+        app.tasks_page.hide_preview = true;
         let mut terminal = Terminal::new(TestBackend::new(40, 6)).unwrap();
         terminal.draw(|frame| _ = render(&app, frame)).unwrap();
         let buffer = terminal.backend().buffer();
@@ -242,7 +245,7 @@ mod tests {
         );
         app.today = TODAY;
         app.sections[0].tasks[1].last_done = Some(TODAY);
-        app.hide_preview = true;
+        app.tasks_page.hide_preview = true;
         let mut terminal = Terminal::new(TestBackend::new(60, 9)).unwrap();
         terminal.draw(|frame| _ = render(&app, frame)).unwrap();
         let lines: Vec<String> = (terminal.backend().buffer().content())
@@ -264,7 +267,7 @@ mod tests {
         assert!(lines[0].ends_with(" 2 open"), "{lines:#?}");
 
         // `.` shows it dimmed, with its rule. Not open, the section counts what it shows.
-        app.show_hidden = true;
+        app.tasks_page.show_hidden = true;
         terminal.draw(|frame| _ = render(&app, frame)).unwrap();
         let buffer = terminal.backend().buffer();
         let lines: Vec<String> = (buffer.content().chunks(60))
@@ -313,7 +316,7 @@ mod tests {
             crate::config::defaults(),
         );
         app.sections[1].tasks[0].body = "fix it".to_string();
-        app.hide_preview = true;
+        app.tasks_page.hide_preview = true;
         app.update(Action::Filter);
         for c in "fix".chars() {
             app.update(Action::FilterType(c));
