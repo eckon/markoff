@@ -86,7 +86,11 @@ fn render_rows(
                         style = style.dim().crossed_out();
                     }
                     let spans = filtered_title(&task.title(), &app.archive_page.filter, style);
-                    rows::Kind::Task(spans, when(day).map(Stylize::dim), false)
+                    rows::Kind::Task {
+                        title: spans,
+                        right: when(day).map(Stylize::dim),
+                        repeats: false,
+                    }
                 }
             };
             rows::Row { color, kind }

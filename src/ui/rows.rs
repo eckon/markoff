@@ -25,9 +25,14 @@ pub enum Kind {
     /// All of the line after the gutter: a section header. A blank line goes
     /// before it, except at the top.
     Section(Vec<Span<'static>>),
-    /// A task's title, wrapped to as many lines as it needs. What goes on the right edge of
-    /// its first line, like the day a task was done. Whether it repeats, its bullet is `⟳` then.
-    Task(Vec<Span<'static>>, Option<Span<'static>>, bool),
+    Task {
+        /// Wrapped to as many lines as it needs.
+        title: Vec<Span<'static>>,
+        /// On the right edge of the first line, like the day a task was done.
+        right: Option<Span<'static>>,
+        /// Its bullet is `⟳` then.
+        repeats: bool,
+    },
 }
 
 /// Space on the right so section headers stop before the preview divider.
@@ -76,7 +81,11 @@ pub fn render(
                 items.push(ListItem::new(Line::from(line)));
                 continue;
             }
-            Kind::Task(title, right, repeats) => {
+            Kind::Task {
+                title,
+                right,
+                repeats,
+            } => {
                 tasks.push(items.len());
                 (title, right, repeats)
             }
@@ -294,11 +303,11 @@ mod tests {
     fn task(title: &str, right: Option<&str>) -> Row {
         Row {
             color: Color::Blue,
-            kind: Kind::Task(
-                vec![title.to_string().into()],
-                right.map(|r| r.to_string().into()),
-                false,
-            ),
+            kind: Kind::Task {
+                title: vec![title.to_string().into()],
+                right: right.map(|r| r.to_string().into()),
+                repeats: false,
+            },
         }
     }
 

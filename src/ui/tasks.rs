@@ -94,7 +94,11 @@ fn render_list(app: &App, frame: &mut Frame, area: Rect, width: usize) -> usize 
                         let rule = repeat.describe().dim();
                         if due { rule } else { rule.crossed_out() }
                     });
-                    rows::Kind::Task(spans, rule, task.repeat.is_some())
+                    rows::Kind::Task {
+                        title: spans,
+                        right: rule,
+                        repeats: task.repeat.is_some(),
+                    }
                 }
             };
             rows::Row { color, kind }
